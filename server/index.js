@@ -139,7 +139,7 @@ async function logAudit(userId, action, details) {
             .input('action', sql.NVarChar, encryptedAction)
             .input('details', sql.NVarChar, encryptedDetails)
             .input('timestamp', sql.NVarChar, encryptedTimestamp)
-            .query("INSERT INTO audit_logs (user_id, action, details, timestamp) VALUES (@userId, @action, @details, @timestamp)");
+            .query("INSERT INTO audit_logs (log_id, user_id, action, details, timestamp) VALUES (NEWID(), @userId, @action, @details, @timestamp)");
     } catch (err) { console.error('Audit Log Error:', err.message); }
 }
 
@@ -740,24 +740,22 @@ app.get('/api/shipments', authenticateToken, async (req, res) => {
 
         // Decrypt Partner Names & Shipment Details
         const decryptedShipments = result.recordset.map(s => {
-            let logName = s.logistics_name;
-            let tracking = s.tracking_number;
-            let origin = s.origin_address;
-            let dest = s.destination_address;
-            let status = s.status;
-
-            try { logName = decrypt(s.logistics_name) || s.logistics_name; } catch (e) { }
+            let tracking = s.tracking_number, origin = s.origin_address, dest = s.destination_address, status = s.status, val = s.total_value;
             try { tracking = decrypt(s.tracking_number) || s.tracking_number; } catch (e) { }
             try { origin = decrypt(s.origin_address) || s.origin_address; } catch (e) { }
             try { dest = decrypt(s.destination_address) || s.destination_address; } catch (e) { }
+            try {
+                val = decrypt(s.total_value) || s.total_value;
+                if (!val || val === "NaN") val = "0";
+            } catch (e) { }
             try { status = decrypt(s.status) || s.status; } catch (e) { }
 
             return {
                 ...s,
-                logistics_name: logName || 'Unknown Logistics',
                 tracking_number: tracking,
                 origin_address: origin,
                 destination_address: dest,
+                total_value: val,
                 status: status
             };
         });
@@ -926,11 +924,11 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Staff']),
                 await transaction.request()
                     .input('shipId', sql.UniqueIdentifier, shipmentId)
                     .input('itemId', sql.UniqueIdentifier, item.itemId)
-                    .input('stockId', sql.UniqueIdentifier, item.stockId)
+                    .input('stockId', item.stockId ? sql.UniqueIdentifier : sql.UniqueIdentifier, item.stockId || null)
                     .input('qty', sql.NVarChar, encrypt(reqQty.toString()))
                     .input('sub', sql.NVarChar, encrypt(sub.toString()))
                     .input('batch', sql.NVarChar, encrypt(batchNo))
-                    .query("INSERT INTO shipment_details (shipment_id, item_id, stock_id, quantity, subtotal, batch_number) VALUES (@shipId, @itemId, @stockId, @qty, @sub, @batch)");
+                    .query("INSERT INTO shipment_details (detail_id, shipment_id, item_id, stock_id, quantity, subtotal, batch_number) VALUES (NEWID(), @shipId, @itemId, @stockId, @qty, @sub, @batch)");
             }
         }
 
@@ -1036,40 +1034,35 @@ app.put('/api/shipments/:id', authenticateToken, authorizeRole(['Admin']), async
         // 4. APPLY NEW ITEMS & DEDUCT STOCK
         if (items && Array.isArray(items)) {
             for (const item of items) {
-                const stockRes = await transaction.request()
-                    .input('sId', sql.UniqueIdentifier, item.stockId)
-                    .query("SELECT * FROM inventory_stock WHERE stock_id = @sId");
+                if (item.stockId) {
+                    const stockRes = await transaction.request()
+                        .input('sId', sql.UniqueIdentifier, item.stockId)
+                        .query("SELECT quantity FROM inventory_stock WHERE stock_id = @sId");
 
-                const stockRecord = stockRes.recordset[0];
-                if (!stockRecord) throw new Error(`Kho không tìm thấy lô hàng (ID: ${item.stockId})`);
+                    if (stockRes.recordset.length > 0) {
+                        let currentQty = 0;
+                        try { currentQty = parseInt(decrypt(stockRes.recordset[0].quantity)); } catch (e) { currentQty = parseInt(stockRes.recordset[0].quantity); }
+                        const reqQty = parseInt(item.quantity) || 0;
+                        const newQty = Math.max(0, currentQty - reqQty);
 
-                let currentQty = 0;
-                try { currentQty = parseInt(decrypt(stockRecord.quantity)); } catch (e) { currentQty = parseInt(stockRecord.quantity); }
+                        await transaction.request()
+                            .input('qty', sql.NVarChar, encrypt(newQty.toString()))
+                            .input('sId', sql.UniqueIdentifier, item.stockId)
+                            .query("UPDATE inventory_stock SET quantity = @qty WHERE stock_id = @sId");
+                    }
+                }
 
-                const reqQty = parseInt(item.quantity);
-                if (currentQty < reqQty) throw new Error(`Kho không đủ hàng (ID: ${item.stockId}). Tồn: ${currentQty}, Yêu cầu: ${reqQty}`);
-
-                const newQty = currentQty - reqQty;
-                await transaction.request()
-                    .input('qty', sql.NVarChar, encrypt(newQty.toString()))
-                    .input('sId', sql.UniqueIdentifier, item.stockId)
-                    .query("UPDATE inventory_stock SET quantity = @qty WHERE stock_id = @sId");
-
-                const sub = (item.unitValue || 0) * reqQty;
-                let batchNo = ('BATCH-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''));
-                try {
-                    const oldBatch = decrypt(oldItemsRes.recordset[0]?.batch_number);
-                    if (oldBatch) batchNo = oldBatch;
-                } catch (e) { }
+                const sub = (item.unitValue || 0) * (item.quantity || 0);
+                const batchNo = 'BATCH-' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
                 await transaction.request()
                     .input('shipId', sql.UniqueIdentifier, req.params.id)
                     .input('itemId', sql.UniqueIdentifier, item.itemId)
-                    .input('stockId', sql.UniqueIdentifier, item.stockId)
-                    .input('qty', sql.NVarChar, encrypt(reqQty.toString()))
+                    .input('stockId', item.stockId ? sql.UniqueIdentifier : sql.UniqueIdentifier, item.stockId || null) // Ensure correct type for null
+                    .input('qty', sql.NVarChar, encrypt(item.quantity.toString()))
                     .input('sub', sql.NVarChar, encrypt(sub.toString()))
                     .input('batch', sql.NVarChar, encrypt(batchNo))
-                    .query("INSERT INTO shipment_details (shipment_id, item_id, stock_id, quantity, subtotal, batch_number) VALUES (@shipId, @itemId, @stockId, @qty, @sub, @batch)");
+                    .query("INSERT INTO shipment_details (detail_id, shipment_id, item_id, stock_id, quantity, subtotal, batch_number) VALUES (NEWID(), @shipId, @itemId, @stockId, @qty, @sub, @batch)");
             }
         }
 
