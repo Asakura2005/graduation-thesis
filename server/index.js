@@ -319,7 +319,84 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.get('/api/auth/me', authenticateToken, (req, res) => {
     // req.user contains the decoded JWT loaded by authenticateToken
-    res.json({ role: req.user.role, username: req.user.username });
+    res.json({ id: req.user.id, role: req.user.role, username: req.user.username });
+});
+
+// Get full profile details
+app.get('/api/auth/me/profile', authenticateToken, async (req, res) => {
+    try {
+        const pool = await connectDB();
+        const result = await pool.request()
+            .input('id', sql.Int, req.user.id)
+            .query('SELECT * FROM system_users WHERE user_id = @id');
+
+        const user = result.recordset[0];
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        let username = user.username, fullName = user.full_name, email = user.email, phone = user.phone, role = user.role;
+        try { username = decrypt(user.username) || user.username; } catch (e) { }
+        try { fullName = decrypt(user.full_name) || user.full_name; } catch (e) { }
+        try { email = decrypt(user.email) || user.email; } catch (e) { }
+        try { phone = decrypt(user.phone) || user.phone; } catch (e) { }
+        try { role = decrypt(user.role) || user.role; } catch (e) { }
+
+        res.json({ user_id: user.user_id, username, full_name: fullName, email, phone: phone || '', role });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Update profile
+app.put('/api/auth/me/profile', authenticateToken, async (req, res) => {
+    const { fullName, email, phone } = req.body;
+    try {
+        const pool = await connectDB();
+        const emailHash = hashData(email);
+
+        // Check email collision with other users
+        const check = await pool.request()
+            .input('eh', sql.NVarChar, emailHash)
+            .input('id', sql.Int, req.user.id)
+            .query('SELECT user_id FROM system_users WHERE email_hash = @eh AND user_id != @id');
+        if (check.recordset.length > 0) return res.status(400).json({ error: 'Email đã được sử dụng bởi tài khoản khác' });
+
+        await pool.request()
+            .input('fn', sql.NVarChar, encrypt(fullName))
+            .input('em', sql.NVarChar, encrypt(email))
+            .input('eh', sql.NVarChar, emailHash)
+            .input('ph', sql.NVarChar, encrypt(phone || ''))
+            .input('id', sql.Int, req.user.id)
+            .query('UPDATE system_users SET full_name=@fn, email=@em, email_hash=@eh, phone=@ph WHERE user_id=@id');
+
+        await logAudit(req.user.id, 'UPDATE_PROFILE', { userId: req.user.id });
+        res.json({ message: 'Cập nhật hồ sơ thành công' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Change password
+app.put('/api/auth/me/password', authenticateToken, async (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Vui lòng nhập đầy đủ thông tin' });
+    if (newPassword.length < 6) return res.status(400).json({ error: 'Mật khẩu mới phải có ít nhất 6 ký tự' });
+    try {
+        const pool = await connectDB();
+        const result = await pool.request()
+            .input('id', sql.Int, req.user.id)
+            .query('SELECT password_hash FROM system_users WHERE user_id = @id');
+
+        const user = result.recordset[0];
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        const isMatch = await argon2.verify(user.password_hash, currentPassword);
+        if (!isMatch) return res.status(401).json({ error: 'Mật khẩu hiện tại không đúng' });
+
+        const newHash = await argon2.hash(newPassword);
+        await pool.request()
+            .input('ph', sql.NVarChar, newHash)
+            .input('id', sql.Int, req.user.id)
+            .query('UPDATE system_users SET password_hash = @ph WHERE user_id = @id');
+
+        await logAudit(req.user.id, 'CHANGE_PASSWORD', { userId: req.user.id });
+        res.json({ message: 'Đổi mật khẩu thành công' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // 2. Get All Items (Master Data)

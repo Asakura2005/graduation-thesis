@@ -11,6 +11,7 @@ import AuditLogViewer from "./admin/AuditLogViewer";
 import Header from "./layout/Header";
 import Sidebar from "./layout/Sidebar";
 import DashboardStats from "./layout/DashboardStats";
+import ProfileSettings from "./layout/ProfileSettings";
 import TrackingPage from "./TrackingPage";
 import TransportChart from "./layout/TransportChart";
 import BlockchainStatus from "./layout/BlockchainStatus";
@@ -156,7 +157,7 @@ const App = () => {
           minHeight: "100vh",
         }}
       >
-        <Header user={user} handleLogout={handleLogout} />
+        <Header user={user} handleLogout={handleLogout} setActiveTab={setActiveTab} />
 
         <main className="flex-grow-1 overflow-auto px-4 pt-3 pb-5 custom-scrollbar">
           {/* Modals & Popups (Chỉ còn ShipmentForm là modal) */}
@@ -294,10 +295,10 @@ const App = () => {
                                 <td>
                                   <span
                                     className={`badge rounded-pill px-3 py-2 ${s.status === "Delivered"
-                                        ? "bg-success bg-opacity-25 text-success"
-                                        : s.status === "In Transit"
-                                          ? "bg-warning bg-opacity-25 text-warning"
-                                          : "bg-danger bg-opacity-25 text-danger"
+                                      ? "bg-success bg-opacity-25 text-success"
+                                      : s.status === "In Transit"
+                                        ? "bg-warning bg-opacity-25 text-warning"
+                                        : "bg-danger bg-opacity-25 text-danger"
                                       }`}
                                   >
                                     {s.status}
@@ -331,8 +332,8 @@ const App = () => {
                     <div className="d-flex gap-2">
                       <button
                         className={`btn btn-sm ${currentPage === 1
-                            ? "btn-outline-secondary"
-                            : "btn-warning text-dark"
+                          ? "btn-outline-secondary"
+                          : "btn-warning text-dark"
                           }`}
                         disabled={currentPage === 1}
                         onClick={() => setCurrentPage(currentPage - 1)}
@@ -342,8 +343,8 @@ const App = () => {
 
                       <button
                         className={`btn btn-sm ${indexOfLast >= shipments.length
-                            ? "btn-outline-secondary"
-                            : "btn-warning text-dark"
+                          ? "btn-outline-secondary"
+                          : "btn-warning text-dark"
                           }`}
                         disabled={indexOfLast >= shipments.length}
                         onClick={() => setCurrentPage(currentPage + 1)}
@@ -365,6 +366,9 @@ const App = () => {
 
           {/* 4. Audit Logs Tab */}
           {activeTab === "audit" && <AuditLogViewer />}
+
+          {/* 5. Settings & Profile Tab */}
+          {activeTab === "settings" && <ProfileSettings user={user} />}
         </main>
         <Footer />
       </div>

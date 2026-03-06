@@ -1,7 +1,7 @@
 import React from "react";
 import { LogOut, Bell, Settings, User, Search, Grid } from "lucide-react";
 
-const Header = ({ user, handleLogout }) => {
+const Header = ({ user, handleLogout, setActiveTab }) => {
   return (
     <header
       className="d-flex justify-content-between align-items-center py-3 px-4 glass border-0 rounded-0 mb-4"
@@ -79,21 +79,21 @@ const Header = ({ user, handleLogout }) => {
 
           <ul className="dropdown-menu dropdown-menu-dark dropdown-menu-end shadow-lg border-0 glass mt-2">
             <li>
-              <a
+              <button
                 className="dropdown-item d-flex align-items-center gap-2 py-2"
-                href="#"
+                onClick={() => setActiveTab && setActiveTab('settings')}
               >
                 <User size={16} /> Hồ sơ cá nhân
-              </a>
+              </button>
             </li>
 
             <li>
-              <a
+              <button
                 className="dropdown-item d-flex align-items-center gap-2 py-2"
-                href="#"
+                onClick={() => setActiveTab && setActiveTab('settings')}
               >
                 <Settings size={16} /> Cài đặt
-              </a>
+              </button>
             </li>
 
             <li>
