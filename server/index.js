@@ -740,7 +740,6 @@ app.get('/api/shipments', authenticateToken, async (req, res) => {
                    p2.partner_name as logistics_name 
             FROM shipments s
             LEFT JOIN partners p2 ON s.logistics_id = p2.partner_id
-            ORDER BY s.shipment_date DESC
         `);
 
         // Decrypt Partner Names & Shipment Details
@@ -757,6 +756,13 @@ app.get('/api/shipments', authenticateToken, async (req, res) => {
             try { status = decrypt(s.status) || s.status; } catch (e) { }
             try { logName = decrypt(s.logistics_name) || s.logistics_name; } catch (e) { }
 
+            // Decrypt shipment_date
+            let shipDate = s.shipment_date;
+            try {
+                const decDate = decrypt(s.shipment_date);
+                if (decDate) shipDate = new Date(decDate).toISOString();
+            } catch (e) { }
+
             return {
                 ...s,
                 tracking_number: tracking,
@@ -764,9 +770,13 @@ app.get('/api/shipments', authenticateToken, async (req, res) => {
                 destination_address: dest,
                 total_value: val,
                 status: status,
-                logistics_name: logName || 'Unknown Logistics'
+                logistics_name: logName || 'Unknown Logistics',
+                shipment_date: shipDate
             };
         });
+
+        // Sort in-memory by decrypted shipment_date DESC
+        decryptedShipments.sort((a, b) => new Date(b.shipment_date) - new Date(a.shipment_date));
 
         res.json(decryptedShipments);
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -885,7 +895,7 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Staff']),
         const shipRes = await transaction.request()
             .input('track', sql.NVarChar, encTracking)
             .input('log', sql.UniqueIdentifier, logisticsId)
-            .input('date', sql.DateTime, new Date())
+            .input('date', sql.NVarChar, encrypt(new Date().toISOString()))
             .input('origin', sql.NVarChar, encOrigin)
             .input('dest', sql.NVarChar, encDest)
             .input('val', sql.NVarChar, encTotalVal)

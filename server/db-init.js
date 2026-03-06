@@ -82,7 +82,7 @@ async function initDatabase() {
                 logistics_id INT NOT NULL,
                 origin_address NVARCHAR(MAX) NOT NULL,
                 destination_address NVARCHAR(MAX) NOT NULL,
-                shipment_date DATETIME NOT NULL,
+                shipment_date NVARCHAR(MAX) NOT NULL,
                 status NVARCHAR(MAX) NOT NULL,
                 total_value NVARCHAR(MAX) NOT NULL,
                 tracking_number NVARCHAR(MAX) NOT NULL,
