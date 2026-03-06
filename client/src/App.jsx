@@ -233,7 +233,7 @@ const App = () => {
                         <thead>
                           <tr>
                             <th>Mã Vận Đơn</th>
-                            <th>Nhà Cung Cấp / Vận Chuyển</th>
+                            <th>Đơn Vị Vận Chuyển</th>
                             <th>Lộ Trình</th>
                             <th>Giá Trị</th>
                             <th>Trạng Thái</th>
@@ -269,9 +269,6 @@ const App = () => {
                                 </td>
                                 <td>
                                   <div className="fw-semibold text-gold">
-                                    {s.supplier_name}
-                                  </div>
-                                  <div className="text-dim x-small">
                                     {s.logistics_name}
                                   </div>
                                 </td>
@@ -296,13 +293,12 @@ const App = () => {
                                 </td>
                                 <td>
                                   <span
-                                    className={`badge rounded-pill px-3 py-2 ${
-                                      s.status === "Delivered"
+                                    className={`badge rounded-pill px-3 py-2 ${s.status === "Delivered"
                                         ? "bg-success bg-opacity-25 text-success"
                                         : s.status === "In Transit"
                                           ? "bg-warning bg-opacity-25 text-warning"
                                           : "bg-danger bg-opacity-25 text-danger"
-                                    }`}
+                                      }`}
                                   >
                                     {s.status}
                                   </span>
@@ -334,11 +330,10 @@ const App = () => {
 
                     <div className="d-flex gap-2">
                       <button
-                        className={`btn btn-sm ${
-                          currentPage === 1
+                        className={`btn btn-sm ${currentPage === 1
                             ? "btn-outline-secondary"
                             : "btn-warning text-dark"
-                        }`}
+                          }`}
                         disabled={currentPage === 1}
                         onClick={() => setCurrentPage(currentPage - 1)}
                       >
@@ -346,11 +341,10 @@ const App = () => {
                       </button>
 
                       <button
-                        className={`btn btn-sm ${
-                          indexOfLast >= shipments.length
+                        className={`btn btn-sm ${indexOfLast >= shipments.length
                             ? "btn-outline-secondary"
                             : "btn-warning text-dark"
-                        }`}
+                          }`}
                         disabled={indexOfLast >= shipments.length}
                         onClick={() => setCurrentPage(currentPage + 1)}
                       >

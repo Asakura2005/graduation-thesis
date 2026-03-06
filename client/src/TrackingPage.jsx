@@ -66,8 +66,7 @@ const TrackingPage = ({ trackingNumber }) => {
                         <div className="col-md-6 text-end">
                             <p className="small text-dim text-uppercase fw-bold mb-1">Nơi Nhận (Destination)</p>
                             <h5 className="text-white">{shipment.destination_address}</h5>
-                            <p className="mt-3 small text-dim text-uppercase fw-bold mb-1">Nhà Cung Cấp</p>
-                            <h6 className="text-gold">{shipment.supplier_name}</h6>
+
                         </div>
                     </div>
 

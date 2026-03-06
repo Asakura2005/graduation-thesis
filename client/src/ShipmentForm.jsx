@@ -14,7 +14,6 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
     const [selectedStockId, setSelectedStockId] = useState('');
 
     const [formData, setFormData] = useState({
-        supplierId: '',
         logisticsId: '',
         originAddress: '',
         destinationAddress: '',
@@ -51,7 +50,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
         setFormData(prev => ({ ...prev, shipmentQuantity: '', totalValue: '', originAddress: '' }));
 
         if (itemId) {
-            const item = supplyItems.find(i => i.item_id === parseInt(itemId));
+            const item = supplyItems.find(i => i.item_id === itemId);
             setSelectedItem(item);
             // Fetch Stock
             try {
@@ -68,7 +67,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
         const sId = e.target.value;
         setSelectedStockId(sId);
 
-        const stock = stockList.find(s => s.stock_id === parseInt(sId));
+        const stock = stockList.find(s => s.stock_id === sId);
         if (stock) {
             setFormData(prev => ({ ...prev, originAddress: stock.warehouse_name }));
             // Recalc if qty exists
@@ -100,7 +99,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
         e.preventDefault();
         if (!selectedStockId) return alert("Vui lòng chọn Kho xuất hàng (Nguồn)!");
 
-        const stock = stockList.find(s => s.stock_id === parseInt(selectedStockId));
+        const stock = stockList.find(s => s.stock_id === selectedStockId);
         if (parseInt(formData.shipmentQuantity) > stock.quantity) {
             return alert(`Số lượng xuất (${formData.shipmentQuantity}) vượt quá tồn kho (${stock.quantity}) tại ${stock.warehouse_name}!`);
         }
@@ -109,14 +108,13 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
         try {
             await axios.post('http://localhost:5001/api/shipments', {
                 trackingNumber: formData.trackingNumber,
-                supplierId: formData.supplierId || null,
                 logisticsId: formData.logisticsId,
                 originAddress: formData.originAddress, // Auto-filled from Warehouse Name
                 destinationAddress: formData.destinationAddress,
                 totalValue: formData.totalValue,
                 items: [{
                     itemId: selectedItem.item_id,
-                    stockId: parseInt(selectedStockId),
+                    stockId: selectedStockId,
                     quantity: formData.shipmentQuantity,
                     unitValue: (parseFloat(selectedItem.unit_cost) * 1.2)
                 }]

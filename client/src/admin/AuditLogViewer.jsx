@@ -113,7 +113,7 @@ const AuditLogViewer = () => {
         </div>
       </div>
 
-      <div className="d-flex gap-2 mb-4 overflow-auto pb-2">
+      <div className="d-flex gap-2 mb-4 overflow-x-auto pb-2" style={{ minHeight: '55px' }}>
         {CATEGORIES.map((cat) => {
           const Icon = cat.icon;
           const isActive = filterCategory === cat.id;
@@ -121,8 +121,8 @@ const AuditLogViewer = () => {
             <button
               key={cat.id}
               onClick={() => setFilterCategory(cat.id)}
-              className={`btn btn-sm d-flex align-items-center gap-2 transition-all 
-                                ${isActive ? "btn-gold shadow" : "btn-outline-secondary text-dim border-opacity-25 hover-light"}`}
+              className={`btn btn-audit-filter gap-2 transition-all 
+                                ${isActive ? "btn-gold shadow" : "btn-outline-light border-opacity-25 text-dim"}`}
             >
               <Icon size={14} />
               {cat.label}
@@ -186,7 +186,6 @@ const AuditLogViewer = () => {
                       </span>
                     </div>
                   </td>
-                  <td>{getActionBadge(log.action)}</td>
                   {/* ===== ACTION COLUMN (THÊM ICON ACTION) ===== */}
                   <td>
                     <div className="d-flex align-items-center gap-2">

@@ -192,6 +192,7 @@ h6 {
   align-items: flex-end;
   padding-bottom: 4px;
 }
+
 .kpi-mini-bars span {
   width: 6px;
   border-radius: 6px;
@@ -200,7 +201,8 @@ h6 {
 }
 
 .search-input {
-  padding-left: 44px !important; /* ép chắc chắn không bị đè */
+  padding-left: 44px !important;
+  /* ép chắc chắn không bị đè */
 }
 
 .search-icon {
@@ -245,6 +247,7 @@ select:focus {
   border-color: #ffb400 !important;
   box-shadow: 0 0 0 0.2rem rgba(255, 180, 0, 0.15) !important;
 }
+
 \.btn-gold {
   transition: all 0.2s ease;
 }
@@ -297,7 +300,8 @@ select:focus {
 }
 
 .kpi-label {
-  height: 32px; /* FIX chiều cao label */
+  height: 32px;
+  /* FIX chiều cao label */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -312,6 +316,7 @@ select:focus {
   font-weight: 700;
   font-family: monospace;
 }
+
 .table-hover tbody tr {
   transition: all 0.2s ease;
 }
@@ -320,12 +325,14 @@ select:focus {
   background: rgba(255, 255, 255, 0.05);
   transform: scale(1.01);
 }
+
 .category-badge {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: #9ecfff;
   font-weight: 500;
 }
+
 .fade-in-up {
   animation: fadeUp 0.4s ease;
 }
@@ -335,11 +342,13 @@ select:focus {
     opacity: 0;
     transform: translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
   }
 }
+
 /* ===== audit detail badges(AuditLogViewer) ===== */
 
 .audit-detail-badge {
@@ -359,6 +368,7 @@ select:focus {
   padding: 6px 10px;
   border-radius: 6px;
 }
+
 /* ===== LOG KPI ===== */
 
 .log-stat-card {
@@ -394,4 +404,26 @@ select:focus {
 .audit-row:hover {
   background: rgba(255, 255, 255, 0.05);
   transform: scale(1.01);
+}
+
+/* Audit Filter Buttons Consistency */
+.btn-audit-filter {
+  height: 38px !important;
+  padding: 0 16px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+  white-space: nowrap !important;
+  transition: all 0.2s ease !important;
+}
+
+.btn-audit-filter.btn-outline-light {
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+.btn-audit-filter.btn-gold {
+  border: 1px solid transparent !important;
 }

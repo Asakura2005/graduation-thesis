@@ -133,7 +133,7 @@ async function logAudit(userId, action, details) {
         const encryptedDetails = encrypt(jsonDetails); // Encrypt entire JSON blob
 
         await pool.request()
-            .input('userId', sql.Int, userId)
+            .input('userId', sql.UniqueIdentifier, userId)
             .input('action', sql.NVarChar, action)
             .input('details', sql.NVarChar, encryptedDetails)
             .query("INSERT INTO audit_logs (user_id, action, details) VALUES (@userId, @action, @details)");
@@ -147,7 +147,7 @@ async function syncItemTotalStock(itemId) {
 
         // 1. Get all stock records for this item
         const stockRes = await pool.request()
-            .input('id', sql.Int, itemId)
+            .input('id', sql.UniqueIdentifier, itemId)
             .query("SELECT quantity FROM inventory_stock WHERE item_id = @id");
 
         // 2. Sum decrypted quantities
@@ -166,7 +166,7 @@ async function syncItemTotalStock(itemId) {
         const encryptedTotal = encrypt(total.toString());
         await pool.request()
             .input('t', sql.NVarChar, encryptedTotal)
-            .input('id', sql.Int, itemId)
+            .input('id', sql.UniqueIdentifier, itemId)
             .query("UPDATE supply_items SET quantity_in_stock = @t WHERE item_id = @id");
 
     } catch (e) {
@@ -257,7 +257,46 @@ app.post('/api/auth/login', async (req, res) => {
         // const displayName = decrypt(user.full_name); 
 
         const token = jwt.sign({ id: user.user_id, role: user.role, username: user.username }, process.env.JWT_SECRET || 'secret');
+        // LOG LOGIN
+        await logAudit(user.user_id, 'USER_LOGIN', { username: user.username });
         res.json({ token, role: user.role, username: user.username });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/auth/register', async (req, res) => {
+    const { username, password, fullName, email, phone, role } = req.body;
+    try {
+        const pool = await connectDB();
+        const emailHash = hashData(email);
+
+        const checkRes = await pool.request()
+            .input('u', sql.NVarChar, username)
+            .input('e', sql.NVarChar, emailHash)
+            .query("SELECT * FROM system_users WHERE username = @u OR email_hash = @e");
+
+        if (checkRes.recordset.length > 0) {
+            return res.status(400).json({ error: 'Username or email already exists' });
+        }
+
+        const passHash = await argon2.hash(password);
+        const encName = encrypt(fullName);
+        const encEmail = encrypt(email);
+        const encPhone = encrypt(phone || '');
+
+        const r = await pool.request()
+            .input('u', sql.NVarChar, username)
+            .input('p', sql.NVarChar, passHash)
+            .input('f', sql.NVarChar, encName)
+            .input('e', sql.NVarChar, encEmail)
+            .input('eh', sql.NVarChar, emailHash)
+            .input('ph', sql.NVarChar, encPhone)
+            .input('r', sql.NVarChar, role || 'Staff')
+            .query(`INSERT INTO system_users (username, password_hash, full_name, email, email_hash, phone, role) 
+                    OUTPUT INSERTED.user_id
+                    VALUES (@u, @p, @f, @e, @eh, @ph, @r)`);
+
+        await logAudit(r.recordset[0].user_id, 'USER_REGISTER', { username });
+        res.status(201).json({ message: 'User registered' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -319,10 +358,9 @@ app.post('/api/items', authenticateToken, authorizeRole(['Admin']), async (req, 
             .input('cost', sql.NVarChar, encryptedCost)
             .input('category', sql.NVarChar, encryptedCat)
             .input('qty', sql.NVarChar, encryptedQtyVal)
-            .input('sup', sql.Int, req.body.supplierId || null)
-            .query(`INSERT INTO supply_items (item_name, unit_cost, category, quantity_in_stock, supplier_id) 
+            .query(`INSERT INTO supply_items (item_name, unit_cost, category, quantity_in_stock) 
                     OUTPUT INSERTED.item_id
-                    VALUES (@name, @cost, @category, @qty, @sup)`);
+                    VALUES (@name, @cost, @category, @qty)`);
 
         const newItemId = itemResult.recordset[0].item_id;
 
@@ -332,8 +370,8 @@ app.post('/api/items', authenticateToken, authorizeRole(['Admin']), async (req, 
             const encryptedBin = encrypt(binLocation || 'Shelf 1'); // Default to Shelf 1
 
             await transaction.request()
-                .input('wId', sql.Int, warehouseId)
-                .input('iId', sql.Int, newItemId)
+                .input('wId', sql.UniqueIdentifier, warehouseId)
+                .input('iId', sql.UniqueIdentifier, newItemId)
                 .input('qty', sql.NVarChar, encryptedQty)
                 .input('bin', sql.NVarChar, encryptedBin)
                 .query(`INSERT INTO inventory_stock (warehouse_id, item_id, quantity, bin_location) 
@@ -373,33 +411,63 @@ app.put('/api/items/:id', authenticateToken, authorizeRole(['Admin']), async (re
 
         // 1. Update Item Details
         await transaction.request()
-            .input('id', sql.Int, id)
+            .input('id', sql.UniqueIdentifier, id)
             .input('name', sql.NVarChar, encryptedName)
             .input('cost', sql.NVarChar, encryptedCost)
             .input('category', sql.NVarChar, encryptedCat)
-            .input('sup', sql.Int, req.body.supplierId || null)
-            .query("UPDATE supply_items SET item_name=@name, unit_cost=@cost, category=@category, supplier_id=@sup WHERE item_id=@id");
+            .query("UPDATE supply_items SET item_name=@name, unit_cost=@cost, category=@category WHERE item_id=@id");
 
-        // 2. Add New Stock (if provided)
-        if (warehouseId && quantity > 0) {
-            const encryptedQty = encrypt(quantity.toString());
-            const encryptedBin = encrypt(binLocation || 'General');
+        // 2. Merge or Add New Stock (if provided)
+        if (warehouseId && parseInt(quantity) > 0) {
+            const targetBinLoc = binLocation || 'Shelf 1';
 
-            await transaction.request()
-                .input('itemId', sql.Int, id)
-                .input('whId', sql.Int, warehouseId)
-                .input('qty', sql.NVarChar, encryptedQty)
-                .input('bin', sql.NVarChar, encryptedBin)
-                .query(`INSERT INTO inventory_stock (item_id, warehouse_id, quantity, bin_location)
-                        VALUES (@itemId, @whId, @qty, @bin)`);
+            // Fetch current stock list to find matching bin
+            const stockList = await transaction.request()
+                .input('wId', sql.UniqueIdentifier, warehouseId)
+                .input('iId', sql.UniqueIdentifier, id)
+                .query("SELECT stock_id, quantity, bin_location FROM inventory_stock WHERE warehouse_id = @wId AND item_id = @iId");
+
+            let targetStock = null;
+            for (const stock of stockList.recordset) {
+                let decryptedBin = '';
+                try { decryptedBin = decrypt(stock.bin_location); } catch (e) { decryptedBin = stock.bin_location; }
+                if (decryptedBin === targetBinLoc) {
+                    targetStock = stock;
+                    break;
+                }
+            }
+
+            if (targetStock) {
+                // Update existing record
+                let currentQty = 0;
+                try { currentQty = parseInt(decrypt(targetStock.quantity)); } catch (e) { currentQty = parseInt(targetStock.quantity) || 0; }
+
+                const newTotal = currentQty + parseInt(quantity);
+                await transaction.request()
+                    .input('qty', sql.NVarChar, encrypt(newTotal.toString()))
+                    .input('sId', sql.UniqueIdentifier, targetStock.stock_id)
+                    .query("UPDATE inventory_stock SET quantity = @qty WHERE stock_id = @sId");
+            } else {
+                // Create new record
+                const encryptedQty = encrypt(quantity.toString());
+                const encryptedBin = encrypt(targetBinLoc);
+
+                await transaction.request()
+                    .input('itemId', sql.UniqueIdentifier, id)
+                    .input('whId', sql.UniqueIdentifier, warehouseId)
+                    .input('qty', sql.NVarChar, encryptedQty)
+                    .input('bin', sql.NVarChar, encryptedBin)
+                    .query(`INSERT INTO inventory_stock (item_id, warehouse_id, quantity, bin_location)
+                            VALUES (@itemId, @whId, @qty, @bin)`);
+            }
 
             // Log Stock Addition
             await logAudit(req.user.id, 'ADD_STOCK', {
                 itemId: id,
-                itemName, // Plaintext variable (but logAudit will encrypt the whole details blob)
+                itemName,
                 warehouseId,
                 quantity,
-                bin: binLocation
+                bin: targetBinLoc
             });
         }
 
@@ -420,7 +488,7 @@ app.delete('/api/items/:id', authenticateToken, authorizeRole(['Admin']), async 
     const { id } = req.params;
     try {
         const pool = await connectDB();
-        await pool.request().input('id', sql.Int, id).query("DELETE FROM supply_items WHERE item_id = @id");
+        await pool.request().input('id', sql.UniqueIdentifier, id).query("DELETE FROM supply_items WHERE item_id = @id");
         await logAudit(req.user.id, 'DELETE_ITEM', { itemId: id });
         res.json({ message: 'Item deleted' });
     } catch (err) {
@@ -437,7 +505,7 @@ app.get('/api/items/:id/inventory', authenticateToken, async (req, res) => {
     try {
         const pool = await connectDB();
         const result = await pool.request()
-            .input('id', sql.Int, id)
+            .input('id', sql.UniqueIdentifier, id)
             .query(`
                 SELECT s.stock_id, w.name as warehouse_name, s.bin_location, s.quantity 
                 FROM inventory_stock s
@@ -448,9 +516,17 @@ app.get('/api/items/:id/inventory', authenticateToken, async (req, res) => {
         const decryptedStock = result.recordset.map(stock => {
             let qty = 0;
             let bin = '';
+            let wName = stock.warehouse_name;
             try { qty = parseInt(decrypt(stock.quantity)); } catch (e) { qty = stock.quantity; }
             try { bin = decrypt(stock.bin_location); } catch (e) { bin = stock.bin_location; }
-            return { ...stock, quantity: isNaN(qty) ? 0 : qty, bin_location: bin };
+            try { wName = decrypt(stock.warehouse_name) || stock.warehouse_name; } catch (e) { }
+
+            return {
+                ...stock,
+                quantity: isNaN(qty) ? 0 : qty,
+                bin_location: bin,
+                warehouse_name: wName
+            };
         });
 
         res.json(decryptedStock);
@@ -464,7 +540,15 @@ app.get('/api/warehouses', authenticateToken, async (req, res) => {
     try {
         const pool = await connectDB();
         const result = await pool.request().query("SELECT * FROM warehouses");
-        res.json(result.recordset);
+        const decryptedWarehouses = result.recordset.map(w => {
+            let name = w.name, location = w.location, type = w.type, total_shelves = w.total_shelves;
+            try { name = decrypt(w.name) || w.name; } catch (e) { }
+            try { location = decrypt(w.location) || w.location; } catch (e) { }
+            try { type = decrypt(w.type) || w.type; } catch (e) { }
+            try { total_shelves = decrypt(w.total_shelves) || w.total_shelves; } catch (e) { }
+            return { ...w, name, location, type, total_shelves };
+        });
+        res.json(decryptedWarehouses);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -474,10 +558,10 @@ app.post('/api/warehouses', authenticateToken, authorizeRole(['Admin']), async (
     try {
         const pool = await connectDB();
         await pool.request()
-            .input('n', sql.NVarChar, name)
-            .input('l', sql.NVarChar, location)
-            .input('t', sql.NVarChar, type)
-            .input('ts', sql.Int, parseInt(total_shelves) || 50)
+            .input('n', sql.NVarChar, encrypt(name))
+            .input('l', sql.NVarChar, encrypt(location))
+            .input('t', sql.NVarChar, encrypt(type))
+            .input('ts', sql.NVarChar, encrypt((total_shelves || 50).toString().trim()))
             .query("INSERT INTO warehouses (name, location, type, total_shelves) VALUES (@n, @l, @t, @ts)");
 
         await logAudit(req.user.id, 'CREATE_WAREHOUSE', { name, location });
@@ -491,7 +575,7 @@ app.get('/api/warehouses/:id/inventory', authenticateToken, async (req, res) => 
     try {
         const pool = await connectDB();
         const result = await pool.request()
-            .input('id', sql.Int, id)
+            .input('id', sql.UniqueIdentifier, id)
             .query(`
                 SELECT s.stock_id, s.quantity, s.bin_location, i.item_name, i.category, i.unit_cost 
                 FROM inventory_stock s
@@ -533,8 +617,8 @@ app.post('/api/inventory/add', authenticateToken, authorizeRole(['Admin', 'Wareh
 
         // Fetch all stock to find bin match
         const stockList = await pool.request()
-            .input('wId', sql.Int, warehouseId)
-            .input('iId', sql.Int, itemId)
+            .input('wId', sql.UniqueIdentifier, warehouseId)
+            .input('iId', sql.UniqueIdentifier, itemId)
             .query("SELECT stock_id, quantity, bin_location FROM inventory_stock WHERE warehouse_id = @wId AND item_id = @iId");
 
         let targetStock = null;
@@ -559,7 +643,7 @@ app.post('/api/inventory/add', authenticateToken, authorizeRole(['Admin', 'Wareh
 
             await pool.request()
                 .input('qty', sql.NVarChar, encryptedTotal)
-                .input('sId', sql.Int, targetStock.stock_id)
+                .input('sId', sql.UniqueIdentifier, targetStock.stock_id)
                 .query("UPDATE inventory_stock SET quantity = @qty WHERE stock_id = @sId");
         } else {
             // Insert
@@ -567,8 +651,8 @@ app.post('/api/inventory/add', authenticateToken, authorizeRole(['Admin', 'Wareh
             const encryptedBin = encrypt(targetBinLoc);
 
             await pool.request()
-                .input('wId', sql.Int, warehouseId)
-                .input('iId', sql.Int, itemId)
+                .input('wId', sql.UniqueIdentifier, warehouseId)
+                .input('iId', sql.UniqueIdentifier, itemId)
                 .input('qty', sql.NVarChar, encryptedQty)
                 .input('bin', sql.NVarChar, encryptedBin)
                 .query("INSERT INTO inventory_stock (warehouse_id, item_id, quantity, bin_location) VALUES (@wId, @iId, @qty, @bin)");
@@ -588,14 +672,14 @@ app.put('/api/inventory/:id', authenticateToken, authorizeRole(['Admin', 'Wareho
         const pool = await connectDB();
 
         // Fetch itemId for sync
-        const stockInfo = await pool.request().input('id', sql.Int, id).query("SELECT item_id FROM inventory_stock WHERE stock_id = @id");
+        const stockInfo = await pool.request().input('id', sql.UniqueIdentifier, id).query("SELECT item_id FROM inventory_stock WHERE stock_id = @id");
         const itemId = stockInfo.recordset[0]?.item_id;
 
         const encryptedQty = encrypt(quantity.toString());
         const encryptedBin = encrypt(binLocation);
 
         await pool.request()
-            .input('id', sql.Int, id)
+            .input('id', sql.UniqueIdentifier, id)
             .input('qty', sql.NVarChar, encryptedQty)
             .input('bin', sql.NVarChar, encryptedBin)
             .query("UPDATE inventory_stock SET quantity = @qty, bin_location = @bin WHERE stock_id = @id");
@@ -614,17 +698,17 @@ app.delete('/api/inventory/:id', authenticateToken, authorizeRole(['Admin', 'War
         const pool = await connectDB();
 
         // Get details for log before delete
-        const stock = await pool.request().input('id', sql.Int, id).query("SELECT * FROM inventory_stock WHERE stock_id = @id");
+        const stock = await pool.request().input('id', sql.UniqueIdentifier, id).query("SELECT * FROM inventory_stock WHERE stock_id = @id");
         if (stock.recordset.length > 0) {
             const itemId = stock.recordset[0].item_id;
             await logAudit(req.user.id, 'DELETE_STOCK', { stockId: id, details: 'Deleted stock record' });
-            await pool.request().input('id', sql.Int, id).query("DELETE FROM inventory_stock WHERE stock_id = @id");
+            await pool.request().input('id', sql.UniqueIdentifier, id).query("DELETE FROM inventory_stock WHERE stock_id = @id");
             await syncItemTotalStock(itemId);
             res.json({ message: 'Stock record deleted' });
             return;
         }
 
-        await pool.request().input('id', sql.Int, id).query("DELETE FROM inventory_stock WHERE stock_id = @id");
+        await pool.request().input('id', sql.UniqueIdentifier, id).query("DELETE FROM inventory_stock WHERE stock_id = @id");
         res.json({ message: 'Stock record deleted' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -636,39 +720,65 @@ app.get('/api/shipments', authenticateToken, async (req, res) => {
         const pool = await connectDB();
         const result = await pool.request().query(`
             SELECT s.*, 
-                   p1.partner_name as supplier_name, 
                    p2.partner_name as logistics_name 
             FROM shipments s
-            LEFT JOIN partners p1 ON s.supplier_id = p1.partner_id
             LEFT JOIN partners p2 ON s.logistics_id = p2.partner_id
             ORDER BY s.shipment_date DESC
         `);
 
         // Decrypt Partner Names & Shipment Details
         const decryptedShipments = result.recordset.map(s => {
-            let suppName = s.supplier_name;
             let logName = s.logistics_name;
             let tracking = s.tracking_number;
             let origin = s.origin_address;
             let dest = s.destination_address;
+            let status = s.status;
 
-            try { suppName = decrypt(s.supplier_name) || s.supplier_name; } catch (e) { }
             try { logName = decrypt(s.logistics_name) || s.logistics_name; } catch (e) { }
             try { tracking = decrypt(s.tracking_number) || s.tracking_number; } catch (e) { }
             try { origin = decrypt(s.origin_address) || s.origin_address; } catch (e) { }
             try { dest = decrypt(s.destination_address) || s.destination_address; } catch (e) { }
+            try { status = decrypt(s.status) || s.status; } catch (e) { }
 
             return {
                 ...s,
-                supplier_name: suppName || 'Unknown Supplier',
                 logistics_name: logName || 'Unknown Logistics',
                 tracking_number: tracking,
                 origin_address: origin,
-                destination_address: dest
+                destination_address: dest,
+                status: status
             };
         });
 
         res.json(decryptedShipments);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/shipments/:id/items', authenticateToken, async (req, res) => {
+    try {
+        const pool = await connectDB();
+        const result = await pool.request()
+            .input('id', sql.UniqueIdentifier, req.params.id)
+            .query(`
+                SELECT d.*, i.item_name, i.category, w.name as warehouse_name
+                FROM shipment_details d
+                JOIN supply_items i ON d.item_id = i.item_id
+                LEFT JOIN inventory_stock s ON d.stock_id = s.stock_id
+                LEFT JOIN warehouses w ON s.warehouse_id = w.warehouse_id
+                WHERE d.shipment_id = @id
+            `);
+
+        const decryptedItems = result.recordset.map(item => {
+            let name = item.item_name;
+            let cat = item.category;
+            let wName = item.warehouse_name;
+            try { name = decrypt(item.item_name) || item.item_name; } catch (e) { }
+            try { cat = decrypt(item.category) || item.category; } catch (e) { }
+            try { wName = decrypt(item.warehouse_name) || item.warehouse_name; } catch (e) { }
+            return { ...item, item_name: name, category: cat, warehouse_name: wName || 'Unknown Warehouse' };
+        });
+
+        res.json(decryptedItems);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -681,10 +791,8 @@ app.get('/api/tracking/:trackingNumber', async (req, res) => {
         // Cần truy vấn tất cả và verify qua decryption (Mô hình Envelope: IV random)
         const result = await pool.request().query(`
             SELECT s.*, 
-                   p1.partner_name as supplier_name, 
                    p2.partner_name as logistics_name 
             FROM shipments s
-            LEFT JOIN partners p1 ON s.supplier_id = p1.partner_id
             LEFT JOIN partners p2 ON s.logistics_id = p2.partner_id
         `);
 
@@ -693,23 +801,23 @@ app.get('/api/tracking/:trackingNumber', async (req, res) => {
             let tracking = s.tracking_number;
             try { tracking = decrypt(s.tracking_number) || s.tracking_number; } catch (e) { }
             if (tracking === trackingQuery) {
-                let suppName = s.supplier_name;
                 let logName = s.logistics_name;
                 let origin = s.origin_address;
                 let dest = s.destination_address;
+                let status = s.status;
 
-                try { suppName = decrypt(s.supplier_name) || s.supplier_name; } catch (e) { }
                 try { logName = decrypt(s.logistics_name) || s.logistics_name; } catch (e) { }
                 try { origin = decrypt(s.origin_address) || s.origin_address; } catch (e) { }
                 try { dest = decrypt(s.destination_address) || s.destination_address; } catch (e) { }
+                try { status = decrypt(s.status) || s.status; } catch (e) { }
 
                 foundShipment = {
                     ...s,
-                    supplier_name: suppName || 'Unknown Supplier',
                     logistics_name: logName || 'Unknown Logistics',
                     tracking_number: tracking,
                     origin_address: origin,
-                    destination_address: dest
+                    destination_address: dest,
+                    status: status
                 };
                 break;
             }
@@ -737,21 +845,21 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Staff']),
         const encTracking = encrypt(trackingNumber);
         const encOrigin = encrypt(originAddress);
         const encDest = encrypt(destinationAddress);
+        const encTotalVal = encrypt(totalValue.toString());
 
         // 2. Insert Shipment
         const shipRes = await transaction.request()
             .input('track', sql.NVarChar, encTracking)
-            .input('sup', sql.Int, supplierId)
-            .input('log', sql.Int, logisticsId)
+            .input('log', sql.UniqueIdentifier, logisticsId)
             .input('date', sql.DateTime, new Date())
             .input('origin', sql.NVarChar, encOrigin)
             .input('dest', sql.NVarChar, encDest)
-            .input('val', sql.Decimal(18, 2), totalValue)
-            .input('status', sql.NVarChar, 'In Transit')
+            .input('val', sql.NVarChar, encTotalVal)
+            .input('status', sql.NVarChar, encrypt('Pending'))
             .query(`
-                INSERT INTO shipments (tracking_number, supplier_id, logistics_id, shipment_date, origin_address, destination_address, total_value, status)
+                INSERT INTO shipments (tracking_number, logistics_id, shipment_date, origin_address, destination_address, total_value, status)
                 OUTPUT INSERTED.shipment_id
-                VALUES (@track, @sup, @log, @date, @origin, @dest, @val, @status)
+                VALUES (@track, @log, @date, @origin, @dest, @val, @status)
             `);
 
         const shipmentId = shipRes.recordset[0].shipment_id;
@@ -761,7 +869,7 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Staff']),
             for (const item of items) {
                 // Fetch current stock to validate and deduct
                 const stockRes = await transaction.request()
-                    .input('sId', sql.Int, item.stockId)
+                    .input('sId', sql.UniqueIdentifier, item.stockId)
                     .query("SELECT * FROM inventory_stock WHERE stock_id = @sId");
 
                 const stockRecord = stockRes.recordset[0];
@@ -780,7 +888,7 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Staff']),
 
                 await transaction.request()
                     .input('qty', sql.NVarChar, encNewQty)
-                    .input('sId', sql.Int, item.stockId)
+                    .input('sId', sql.UniqueIdentifier, item.stockId)
                     .query("UPDATE inventory_stock SET quantity = @qty WHERE stock_id = @sId");
 
                 // Insert Detail (with subtotal and batch)
@@ -788,12 +896,13 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Staff']),
                 const batchNo = 'BATCH-' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
                 await transaction.request()
-                    .input('shipId', sql.Int, shipmentId)
-                    .input('itemId', sql.Int, item.itemId)
+                    .input('shipId', sql.UniqueIdentifier, shipmentId)
+                    .input('itemId', sql.UniqueIdentifier, item.itemId)
+                    .input('stockId', sql.UniqueIdentifier, item.stockId)
                     .input('qty', sql.Int, reqQty)
                     .input('sub', sql.Decimal(18, 2), sub)
                     .input('batch', sql.NVarChar, batchNo)
-                    .query("INSERT INTO shipment_details (shipment_id, item_id, quantity, subtotal, batch_number) VALUES (@shipId, @itemId, @qty, @sub, @batch)");
+                    .query("INSERT INTO shipment_details (shipment_id, item_id, stock_id, quantity, subtotal, batch_number) VALUES (@shipId, @itemId, @stockId, @qty, @sub, @batch)");
             }
         }
 
@@ -821,8 +930,8 @@ app.put('/api/shipments/:id/status', authenticateToken, authorizeRole(['Admin', 
     try {
         const pool = await connectDB();
         await pool.request()
-            .input('status', sql.NVarChar, status)
-            .input('id', sql.Int, req.params.id)
+            .input('status', sql.NVarChar, encrypt(status))
+            .input('id', sql.UniqueIdentifier, req.params.id)
             .query("UPDATE shipments SET status = @status WHERE shipment_id = @id");
 
         await logAudit(req.user.id, 'UPDATE_SHIPMENT_STATUS', { shipmentId: req.params.id, status });
@@ -830,37 +939,121 @@ app.put('/api/shipments/:id/status', authenticateToken, authorizeRole(['Admin', 
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// 15. Update Shipment (Admin Only)
 app.put('/api/shipments/:id', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
-    const { supplierId, logisticsId, originAddress, destinationAddress, totalValue } = req.body;
+    const { logisticsId, originAddress, destinationAddress, totalValue, items } = req.body;
+    let transaction;
     try {
         const pool = await connectDB();
 
         // Security check: Only allow if pending
-        const checkRes = await pool.request().input('id', sql.Int, req.params.id).query("SELECT status FROM shipments WHERE shipment_id = @id");
+        const checkRes = await pool.request().input('id', sql.UniqueIdentifier, req.params.id).query("SELECT status FROM shipments WHERE shipment_id = @id");
         if (checkRes.recordset.length === 0) return res.status(404).json({ error: 'Shipment not found' });
-        if (checkRes.recordset[0].status !== 'Pending') {
+        let decodedStatus = checkRes.recordset[0].status;
+        try { decodedStatus = decrypt(decodedStatus) || decodedStatus; } catch (e) { }
+        if (decodedStatus !== 'Pending') {
             return res.status(400).json({ error: 'Không thể sửa đơn hàng đã xử lý (Không còn ở trạng thái Pending).' });
         }
 
+        transaction = new sql.Transaction(pool);
+        await transaction.begin();
+
+        // 1. REVERT OLD STOCK
+        const oldItemsRes = await transaction.request()
+            .input('shipId', sql.UniqueIdentifier, req.params.id)
+            .query("SELECT * FROM shipment_details WHERE shipment_id = @shipId");
+
+        for (const oldItem of oldItemsRes.recordset) {
+            if (oldItem.stock_id) {
+                const stockRes = await transaction.request()
+                    .input('sId', sql.UniqueIdentifier, oldItem.stock_id)
+                    .query("SELECT quantity FROM inventory_stock WHERE stock_id = @sId");
+
+                if (stockRes.recordset.length > 0) {
+                    let currentQty = 0;
+                    try { currentQty = parseInt(decrypt(stockRes.recordset[0].quantity)); } catch (e) { currentQty = parseInt(stockRes.recordset[0].quantity); }
+
+                    const restoredQty = currentQty + oldItem.quantity;
+                    await transaction.request()
+                        .input('qty', sql.NVarChar, encrypt(restoredQty.toString()))
+                        .input('sId', sql.UniqueIdentifier, oldItem.stock_id)
+                        .query("UPDATE inventory_stock SET quantity = @qty WHERE stock_id = @sId");
+                }
+            }
+        }
+
+        // 2. DELETE OLD DETAILS
+        await transaction.request()
+            .input('shipId', sql.UniqueIdentifier, req.params.id)
+            .query("DELETE FROM shipment_details WHERE shipment_id = @shipId");
+
+        // 3. UPDATE SHIPMENT MAIN INFO
         const encOrigin = encrypt(originAddress);
         const encDest = encrypt(destinationAddress);
+        const encTotalVal = encrypt(totalValue.toString());
 
-        await pool.request()
-            .input('id', sql.Int, req.params.id)
-            .input('sup', sql.Int, supplierId)
-            .input('log', sql.Int, logisticsId)
+        await transaction.request()
+            .input('id', sql.UniqueIdentifier, req.params.id)
+            .input('log', sql.UniqueIdentifier, logisticsId)
             .input('orig', sql.NVarChar, encOrigin)
             .input('dest', sql.NVarChar, encDest)
-            .input('val', sql.Decimal(18, 2), totalValue)
+            .input('val', sql.NVarChar, encTotalVal)
             .query(`UPDATE shipments SET 
-                supplier_id=@sup, logistics_id=@log, origin_address=@orig, 
+                logistics_id=@log, origin_address=@orig, 
                 destination_address=@dest, total_value=@val
                 WHERE shipment_id=@id`);
 
+        // 4. APPLY NEW ITEMS & DEDUCT STOCK
+        if (items && Array.isArray(items)) {
+            for (const item of items) {
+                const stockRes = await transaction.request()
+                    .input('sId', sql.UniqueIdentifier, item.stockId)
+                    .query("SELECT * FROM inventory_stock WHERE stock_id = @sId");
+
+                const stockRecord = stockRes.recordset[0];
+                if (!stockRecord) throw new Error(`Kho không tìm thấy lô hàng (ID: ${item.stockId})`);
+
+                let currentQty = 0;
+                try { currentQty = parseInt(decrypt(stockRecord.quantity)); } catch (e) { currentQty = parseInt(stockRecord.quantity); }
+
+                const reqQty = parseInt(item.quantity);
+                if (currentQty < reqQty) throw new Error(`Kho không đủ hàng (ID: ${item.stockId}). Tồn: ${currentQty}, Yêu cầu: ${reqQty}`);
+
+                const newQty = currentQty - reqQty;
+                await transaction.request()
+                    .input('qty', sql.NVarChar, encrypt(newQty.toString()))
+                    .input('sId', sql.UniqueIdentifier, item.stockId)
+                    .query("UPDATE inventory_stock SET quantity = @qty WHERE stock_id = @sId");
+
+                const sub = (item.unitValue || 0) * reqQty;
+                const batchNo = oldItemsRes.recordset[0]?.batch_number || ('BATCH-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''));
+
+                await transaction.request()
+                    .input('shipId', sql.UniqueIdentifier, req.params.id)
+                    .input('itemId', sql.UniqueIdentifier, item.itemId)
+                    .input('stockId', sql.UniqueIdentifier, item.stockId)
+                    .input('qty', sql.Int, reqQty)
+                    .input('sub', sql.Decimal(18, 2), sub)
+                    .input('batch', sql.NVarChar, batchNo)
+                    .query("INSERT INTO shipment_details (shipment_id, item_id, stock_id, quantity, subtotal, batch_number) VALUES (@shipId, @itemId, @stockId, @qty, @sub, @batch)");
+            }
+        }
+
+        await transaction.commit();
+
+        // Sync Totals
+        const uniqueItemIds = [...new Set([
+            ...oldItemsRes.recordset.map(i => i.item_id),
+            ...(items || []).map(i => i.itemId)
+        ])];
+        for (const iId of uniqueItemIds) await syncItemTotalStock(iId);
+
         await logAudit(req.user.id, 'UPDATE_SHIPMENT', { shipmentId: req.params.id, originAddress, destinationAddress });
         res.json({ message: 'Shipment updated successfully' });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+        if (transaction) await transaction.rollback();
+        console.error("Update Shipment Error:", err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // 16. Delete Shipment (Admin Only)
@@ -870,9 +1063,11 @@ app.delete('/api/shipments/:id', authenticateToken, authorizeRole(['Admin']), as
         const pool = await connectDB();
 
         // Security check: Only allow if pending
-        const checkRes = await pool.request().input('id', sql.Int, req.params.id).query("SELECT status FROM shipments WHERE shipment_id = @id");
+        const checkRes = await pool.request().input('id', sql.UniqueIdentifier, req.params.id).query("SELECT status FROM shipments WHERE shipment_id = @id");
         if (checkRes.recordset.length === 0) return res.status(404).json({ error: 'Shipment not found' });
-        if (checkRes.recordset[0].status !== 'Pending') {
+        let decodedStatus = checkRes.recordset[0].status;
+        try { decodedStatus = decrypt(decodedStatus) || decodedStatus; } catch (e) { }
+        if (decodedStatus !== 'Pending') {
             return res.status(400).json({ error: 'Không thể xóa đơn hàng đã xử lý (Không còn ở trạng thái Pending).' });
         }
 
@@ -880,11 +1075,11 @@ app.delete('/api/shipments/:id', authenticateToken, authorizeRole(['Admin']), as
         await transaction.begin();
 
         await transaction.request()
-            .input('id', sql.Int, req.params.id)
+            .input('id', sql.UniqueIdentifier, req.params.id)
             .query("DELETE FROM shipment_details WHERE shipment_id = @id");
 
         await transaction.request()
-            .input('id', sql.Int, req.params.id)
+            .input('id', sql.UniqueIdentifier, req.params.id)
             .query("DELETE FROM shipments WHERE shipment_id = @id");
 
         await transaction.commit();
@@ -916,13 +1111,14 @@ app.get('/api/partners', authenticateToken, async (req, res) => {
 
         const partners = result.recordset.map(p => {
             // Try to decrypt fields, fallback to original if fail
-            let name = p.partner_name, contact = p.contact_person, phone = p.contact_phone, email = p.email;
+            let name = p.partner_name, contact = p.contact_person, phone = p.contact_phone, email = p.email, type = p.type;
             try { name = decrypt(p.partner_name) || p.partner_name; } catch (e) { }
             try { contact = decrypt(p.contact_person) || p.contact_person; } catch (e) { }
             try { phone = decrypt(p.contact_phone) || p.contact_phone; } catch (e) { }
             try { email = decrypt(p.email) || p.email; } catch (e) { }
+            try { type = decrypt(p.type) || p.type; } catch (e) { }
 
-            return { ...p, partner_name: name, contact_person: contact, contact_phone: phone, email: email };
+            return { ...p, partner_name: name, contact_person: contact, contact_phone: phone, email: email, type: type };
         });
         res.json(partners);
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -939,6 +1135,7 @@ app.post('/api/partners', authenticateToken, authorizeRole(['Admin', 'Staff']), 
         const encPhone = encrypt(phone);
         const encEmail = encrypt(email);
         const emailHash = crypto.createHash('sha256').update(email).digest('hex');
+        const encType = encrypt(type);
 
         await pool.request()
             .input('name', sql.NVarChar, encName)
@@ -946,7 +1143,7 @@ app.post('/api/partners', authenticateToken, authorizeRole(['Admin', 'Staff']), 
             .input('phone', sql.NVarChar, encPhone)
             .input('email', sql.NVarChar, encEmail)
             .input('hash', sql.NVarChar, emailHash)
-            .input('type', sql.NVarChar, type)
+            .input('type', sql.NVarChar, encType)
             .query("INSERT INTO partners (partner_name, contact_person, contact_phone, email, email_hash, type) VALUES (@name, @contact, @phone, @email, @hash, @type)");
 
         await logAudit(req.user.id, 'CREATE_PARTNER', { name, type });
@@ -965,14 +1162,15 @@ app.put('/api/partners/:id', authenticateToken, authorizeRole(['Admin']), async 
         const encContact = encrypt(contact);
         const encPhone = encrypt(phone);
         const encEmail = encrypt(email);
+        const encType = encrypt(type);
 
         await pool.request()
-            .input('id', sql.Int, id)
+            .input('id', sql.UniqueIdentifier, id)
             .input('name', sql.NVarChar, encName)
             .input('contact', sql.NVarChar, encContact)
             .input('phone', sql.NVarChar, encPhone)
             .input('email', sql.NVarChar, encEmail)
-            .input('type', sql.NVarChar, type)
+            .input('type', sql.NVarChar, encType)
             .query(`UPDATE partners SET 
                 partner_name=@name, contact_person=@contact, contact_phone=@phone, email=@email, type=@type 
                 WHERE partner_id=@id`);
@@ -987,7 +1185,7 @@ app.delete('/api/partners/:id', authenticateToken, authorizeRole(['Admin']), asy
     const { id } = req.params;
     try {
         const pool = await connectDB();
-        await pool.request().input('id', sql.Int, id).query("DELETE FROM partners WHERE partner_id = @id");
+        await pool.request().input('id', sql.UniqueIdentifier, id).query("DELETE FROM partners WHERE partner_id = @id");
         await logAudit(req.user.id, 'DELETE_PARTNER', { partnerId: id });
         res.json({ message: 'Partner deleted' });
     } catch (err) {

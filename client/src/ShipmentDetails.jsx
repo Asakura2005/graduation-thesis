@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Package, MapPin, Calendar, DollarSign, Truck, CheckCircle, AlertCircle, Clock, Edit, Trash2, Save, X, Download, Search } from 'lucide-react';
 import axios from 'axios';
 import html2pdf from 'html2pdf.js';
@@ -9,13 +9,82 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
 
     // States for Editing
     const [isEditing, setIsEditing] = useState(false);
+    const [items, setItems] = useState([]);
+    const [supplyItems, setSupplyItems] = useState([]);
+    const [stockList, setStockList] = useState([]);
+    const [partners, setPartners] = useState([]);
+
     const [editData, setEditData] = useState({
         originAddress: shipment.origin_address,
         destinationAddress: shipment.destination_address,
         supplierId: shipment.supplier_id,
         logisticsId: shipment.logistics_id,
-        totalValue: shipment.total_value
+        totalValue: shipment.total_value,
+        items: [] // Will hold current items for editing
     });
+
+    useEffect(() => {
+        const fetchDetails = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                const [itemsRes, partnersRes, supplyItemsRes] = await Promise.all([
+                    axios.get(`http://localhost:5001/api/shipments/${shipment.shipment_id}/items`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    }),
+                    axios.get('http://localhost:5001/api/partners', { headers: { Authorization: `Bearer ${token}` } }),
+                    axios.get('http://localhost:5001/api/items', { headers: { Authorization: `Bearer ${token}` } })
+                ]);
+                setItems(itemsRes.data);
+                setPartners(partnersRes.data);
+                setSupplyItems(supplyItemsRes.data);
+            } catch (e) { console.error("Error fetching shipment items:", e); }
+        };
+        fetchDetails();
+    }, [shipment.shipment_id]);
+
+    const startEditing = () => {
+        setEditData({
+            originAddress: shipment.origin_address,
+            destinationAddress: shipment.destination_address,
+            supplierId: shipment.supplier_id,
+            logisticsId: shipment.logistics_id,
+            totalValue: shipment.total_value,
+            items: items.map(i => ({
+                itemId: i.item_id,
+                stockId: i.stock_id,
+                quantity: i.quantity,
+                unitValue: (i.subtotal / i.quantity) || 0,
+                item_name: i.item_name,
+                warehouse_name: i.warehouse_name
+            }))
+        });
+        setIsEditing(true);
+    };
+
+    const handleItemChange = async (index, field, value) => {
+        const newItems = [...editData.items];
+        newItems[index][field] = value;
+
+        if (field === 'itemId') {
+            const prod = supplyItems.find(p => p.item_id === value);
+            newItems[index].item_name = prod?.item_name || '';
+            newItems[index].unitValue = (parseFloat(prod?.unit_cost) * 1.2) || 0;
+            // Fetch stock for this item
+            try {
+                const res = await axios.get(`http://localhost:5001/api/items/${value}/inventory`);
+                setStockList(res.data);
+            } catch (e) { }
+        }
+
+        if (field === 'stockId') {
+            const stock = stockList.find(s => s.stock_id === value);
+            newItems[index].warehouse_name = stock?.warehouse_name || '';
+        }
+
+        // Auto recalc total value
+        const total = newItems.reduce((sum, i) => sum + (parseFloat(i.unitValue || 0) * (parseInt(i.quantity) || 0)), 0);
+        setEditData({ ...editData, items: newItems, totalValue: total.toFixed(2) });
+    };
 
     // Fake status flow
     const statusFlow = ['Pending', 'In Transit', 'Customs Check', 'Delivered'];
@@ -135,7 +204,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                                 </button>
                                             </>
                                         ) : (
-                                            <button className="btn btn-sm btn-outline-info d-flex align-items-center gap-1" onClick={() => setIsEditing(true)}>
+                                            <button className="btn btn-sm btn-outline-info d-flex align-items-center gap-1" onClick={startEditing}>
                                                 <Edit size={16} /> Sửa
                                             </button>
                                         )}
@@ -161,10 +230,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                             <div className="p-3 rounded-3 bg-black bg-opacity-20 border border-light border-opacity-10">
                                 <h6 className="text-gold fw-bold mb-3 d-flex align-items-center gap-2"><Package size={16} /> THÔNG TIN HÀNG HÓA</h6>
 
-                                <div className="mb-3">
-                                    <div className="text-dim x-small text-uppercase">Nhà cung cấp</div>
-                                    <div className="fw-semibold text-white">{shipment.supplier_name}</div>
-                                </div>
+
                                 <div className="mb-3">
                                     <div className="text-dim x-small text-uppercase">Đơn vị vận chuyển</div>
                                     <div className="fw-semibold text-white">{shipment.logistics_name}</div>
@@ -172,10 +238,13 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                 <div className="mb-3">
                                     <div className="text-dim x-small text-uppercase">Giá trị lô hàng</div>
                                     {isEditing ? (
-                                        <input
-                                            type="number" className="form-control form-control-sm bg-dark text-white border-secondary mt-1"
-                                            value={editData.totalValue} onChange={(e) => setEditData({ ...editData, totalValue: e.target.value })}
-                                        />
+                                        <>
+                                            <input
+                                                type="number" className="form-control form-control-sm bg-dark text-white border-secondary mt-1 opacity-75"
+                                                value={editData.totalValue} readOnly
+                                            />
+                                            <small className="text-dim x-small">* Tự động tính theo đơn giá sản phẩm</small>
+                                        </>
                                     ) : (
                                         <div className="fw-bold text-success d-flex align-items-center gap-1">
                                             <DollarSign size={14} />
@@ -225,6 +294,71 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                             </div>
 
                             {/* QRCode Card */}
+                            <div className="p-3 rounded-3 bg-black bg-opacity-20 border border-light border-opacity-10 text-center mt-3">
+                                <h6 className="text-gold fw-bold mb-3 d-flex justify-content-center align-items-center gap-2">
+                                    <Package size={16} /> DANH SÁCH SẢN PHẨM
+                                </h6>
+                                <div className="text-start">
+                                    {isEditing ? (
+                                        <div className="d-flex flex-column gap-2">
+                                            {editData.items.map((item, idx) => (
+                                                <div key={idx} className="p-2 border border-secondary rounded bg-dark bg-opacity-25">
+                                                    <div className="mb-2">
+                                                        <label className="x-small text-dim">Sản phẩm:</label>
+                                                        <select
+                                                            className="form-select form-select-sm bg-dark text-white border-secondary"
+                                                            value={item.itemId}
+                                                            onChange={(e) => handleItemChange(idx, 'itemId', e.target.value)}
+                                                        >
+                                                            <option value="">-- Chọn hàng --</option>
+                                                            {supplyItems.map(p => <option key={p.item_id} value={p.item_id}>{p.item_name}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div className="mb-2">
+                                                        <label className="x-small text-dim">Kho xuất:</label>
+                                                        <select
+                                                            className="form-select form-select-sm bg-dark text-success border-success"
+                                                            value={item.stockId}
+                                                            onFocus={() => {
+                                                                // Refresh stock list for current item
+                                                                axios.get(`http://localhost:5001/api/items/${item.itemId}/inventory`).then(res => setStockList(res.data));
+                                                            }}
+                                                            onChange={(e) => handleItemChange(idx, 'stockId', e.target.value)}
+                                                        >
+                                                            <option value="">-- Chọn lô hàng --</option>
+                                                            {stockList.map(s => <option key={s.stock_id} value={s.stock_id}>{s.warehouse_name} ({s.quantity})</option>)}
+                                                            {/* Fallback for current stock if not in list */}
+                                                            {!stockList.find(s => s.stock_id === item.stockId) && <option value={item.stockId}>{item.warehouse_name} (Hiện tại)</option>}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="x-small text-dim">Số lượng:</label>
+                                                        <input
+                                                            type="number"
+                                                            className="form-control form-control-sm bg-dark text-white border-secondary"
+                                                            value={item.quantity}
+                                                            onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="d-flex flex-column gap-2">
+                                            {items.map((item, idx) => (
+                                                <div key={idx} className="p-2 border border-light border-opacity-10 rounded d-flex justify-content-between align-items-center">
+                                                    <div>
+                                                        <div className="text-white small fw-bold">{item.item_name}</div>
+                                                        <div className="x-small text-dim">Kho: {item.warehouse_name}</div>
+                                                    </div>
+                                                    <div className="text-gold fw-bold">x{item.quantity}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
                             <div className="p-3 rounded-3 bg-black bg-opacity-20 border border-light border-opacity-10 text-center mt-3">
                                 <h6 className="text-gold fw-bold mb-3 d-flex justify-content-center align-items-center gap-2">
                                     <Package size={16} /> MÃ QUÉT TRUY XUẤT (QR CODE)
@@ -330,7 +464,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '40px' }}>
                         <div style={{ flex: 1, paddingRight: '20px' }}>
                             <h4 style={{ margin: '0 0 10px', fontSize: '14px', color: '#666', textTransform: 'uppercase' }}>Thông Tin Đối Tác</h4>
-                            <p style={{ margin: '0 0 5px' }}><strong>Nhà Cung Cấp:</strong> {shipment.supplier_name}</p>
+
                             <p style={{ margin: '0 0 5px' }}><strong>Đơn Vị Vận Chuyển:</strong> {shipment.logistics_name}</p>
                             <p style={{ margin: '0 0 5px' }}><strong>Ngày Tạo Đơn:</strong> {new Date(shipment.shipment_date).toLocaleDateString('vi-VN')}</p>
                         </div>

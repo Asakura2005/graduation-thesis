@@ -57,7 +57,7 @@ async function initDatabase() {
                 email NVARCHAR(MAX) NOT NULL,
                 email_hash NVARCHAR(64) NOT NULL,
                 contact_phone NVARCHAR(MAX) NULL,
-                type NVARCHAR(50) NOT NULL
+                type NVARCHAR(MAX) NOT NULL
             );
             CREATE INDEX IX_partners_email_hash ON partners(email_hash);
         `);
@@ -76,15 +76,13 @@ async function initDatabase() {
         await pool.request().query(`
             CREATE TABLE shipments (
                 shipment_id INT IDENTITY(1,1) PRIMARY KEY,
-                supplier_id INT NOT NULL,
                 logistics_id INT NOT NULL,
                 origin_address NVARCHAR(MAX) NOT NULL,
                 destination_address NVARCHAR(MAX) NOT NULL,
                 shipment_date DATETIME NOT NULL,
-                status NVARCHAR(50) NOT NULL,
+                status NVARCHAR(MAX) NOT NULL,
                 total_value NVARCHAR(MAX) NOT NULL,
                 tracking_number NVARCHAR(MAX) NOT NULL,
-                CONSTRAINT FK_shipments_supplier FOREIGN KEY (supplier_id) REFERENCES partners(partner_id),
                 CONSTRAINT FK_shipments_logistics FOREIGN KEY (logistics_id) REFERENCES partners(partner_id)
             );
         `);

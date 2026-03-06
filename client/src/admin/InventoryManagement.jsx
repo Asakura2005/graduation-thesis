@@ -49,7 +49,7 @@ const MasterData = () => {
   const getShelvesList = () => {
     if (!formData.warehouseId) return [];
     const wh = warehouses.find(
-      (w) => w.warehouse_id === parseInt(formData.warehouseId),
+      (w) => w.warehouse_id === formData.warehouseId,
     );
     if (!wh) return [];
     return Array.from(
