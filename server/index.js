@@ -1476,28 +1476,59 @@ try {
     const attrs = [{ name: 'commonName', value: 'localhost' }];
     const pems = selfsigned.generate(attrs, { days: 365, keySize: 2048 });
 
+    // Đọc TLS_TICKET_KEY từ biến môi trường (Hex string dài 96 ký tự tương đương 48 bytes)
+    // Nếu không có, khởi tạo ngẫu nhiên (chỉ dùng cho Dev, sẽ bị reset khi restart server)
+    let ticketKey;
+    if (process.env.TLS_TICKET_KEY && process.env.TLS_TICKET_KEY.length === 96) {
+        ticketKey = Buffer.from(process.env.TLS_TICKET_KEY, 'hex');
+    } else {
+        ticketKey = crypto.randomBytes(48);
+        console.warn("[SECURITY WARN] TLS_TICKET_KEY chưa được cấu hình trong .env. Key sử dụng một lần sẽ bị mất khi khởi động lại server!");
+    }
+
     // Cấu hình HTTPS & bật cơ chế lưu trữ phiên kết nối bảo mật TLS
     const httpsOptions = {
         key: pems.private,
         cert: pems.cert,
         // Khởi tạo chìa khóa lưu ticket TLS để cho phép resuming (TLS 1.2 / TLS 1.3)
-        ticketKeys: crypto.randomBytes(48),
+        ticketKeys: ticketKey,
     };
 
     const httpsServer = https.createServer(httpsOptions, app);
-    const tlsSessionStore = {}; // Lưu trữ bộ nhớ Session TLS tạm thời
+
+    // --- CẢI TIẾN: Sử dụng Map với TTL (Time-To-Live) để tránh Memory Leak ---
+    const tlsSessionStore = new Map();
+    const SESSION_TIMEOUT = 10 * 60 * 1000; // Phiên hết hạn sau 10 phút không hoạt động
+
+    // Dọn dẹp session cũ mỗi 1 phút
+    setInterval(() => {
+        const now = Date.now();
+        for (const [id, session] of tlsSessionStore.entries()) {
+            if (now - session.timestamp > SESSION_TIMEOUT) {
+                tlsSessionStore.delete(id);
+            }
+        }
+    }, 60 * 1000).unref(); // unref() để interval không ngăn Node.js thoát
 
     // Lắng nghe sự kiện bắt tay lần đầu (Tạo mới)
     httpsServer.on('newSession', (id, data, cb) => {
         console.log(`[TLS Resumption] Lưu phiên kết nối bảo mật mới - Session ID: ${id.toString('hex').substring(0, 10)}... (Giúp giảm handshake lần sau)`);
-        tlsSessionStore[id.toString('hex')] = data;
+        tlsSessionStore.set(id.toString('hex'), { data, timestamp: Date.now() });
         cb();
     });
 
     // Lắng nghe sự kiện tái sử dụng session (Resume)
     httpsServer.on('resumeSession', (id, cb) => {
-        console.log(`[TLS Resumption] Đang phục hồi phiên bảo mật cho khách hàng cũ - Session ID: ${id.toString('hex').substring(0, 10)}... -> Bỏ qua Full Handshake!`);
-        cb(null, tlsSessionStore[id.toString('hex')] || null);
+        const sessionIdHex = id.toString('hex');
+        const session = tlsSessionStore.get(sessionIdHex);
+
+        if (session) {
+            console.log(`[TLS Resumption] Đang phục hồi phiên bảo mật - Session ID: ${sessionIdHex.substring(0, 10)}... -> Bỏ qua Full Handshake!`);
+            session.timestamp = Date.now(); // Làm mới thời gian truy cập
+            cb(null, session.data);
+        } else {
+            cb(null, null); // Không tìm thấy session hợp lệ, yêu cầu Full Handshake
+        }
     });
 
     const HTTPS_PORT = parseInt(PORT) + 1; // 5002
