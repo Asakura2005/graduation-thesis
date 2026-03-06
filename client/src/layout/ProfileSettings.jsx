@@ -4,6 +4,7 @@ import {
     CheckCircle, AlertCircle, Settings, Key, RefreshCcw, Smartphone, QrCode, Copy
 } from 'lucide-react';
 import axios from 'axios';
+import { QRCodeSVG } from 'qrcode.react';
 
 const ProfileSettings = ({ user }) => {
     const [activeSection, setActiveSection] = useState('profile');
@@ -15,6 +16,12 @@ const ProfileSettings = ({ user }) => {
     const [showPw, setShowPw] = useState({ current: false, newPw: false, confirm: false });
     const [pwSaving, setPwSaving] = useState(false);
 
+    // 2FA states
+    const [twoFaSetup, setTwoFaSetup] = useState(null);
+    const [twoFaCode, setTwoFaCode] = useState('');
+    const [disablePassword, setDisablePassword] = useState('');
+    const [twoFaLoading, setTwoFaLoading] = useState(false);
+
     const [toast, setToast] = useState(null);
 
     const showToast = (type, msg) => {
@@ -25,7 +32,9 @@ const ProfileSettings = ({ user }) => {
     useEffect(() => {
         const fetchProfile = async () => {
             try {
-                const res = await axios.get('http://localhost:5001/api/auth/me/profile');
+                const res = await axios.get('http://localhost:5001/api/auth/me/profile', {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
                 setProfile(res.data);
             } catch (e) {
                 showToast('error', 'Không thể tải hồ sơ: ' + (e.response?.data?.error || e.message));
@@ -45,7 +54,7 @@ const ProfileSettings = ({ user }) => {
                 fullName: profile.full_name,
                 email: profile.email,
                 phone: profile.phone
-            });
+            }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
             showToast('success', '✅ Cập nhật hồ sơ thành công!');
         } catch (e) {
             showToast('error', e.response?.data?.error || 'Lỗi khi cập nhật hồ sơ');
@@ -70,12 +79,60 @@ const ProfileSettings = ({ user }) => {
             await axios.put('http://localhost:5001/api/auth/me/password', {
                 currentPassword: pwForm.currentPassword,
                 newPassword: pwForm.newPassword
-            });
+            }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
             showToast('success', '✅ Đổi mật khẩu thành công!');
             setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
         } catch (e) {
             showToast('error', e.response?.data?.error || 'Lỗi đổi mật khẩu');
         } finally { setPwSaving(false); }
+    };
+
+    // 2FA Functions
+    const handleGenerate2FA = async () => {
+        setTwoFaLoading(true);
+        try {
+            const res = await axios.get('http://localhost:5001/api/auth/2fa/generate', {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
+            setTwoFaSetup(res.data);
+            setTwoFaCode('');
+        } catch (e) {
+            showToast('error', 'Lỗi tạo mã QR 2FA');
+        } finally { setTwoFaLoading(false); }
+    };
+
+    const handleVerify2FA = async () => {
+        if (!twoFaCode || twoFaCode.length < 6) return;
+        setTwoFaLoading(true);
+        try {
+            await axios.post('http://localhost:5001/api/auth/2fa/verify-setup', {
+                token: twoFaCode,
+                secret: twoFaSetup.secret
+            }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+
+            showToast('success', '✅ Kích hoạt 2FA thành công!');
+            setProfile(p => ({ ...p, is2FAEnabled: true }));
+            setTwoFaSetup(null);
+            setTwoFaCode('');
+        } catch (e) {
+            showToast('error', e.response?.data?.error || 'Mã xác thực không đúng');
+        } finally { setTwoFaLoading(false); }
+    };
+
+    const handleDisable2FA = async () => {
+        if (!disablePassword) return showToast('error', 'Vui lòng nhập mật khẩu xác nhận');
+        setTwoFaLoading(true);
+        try {
+            await axios.post('http://localhost:5001/api/auth/2fa/disable', {
+                password: disablePassword
+            }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+
+            showToast('success', 'Đã tắt bảo mật 2 lớp');
+            setProfile(p => ({ ...p, is2FAEnabled: false }));
+            setDisablePassword('');
+        } catch (e) {
+            showToast('error', e.response?.data?.error || 'Mật khẩu sai');
+        } finally { setTwoFaLoading(false); }
     };
 
     const getRoleBadge = (role) => {
@@ -360,106 +417,132 @@ const ProfileSettings = ({ user }) => {
                         <div className="d-flex flex-column gap-3">
                             {/* Status banner */}
                             <div className="p-4 rounded-3 d-flex align-items-center gap-3"
-                                style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)' }}>
-                                <div className="p-2 rounded-3" style={{ background: 'rgba(234,179,8,0.15)' }}>
-                                    <Smartphone size={24} style={{ color: '#eab308' }} />
+                                style={{
+                                    background: profile.is2FAEnabled ? 'rgba(16,185,129,0.08)' : 'rgba(234,179,8,0.08)',
+                                    border: `1px solid ${profile.is2FAEnabled ? 'rgba(16,185,129,0.25)' : 'rgba(234,179,8,0.25)'}`
+                                }}>
+                                <div className="p-2 rounded-3" style={{ background: profile.is2FAEnabled ? 'rgba(16,185,129,0.15)' : 'rgba(234,179,8,0.15)' }}>
+                                    <Smartphone size={24} style={{ color: profile.is2FAEnabled ? '#10b981' : '#eab308' }} />
                                 </div>
                                 <div>
                                     <div className="fw-bold text-white">Xác thực 2 lớp (2FA)</div>
                                     <small className="text-dim">Tăng cường bảo mật bằng cách xác minh danh tính qua ứng dụng di động</small>
                                 </div>
-                                <span className="ms-auto badge" style={{ background: 'rgba(234,179,8,0.2)', color: '#eab308', border: '1px solid rgba(234,179,8,0.4)', padding: '6px 12px', borderRadius: 20 }}>
-                                    Chưa kích hoạt
+                                <span className={`ms-auto badge`} style={{
+                                    background: profile.is2FAEnabled ? 'rgba(16,185,129,0.2)' : 'rgba(234,179,8,0.2)',
+                                    color: profile.is2FAEnabled ? '#10b981' : '#eab308',
+                                    border: `1px solid ${profile.is2FAEnabled ? 'rgba(16,185,129,0.4)' : 'rgba(234,179,8,0.4)'}`,
+                                    padding: '6px 12px', borderRadius: 20
+                                }}>
+                                    {profile.is2FAEnabled ? 'Đang hoạt động' : 'Chưa kích hoạt'}
                                 </span>
                             </div>
 
-                            {/* Google Authenticator */}
+                            {/* Google Authenticator Card */}
                             <div className="p-4 rounded-3" style={cardStyle}>
                                 <div className="d-flex align-items-center gap-3 mb-4">
                                     <div className="p-2 rounded-3" style={{ background: 'rgba(255,255,255,0.08)', width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                         <span style={{ fontSize: 24 }}>🔐</span>
                                     </div>
-                                    <div>
+                                    <div className="flex-grow-1">
                                         <div className="fw-bold text-white">Google Authenticator</div>
                                         <small className="text-dim">Tạo mã OTP mỗi 30 giây trên điện thoại của bạn</small>
                                     </div>
+                                    {!profile.is2FAEnabled && !twoFaSetup && (
+                                        <button className="btn btn-gold btn-sm d-flex align-items-center gap-2" onClick={handleGenerate2FA} disabled={twoFaLoading}>
+                                            {twoFaLoading ? <span className="spinner-border spinner-border-sm" /> : <Shield size={14} />} Thiết lập ngay
+                                        </button>
+                                    )}
                                 </div>
 
-                                {/* Steps */}
-                                <div className="d-flex flex-column gap-3 mb-4">
-                                    {[
-                                        { step: '1', title: 'Tải ứng dụng', desc: 'Tải Google Authenticator từ App Store hoặc Google Play', icon: '📱' },
-                                        { step: '2', title: 'Quét mã QR', desc: 'Mở ứng dụng và quét mã QR bên dưới để liên kết tài khoản', icon: '📷' },
-                                        { step: '3', title: 'Nhập mã xác nhận', desc: 'Nhập mã 6 chữ số từ ứng dụng để hoàn tất kích hoạt', icon: '✅' },
-                                    ].map(({ step, title, desc, icon }) => (
-                                        <div key={step} className="d-flex align-items-start gap-3 p-3 rounded-3"
-                                            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                            <div className="d-flex align-items-center justify-content-center rounded-circle fw-bold"
-                                                style={{ width: 32, height: 32, background: 'rgba(212,175,55,0.2)', color: '#D4AF37', fontSize: 13, flexShrink: 0 }}>
-                                                {step}
-                                            </div>
-                                            <div>
-                                                <div className="fw-semibold text-white small">{icon} {title}</div>
-                                                <div className="text-dim x-small mt-1">{desc}</div>
+                                {profile.is2FAEnabled && (
+                                    <div className="d-flex flex-column gap-3 p-3 rounded-3" style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                                        <div className="text-danger fw-bold d-flex align-items-center gap-2">
+                                            <AlertCircle size={16} /> Tắt tính năng bảo vệ
+                                        </div>
+                                        <div>
+                                            <label className="text-dim x-small text-uppercase mb-1">Nhập mật khẩu của bạn để xác nhận</label>
+                                            <div className="input-group" style={{ maxWidth: 300 }}>
+                                                <span className="input-group-text bg-black border-danger border-opacity-25"><Lock size={16} className="text-dim" /></span>
+                                                <input type="password" placeholder="Nhập mật khẩu" value={disablePassword} onChange={e => setDisablePassword(e.target.value)} className="form-control bg-black border-danger border-opacity-25 text-white" />
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
-
-                                {/* QR Code placeholder */}
-                                <div className="d-flex gap-4 align-items-start flex-wrap">
-                                    <div className="text-center">
-                                        <div className="d-flex align-items-center justify-content-center rounded-3 mb-2"
-                                            style={{ width: 140, height: 140, background: 'rgba(255,255,255,0.06)', border: '2px dashed rgba(255,255,255,0.15)' }}>
-                                            <div className="text-center">
-                                                <QrCode size={40} className="text-dim mb-1" />
-                                                <div className="x-small text-dim">Mã QR sẽ<br />hiển thị ở đây</div>
-                                            </div>
-                                        </div>
-                                        <div className="x-small text-dim">Quét bằng Google Authenticator</div>
-                                    </div>
-
-                                    <div className="flex-grow-1" style={{ minWidth: 200 }}>
-                                        <div className="mb-3">
-                                            <label className="text-dim x-small text-uppercase mb-1">Mã bí mật thủ công (Secret Key)</label>
-                                            <div className="d-flex align-items-center gap-2 p-2 rounded-3"
-                                                style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', fontFamily: 'monospace' }}>
-                                                <span className="text-dim small flex-grow-1 text-center">- - - - - - - - - - - -</span>
-                                                <button className="btn btn-link text-dim p-0" title="Sao chép">
-                                                    <Copy size={14} />
-                                                </button>
-                                            </div>
-                                            <div className="x-small text-dim mt-1">Nhập thủ công nếu không quét được QR</div>
-                                        </div>
-
-                                        <div className="mb-3">
-                                            <label className="text-dim x-small text-uppercase mb-1">Nhập mã xác nhận (6 chữ số)</label>
-                                            <div className="input-group">
-                                                <span className="input-group-text bg-black border-secondary border-opacity-25">
-                                                    <Smartphone size={16} className="text-dim" />
-                                                </span>
-                                                <input type="text" maxLength={6} className="form-control bg-black border-secondary border-opacity-25 text-white text-center"
-                                                    placeholder="000000" style={{ letterSpacing: 6, fontSize: 18 }} disabled />
-                                            </div>
-                                        </div>
-
-                                        <button className="btn btn-gold w-100 d-flex align-items-center justify-content-center gap-2" disabled>
-                                            <Shield size={16} />
-                                            Kích hoạt 2FA
-                                            <span className="badge bg-dark ms-1 x-small">Sắp ra mắt</span>
+                                        <button className="btn btn-outline-danger align-self-start btn-sm" disabled={twoFaLoading || !disablePassword} onClick={handleDisable2FA}>
+                                            {twoFaLoading ? 'Đang xử lý...' : 'Hủy xác thực 2 lớp'}
                                         </button>
                                     </div>
-                                </div>
-                            </div>
+                                )}
 
-                            {/* Info note */}
-                            <div className="p-3 rounded-3 d-flex align-items-start gap-2"
-                                style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)' }}>
-                                <AlertCircle size={16} style={{ color: '#93c5fd', flexShrink: 0, marginTop: 2 }} />
-                                <small style={{ color: '#93c5fd' }}>
-                                    Tính năng 2FA đang được phát triển và sẽ tích hợp với Google Authenticator trong phiên bản tới.
-                                    Giao diện này được chuẩn bị sẵn để kết nối API TOTP trong tương lai.
-                                </small>
+                                {!profile.is2FAEnabled && twoFaSetup && (
+                                    <>
+                                        {/* Steps */}
+                                        <div className="d-flex flex-column gap-3 mb-4">
+                                            {[
+                                                { step: '1', title: 'Tải ứng dụng', desc: 'Tải Google Authenticator từ App Store hoặc Google Play', icon: '📱' },
+                                                { step: '2', title: 'Quét mã QR', desc: 'Mở ứng dụng và quét mã QR bên dưới để liên kết tài khoản', icon: '📷' },
+                                                { step: '3', title: 'Nhập mã xác nhận', desc: 'Nhập mã 6 chữ số từ ứng dụng để hoàn tất kích hoạt', icon: '✅' },
+                                            ].map(({ step, title, desc, icon }) => (
+                                                <div key={step} className="d-flex align-items-start gap-3 p-3 rounded-3"
+                                                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                                    <div className="d-flex align-items-center justify-content-center rounded-circle fw-bold"
+                                                        style={{ width: 32, height: 32, background: 'rgba(212,175,55,0.2)', color: '#D4AF37', fontSize: 13, flexShrink: 0 }}>
+                                                        {step}
+                                                    </div>
+                                                    <div>
+                                                        <div className="fw-semibold text-white small">{icon} {title}</div>
+                                                        <div className="text-dim x-small mt-1">{desc}</div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <div className="d-flex gap-4 align-items-start flex-wrap">
+                                            {/* QR Code Container */}
+                                            <div className="text-center">
+                                                <div className="d-flex align-items-center justify-content-center bg-white rounded-3 p-2 mb-2"
+                                                    style={{ width: 140, height: 140, display: 'inline-flex' }}>
+                                                    <QRCodeSVG value={twoFaSetup.qrUrl} size={124} level="M" />
+                                                </div>
+                                                <div className="x-small text-dim">Quét bằng Google Authenticator</div>
+                                            </div>
+
+                                            <div className="flex-grow-1" style={{ minWidth: 200 }}>
+                                                <div className="mb-3">
+                                                    <label className="text-dim x-small text-uppercase mb-1">Hoặc nhập mã gốc (Secret Key)</label>
+                                                    <div className="d-flex align-items-center gap-2 p-2 rounded-3"
+                                                        style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', fontFamily: 'monospace' }}>
+                                                        <span className="text-gold fw-bold text-center ms-2">{twoFaSetup.secret}</span>
+                                                        <button className="btn btn-link text-dim ms-auto p-0" title="Sao chép"
+                                                            onClick={(e) => {
+                                                                navigator.clipboard.writeText(twoFaSetup.secret);
+                                                                const el = e.currentTarget; el.style.color = '#10b981'; setTimeout(() => el.style.color = '', 1000);
+                                                            }}>
+                                                            <Copy size={16} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                <div className="mb-3">
+                                                    <label className="text-dim x-small text-uppercase mb-1">Nhập mã xác nhận (6 chữ số)</label>
+                                                    <div className="input-group">
+                                                        <span className="input-group-text bg-black border-secondary border-opacity-25">
+                                                            <Smartphone size={16} className="text-dim" />
+                                                        </span>
+                                                        <input type="text" maxLength={6} className="form-control bg-black border-secondary border-opacity-25 text-white fs-5 fw-bold tracking-widest text-center"
+                                                            placeholder="000000" style={{ letterSpacing: 8 }}
+                                                            value={twoFaCode} onChange={e => setTwoFaCode(e.target.value.replace(/\D/g, ''))} />
+                                                    </div>
+                                                </div>
+
+                                                <button className="btn btn-gold w-100 d-flex align-items-center justify-content-center gap-2"
+                                                    disabled={twoFaLoading || twoFaCode.length < 6} onClick={handleVerify2FA}>
+                                                    {twoFaLoading ? <span className="spinner-border spinner-border-sm" /> : <Shield size={16} />}
+                                                    Xác nhận & Kích hoạt 2FA
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         </div>
                     )}
@@ -477,14 +560,15 @@ const ProfileSettings = ({ user }) => {
                                         { label: 'Bảo vệ mật khẩu', value: 'Argon2id (Memory-Hard Hash)' },
                                         { label: 'Xác thực phiên', value: 'JSON Web Token (JWT)' },
                                         { label: 'Hashing mù (Blind Index)', value: 'SHA-256 HMAC' },
+                                        { label: 'Xác thực 2 lớp (2FA)', value: profile.is2FAEnabled ? 'Đã kích hoạt' : 'Chưa kích hoạt', highlight: !profile.is2FAEnabled },
                                         { label: 'Truyền tải', value: 'HTTPS / TLS 1.3' },
                                         { label: 'Chính sách mật khẩu', value: 'Min 8 ký tự + Chữ hoa + Ký tự đặc biệt' },
-                                    ].map(({ label, value }) => (
+                                    ].map(({ label, value, highlight }) => (
                                         <div key={label} className="d-flex align-items-center justify-content-between py-2 border-bottom border-light border-opacity-5">
                                             <span className="text-dim small">{label}</span>
                                             <div className="d-flex align-items-center gap-2">
-                                                <span className="text-white fw-semibold x-small">{value}</span>
-                                                <CheckCircle size={14} className="text-success" />
+                                                <span className={`fw-semibold x-small ${highlight ? 'text-warning' : 'text-white'}`}>{value}</span>
+                                                {highlight ? <AlertCircle size={14} className="text-warning" /> : <CheckCircle size={14} className="text-success" />}
                                             </div>
                                         </div>
                                     ))}

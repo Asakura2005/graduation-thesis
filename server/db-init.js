@@ -46,7 +46,9 @@ async function initDatabase() {
                 email NVARCHAR(MAX) NOT NULL,
                 email_hash NVARCHAR(64) NOT NULL,
                 phone NVARCHAR(MAX) NULL,
-                role NVARCHAR(MAX) NOT NULL
+                role NVARCHAR(MAX) NOT NULL,
+                two_fa_secret NVARCHAR(MAX) NULL,
+                is_two_fa_enabled BIT DEFAULT 0
             );
             CREATE INDEX IX_system_users_email_hash ON system_users(email_hash);
             CREATE INDEX IX_system_users_username_hash ON system_users(username_hash);

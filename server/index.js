@@ -7,6 +7,8 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const argon2 = require('argon2');
 const { encrypt, decrypt, hashData } = require('./EncryptionService');
+const speakeasy = require('speakeasy');
+const QRCode = require('qrcode');
 
 const app = express();
 app.use(cors());
@@ -279,11 +281,51 @@ app.post('/api/auth/login', async (req, res) => {
         try { decryptedRole = decrypt(user.role) || user.role; } catch (e) { }
         try { decryptedUsername = decrypt(user.username) || user.username; } catch (e) { }
 
+        // 2FA Check
+        if (user.is_two_fa_enabled) {
+            const tempToken = jwt.sign({ id: user.user_id, role: decryptedRole, username: decryptedUsername, pending2FA: true }, process.env.JWT_SECRET || 'secret', { expiresIn: '5m' });
+            return res.json({ requires2FA: true, tempToken });
+        }
+
         const token = jwt.sign({ id: user.user_id, role: decryptedRole, username: decryptedUsername }, process.env.JWT_SECRET || 'secret');
 
         await logAudit(user.user_id, 'USER_LOGIN', { username: decryptedUsername });
         res.json({ token, role: decryptedRole, username: decryptedUsername });
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 1.1 Verify 2FA for Login
+app.post('/api/auth/verify-2fa', async (req, res) => {
+    const { tempToken, token } = req.body;
+    try {
+        if (!tempToken || !token) return res.status(400).json({ error: 'Missing tokens' });
+
+        const decoded = jwt.verify(tempToken, process.env.JWT_SECRET || 'secret');
+        if (!decoded.pending2FA) return res.status(400).json({ error: 'Invalid token type' });
+
+        const pool = await connectDB();
+        const result = await pool.request()
+            .input('id', sql.UniqueIdentifier, decoded.id)
+            .query("SELECT two_fa_secret FROM system_users WHERE user_id = @id");
+
+        const user = result.recordset[0];
+        if (!user || !user.two_fa_secret) return res.status(400).json({ error: '2FA not setup' });
+
+        // Decrypt the secret from the DB
+        let decryptedSecret = '';
+        try { decryptedSecret = decrypt(user.two_fa_secret); }
+        catch (e) { decryptedSecret = user.two_fa_secret; } // Fallback for old unencrypted secrets
+
+        console.log(`[2FA Login] User: ${user.username}, Received: ${token}, Expected: ${speakeasy.totp({ secret: decryptedSecret, encoding: 'base32' })}`);
+        const isValid = speakeasy.totp.verify({ secret: decryptedSecret, encoding: 'base32', token: token, window: 4 });
+
+        if (!isValid) return res.status(401).json({ error: 'Mã xác thực không hợp lệ. Hãy kiểm tra lại Google Authenticator.' });
+
+        const finalToken = jwt.sign({ id: decoded.id, role: decoded.role, username: decoded.username }, process.env.JWT_SECRET || 'secret');
+        await logAudit(decoded.id, 'USER_LOGIN_2FA', { username: decoded.username });
+
+        res.json({ token: finalToken, role: decoded.role, username: decoded.username });
+    } catch (err) { res.status(401).json({ error: 'Token expired or invalid' }); }
 });
 
 app.post('/api/auth/register', async (req, res) => {
@@ -350,7 +392,14 @@ app.get('/api/auth/me/profile', authenticateToken, async (req, res) => {
         try { phone = decrypt(user.phone) || user.phone; } catch (e) { }
         try { role = decrypt(user.role) || user.role; } catch (e) { }
 
-        res.json({ user_id: user.user_id, username, full_name: fullName, email, phone: phone || '', role });
+        res.json({
+            user_id: user.user_id,
+            username,
+            full_name: fullName,
+            email, phone: phone || '',
+            role,
+            is2FAEnabled: !!user.is_two_fa_enabled
+        });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -407,6 +456,74 @@ app.put('/api/auth/me/password', authenticateToken, async (req, res) => {
 
         await logAudit(req.user.id, 'CHANGE_PASSWORD', { userId: req.user.id });
         res.json({ message: 'Đổi mật khẩu thành công' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- 2FA Setup Routes ---
+app.get('/api/auth/2fa/generate', authenticateToken, async (req, res) => {
+    try {
+        const pool = await connectDB();
+        const userRes = await pool.request().input('id', sql.UniqueIdentifier, req.user.id).query("SELECT username, email FROM system_users WHERE user_id = @id");
+        if (!userRes.recordset.length) return res.status(404).json({ error: 'User not found' });
+
+        // Decrypt email for the app identifier
+        let email = '';
+        try { email = decrypt(userRes.recordset[0].email); } catch (e) { email = 'user@securechain.com'; }
+
+        const secretInfo = speakeasy.generateSecret({ name: `SecureChain (${email})` });
+
+        // Return both for the UI to display the QR code and the manual secret text
+        res.json({ secret: secretInfo.base32, qrUrl: secretInfo.otpauth_url });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/auth/2fa/verify-setup', authenticateToken, async (req, res) => {
+    const { token, secret } = req.body;
+    try {
+        console.log(`[2FA Verification] Received Token: ${token}, Secret: ${secret}`);
+        // Calculate the current expected token for debugging
+        const expectedToken = speakeasy.totp({ secret: secret, encoding: 'base32' });
+        console.log(`[2FA Verification] Expected Token right now: ${expectedToken}`);
+
+        // window: 4 allows a 2-minute margin of error (pre/post 4*30s)
+        const isValid = speakeasy.totp.verify({ secret: secret, encoding: 'base32', token: token, window: 4 });
+
+        if (!isValid) {
+            console.error('[2FA Verification] Failed. Token rejected.');
+            return res.status(400).json({ error: 'Mã xác thực không hợp lệ. Vui lòng thử lại.' });
+        }
+
+        const encryptedSecret = encrypt(secret);
+
+        const pool = await connectDB();
+        await pool.request()
+            .input('secret', sql.NVarChar, encryptedSecret)
+            .input('id', sql.UniqueIdentifier, req.user.id)
+            .query("UPDATE system_users SET two_fa_secret = @secret, is_two_fa_enabled = 1 WHERE user_id = @id");
+
+        await logAudit(req.user.id, 'ENABLE_2FA', { status: 'Enabled' });
+        res.json({ message: 'Xác thực 2 lớp đã được kích hoạt thành công' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/auth/2fa/disable', authenticateToken, async (req, res) => {
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ error: 'Vui lòng nhập mật khẩu để xác nhận' });
+    try {
+        const pool = await connectDB();
+        const result = await pool.request()
+            .input('id', sql.UniqueIdentifier, req.user.id)
+            .query("SELECT password_hash FROM system_users WHERE user_id = @id");
+
+        const isMatch = await argon2.verify(result.recordset[0].password_hash, password);
+        if (!isMatch) return res.status(401).json({ error: 'Mật khẩu không đúng' });
+
+        await pool.request()
+            .input('id', sql.UniqueIdentifier, req.user.id)
+            .query("UPDATE system_users SET two_fa_secret = NULL, is_two_fa_enabled = 0 WHERE user_id = @id");
+
+        await logAudit(req.user.id, 'DISABLE_2FA', { status: 'Disabled' });
+        res.json({ message: 'Đã tắt xác thực 2 lớp' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
