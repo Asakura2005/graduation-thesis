@@ -37,15 +37,17 @@ async function initDatabase() {
         await pool.request().query(`
             CREATE TABLE system_users (
                 user_id INT IDENTITY(1,1) PRIMARY KEY,
-                username NVARCHAR(50) NOT NULL UNIQUE,
+                username NVARCHAR(MAX) NOT NULL,
+                username_hash NVARCHAR(64) NOT NULL UNIQUE,
                 password_hash NVARCHAR(MAX) NOT NULL,
                 full_name NVARCHAR(MAX) NOT NULL,
                 email NVARCHAR(MAX) NOT NULL,
                 email_hash NVARCHAR(64) NOT NULL,
                 phone NVARCHAR(MAX) NULL,
-                role NVARCHAR(20) NOT NULL
+                role NVARCHAR(MAX) NOT NULL
             );
             CREATE INDEX IX_system_users_email_hash ON system_users(email_hash);
+            CREATE INDEX IX_system_users_username_hash ON system_users(username_hash);
         `);
 
         // B. PARTNERS & SUPPLY CHAIN
@@ -66,9 +68,10 @@ async function initDatabase() {
         await pool.request().query(`
             CREATE TABLE supply_items (
                 item_id INT IDENTITY(1,1) PRIMARY KEY,
-                item_name NVARCHAR(255) NOT NULL,
+                item_name NVARCHAR(MAX) NOT NULL,
                 unit_cost NVARCHAR(MAX) NOT NULL,
-                category NVARCHAR(100)
+                category NVARCHAR(MAX),
+                quantity_in_stock NVARCHAR(MAX) DEFAULT '0'
             );
         `);
 
@@ -93,7 +96,9 @@ async function initDatabase() {
                 detail_id INT IDENTITY(1,1) PRIMARY KEY,
                 shipment_id INT NOT NULL,
                 item_id INT NOT NULL,
-                quantity INT NOT NULL,
+                stock_id INT NULL,
+                quantity NVARCHAR(MAX) NOT NULL,
+                subtotal NVARCHAR(MAX) NOT NULL,
                 batch_number NVARCHAR(MAX) NOT NULL,
                 CONSTRAINT FK_shipment_details_shipment FOREIGN KEY (shipment_id) REFERENCES shipments(shipment_id),
                 CONSTRAINT FK_shipment_details_item FOREIGN KEY (item_id) REFERENCES supply_items(item_id)
@@ -104,9 +109,9 @@ async function initDatabase() {
         await pool.request().query(`
             CREATE TABLE audit_logs (
                 log_id INT IDENTITY(1,1) PRIMARY KEY,
-                action NVARCHAR(100) NOT NULL,
+                action NVARCHAR(MAX) NOT NULL,
                 user_id INT NOT NULL,
-                [timestamp] DATETIME NOT NULL DEFAULT GETDATE(),
+                [timestamp] NVARCHAR(MAX) NOT NULL,
                 details NVARCHAR(MAX) NOT NULL,
                 CONSTRAINT FK_audit_logs_user FOREIGN KEY (user_id) REFERENCES system_users(user_id)
             );
@@ -116,17 +121,19 @@ async function initDatabase() {
 
         // Seeding initial Admin
         console.log("Seeding initial data...");
+        const adminUser = 'admin';
         const passHash = await argon2.hash("admin123");
         const adminEmail = "admin@securechain.com";
 
         await pool.request()
-            .input('u', sql.NVarChar, 'admin')
+            .input('u', sql.NVarChar, encrypt(adminUser))
+            .input('uh', sql.NVarChar, hashData(adminUser))
             .input('p', sql.NVarChar, passHash)
             .input('f', sql.NVarChar, encrypt("Administrator"))
             .input('e', sql.NVarChar, encrypt(adminEmail))
             .input('eh', sql.NVarChar, hashData(adminEmail))
-            .input('r', sql.NVarChar, 'admin')
-            .query("INSERT INTO system_users (username, password_hash, full_name, email, email_hash, role) VALUES (@u, @p, @f, @e, @eh, @r)");
+            .input('r', sql.NVarChar, encrypt('Admin'))
+            .query("INSERT INTO system_users (username, username_hash, password_hash, full_name, email, email_hash, role) VALUES (@u, @uh, @p, @f, @e, @eh, @r)");
 
         console.log("All set! Admin created (admin / admin123)");
 

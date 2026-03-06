@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const argon2 = require('argon2');
-const { encrypt, decrypt } = require('./EncryptionService');
+const { encrypt, decrypt, hashData } = require('./EncryptionService');
 
 const app = express();
 app.use(cors());
@@ -130,13 +130,16 @@ async function logAudit(userId, action, details) {
     try {
         const pool = await connectDB();
         const jsonDetails = JSON.stringify(details);
-        const encryptedDetails = encrypt(jsonDetails); // Encrypt entire JSON blob
+        const encryptedDetails = encrypt(jsonDetails);
+        const encryptedAction = encrypt(action);
+        const encryptedTimestamp = encrypt(new Date().toISOString());
 
         await pool.request()
             .input('userId', sql.UniqueIdentifier, userId)
-            .input('action', sql.NVarChar, action)
+            .input('action', sql.NVarChar, encryptedAction)
             .input('details', sql.NVarChar, encryptedDetails)
-            .query("INSERT INTO audit_logs (user_id, action, details) VALUES (@userId, @action, @details)");
+            .input('timestamp', sql.NVarChar, encryptedTimestamp)
+            .query("INSERT INTO audit_logs (user_id, action, details, timestamp) VALUES (@userId, @action, @details, @timestamp)");
     } catch (err) { console.error('Audit Log Error:', err.message); }
 }
 
@@ -199,27 +202,31 @@ const authorizeRole = (roles) => {
 app.get('/api/audit-logs', authenticateToken, async (req, res) => {
     try {
         const pool = await connectDB();
-        const result = await pool.request().query(`
-            SELECT a.*, u.username 
-            FROM audit_logs a
-            LEFT JOIN system_users u ON a.user_id = u.user_id 
-            ORDER BY a.timestamp DESC
-        `);
+        const result = await pool.request().query("SELECT a.*, u.username FROM audit_logs a LEFT JOIN system_users u ON a.user_id = u.user_id");
 
         const logs = result.recordset.map(log => {
-            // Decrypt details
+            let uName = log.username;
+            let act = log.action;
+            let time = log.timestamp;
             let details = log.details;
+
+            try { uName = decrypt(log.username) || log.username; } catch (e) { }
+            try { act = decrypt(log.action) || log.action; } catch (e) { }
+            try { time = decrypt(log.timestamp) || log.timestamp; } catch (e) { }
+
             try {
                 const decryptedStr = decrypt(log.details);
                 if (decryptedStr) details = JSON.parse(decryptedStr);
-                else details = JSON.parse(log.details); // Fallback if not encrypted (legacy)
+                else details = JSON.parse(log.details);
             } catch (e) {
-                // If parse fails (maybe it was plaintext object string?), try basic parse
                 try { details = JSON.parse(log.details); } catch (ex) { details = log.details; }
             }
 
-            return { ...log, details };
+            return { ...log, username: uName, action: act, timestamp: time, details };
         });
+
+        // Sort in memory by timestamp DESC
+        logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
         res.json(logs);
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -231,16 +238,15 @@ app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
     try {
         const pool = await connectDB();
+        const usernameHash = hashData(username);
 
-        // Query system_users using the correct column names from db-init.js
         const result = await pool.request()
-            .input('username', sql.NVarChar, username)
-            .query("SELECT * FROM system_users WHERE username = @username");
+            .input('hash', sql.NVarChar, usernameHash)
+            .query("SELECT * FROM system_users WHERE username_hash = @hash");
 
         const user = result.recordset[0];
         if (!user) return res.status(401).json({ error: 'User not found' });
 
-        // Verify Password with Argon2 (secure hashing)
         let isMatch = false;
         try {
             if (await argon2.verify(user.password_hash, password)) {
@@ -253,13 +259,15 @@ app.post('/api/auth/login', async (req, res) => {
 
         if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
 
-        // Decrypt full name if needed for display (using imported decrypt from EncryptionService)
-        // const displayName = decrypt(user.full_name); 
+        let decryptedRole = user.role;
+        let decryptedUsername = user.username;
+        try { decryptedRole = decrypt(user.role) || user.role; } catch (e) { }
+        try { decryptedUsername = decrypt(user.username) || user.username; } catch (e) { }
 
-        const token = jwt.sign({ id: user.user_id, role: user.role, username: user.username }, process.env.JWT_SECRET || 'secret');
-        // LOG LOGIN
-        await logAudit(user.user_id, 'USER_LOGIN', { username: user.username });
-        res.json({ token, role: user.role, username: user.username });
+        const token = jwt.sign({ id: user.user_id, role: decryptedRole, username: decryptedUsername }, process.env.JWT_SECRET || 'secret');
+
+        await logAudit(user.user_id, 'USER_LOGIN', { username: decryptedUsername });
+        res.json({ token, role: decryptedRole, username: decryptedUsername });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -268,32 +276,36 @@ app.post('/api/auth/register', async (req, res) => {
     try {
         const pool = await connectDB();
         const emailHash = hashData(email);
+        const usernameHash = hashData(username);
 
         const checkRes = await pool.request()
-            .input('u', sql.NVarChar, username)
+            .input('u', sql.NVarChar, usernameHash)
             .input('e', sql.NVarChar, emailHash)
-            .query("SELECT * FROM system_users WHERE username = @u OR email_hash = @e");
+            .query("SELECT * FROM system_users WHERE username_hash = @u OR email_hash = @e");
 
         if (checkRes.recordset.length > 0) {
             return res.status(400).json({ error: 'Username or email already exists' });
         }
 
         const passHash = await argon2.hash(password);
+        const encUsername = encrypt(username);
+        const encRole = encrypt(role || 'Staff');
         const encName = encrypt(fullName);
         const encEmail = encrypt(email);
         const encPhone = encrypt(phone || '');
 
         const r = await pool.request()
-            .input('u', sql.NVarChar, username)
+            .input('u', sql.NVarChar, encUsername)
+            .input('uh', sql.NVarChar, usernameHash)
             .input('p', sql.NVarChar, passHash)
             .input('f', sql.NVarChar, encName)
             .input('e', sql.NVarChar, encEmail)
             .input('eh', sql.NVarChar, emailHash)
             .input('ph', sql.NVarChar, encPhone)
-            .input('r', sql.NVarChar, role || 'Staff')
-            .query(`INSERT INTO system_users (username, password_hash, full_name, email, email_hash, phone, role) 
+            .input('r', sql.NVarChar, encRole)
+            .query(`INSERT INTO system_users (username, username_hash, password_hash, full_name, email, email_hash, phone, role)
                     OUTPUT INSERTED.user_id
-                    VALUES (@u, @p, @f, @e, @eh, @ph, @r)`);
+                    VALUES (@u, @uh, @p, @f, @e, @eh, @ph, @r)`);
 
         await logAudit(r.recordset[0].user_id, 'USER_REGISTER', { username });
         res.status(201).json({ message: 'User registered' });
@@ -772,10 +784,26 @@ app.get('/api/shipments/:id/items', authenticateToken, async (req, res) => {
             let name = item.item_name;
             let cat = item.category;
             let wName = item.warehouse_name;
+            let qty = item.quantity;
+            let sub = item.subtotal;
+            let batch = item.batch_number;
+
             try { name = decrypt(item.item_name) || item.item_name; } catch (e) { }
             try { cat = decrypt(item.category) || item.category; } catch (e) { }
             try { wName = decrypt(item.warehouse_name) || item.warehouse_name; } catch (e) { }
-            return { ...item, item_name: name, category: cat, warehouse_name: wName || 'Unknown Warehouse' };
+            try { qty = decrypt(item.quantity) || item.quantity; } catch (e) { }
+            try { sub = decrypt(item.subtotal) || item.subtotal; } catch (e) { }
+            try { batch = decrypt(item.batch_number) || item.batch_number; } catch (e) { }
+
+            return {
+                ...item,
+                item_name: name,
+                category: cat,
+                warehouse_name: wName || 'Unknown Warehouse',
+                quantity: qty,
+                subtotal: sub,
+                batch_number: batch
+            };
         });
 
         res.json(decryptedItems);
@@ -899,9 +927,9 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Staff']),
                     .input('shipId', sql.UniqueIdentifier, shipmentId)
                     .input('itemId', sql.UniqueIdentifier, item.itemId)
                     .input('stockId', sql.UniqueIdentifier, item.stockId)
-                    .input('qty', sql.Int, reqQty)
-                    .input('sub', sql.Decimal(18, 2), sub)
-                    .input('batch', sql.NVarChar, batchNo)
+                    .input('qty', sql.NVarChar, encrypt(reqQty.toString()))
+                    .input('sub', sql.NVarChar, encrypt(sub.toString()))
+                    .input('batch', sql.NVarChar, encrypt(batchNo))
                     .query("INSERT INTO shipment_details (shipment_id, item_id, stock_id, quantity, subtotal, batch_number) VALUES (@shipId, @itemId, @stockId, @qty, @sub, @batch)");
             }
         }
@@ -972,7 +1000,10 @@ app.put('/api/shipments/:id', authenticateToken, authorizeRole(['Admin']), async
                     let currentQty = 0;
                     try { currentQty = parseInt(decrypt(stockRes.recordset[0].quantity)); } catch (e) { currentQty = parseInt(stockRes.recordset[0].quantity); }
 
-                    const restoredQty = currentQty + oldItem.quantity;
+                    let oldQty = 0;
+                    try { oldQty = parseInt(decrypt(oldItem.quantity)); } catch (e) { oldQty = parseInt(oldItem.quantity); }
+
+                    const restoredQty = currentQty + oldQty;
                     await transaction.request()
                         .input('qty', sql.NVarChar, encrypt(restoredQty.toString()))
                         .input('sId', sql.UniqueIdentifier, oldItem.stock_id)
@@ -1025,15 +1056,19 @@ app.put('/api/shipments/:id', authenticateToken, authorizeRole(['Admin']), async
                     .query("UPDATE inventory_stock SET quantity = @qty WHERE stock_id = @sId");
 
                 const sub = (item.unitValue || 0) * reqQty;
-                const batchNo = oldItemsRes.recordset[0]?.batch_number || ('BATCH-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''));
+                let batchNo = ('BATCH-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''));
+                try {
+                    const oldBatch = decrypt(oldItemsRes.recordset[0]?.batch_number);
+                    if (oldBatch) batchNo = oldBatch;
+                } catch (e) { }
 
                 await transaction.request()
                     .input('shipId', sql.UniqueIdentifier, req.params.id)
                     .input('itemId', sql.UniqueIdentifier, item.itemId)
                     .input('stockId', sql.UniqueIdentifier, item.stockId)
-                    .input('qty', sql.Int, reqQty)
-                    .input('sub', sql.Decimal(18, 2), sub)
-                    .input('batch', sql.NVarChar, batchNo)
+                    .input('qty', sql.NVarChar, encrypt(reqQty.toString()))
+                    .input('sub', sql.NVarChar, encrypt(sub.toString()))
+                    .input('batch', sql.NVarChar, encrypt(batchNo))
                     .query("INSERT INTO shipment_details (shipment_id, item_id, stock_id, quantity, subtotal, batch_number) VALUES (@shipId, @itemId, @stockId, @qty, @sub, @batch)");
             }
         }
