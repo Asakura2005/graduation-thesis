@@ -11,6 +11,8 @@ const ProfileSettings = ({ user }) => {
     const [profile, setProfile] = useState({ full_name: '', email: '', phone: '', username: '', role: '' });
     const [profileLoading, setProfileLoading] = useState(true);
     const [profileSaving, setProfileSaving] = useState(false);
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [showConfirmPw, setShowConfirmPw] = useState(false);
 
     const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
     const [showPw, setShowPw] = useState({ current: false, newPw: false, confirm: false });
@@ -48,14 +50,17 @@ const ProfileSettings = ({ user }) => {
     const handleProfileSave = async (e) => {
         e.preventDefault();
         if (!profile.full_name || !profile.email) return showToast('error', 'Họ tên và Email là bắt buộc');
+        if (!confirmPassword) return showToast('error', 'Vui lòng nhập mật khẩu để xác nhận');
         setProfileSaving(true);
         try {
             await axios.put('http://localhost:5001/api/auth/me/profile', {
                 fullName: profile.full_name,
                 email: profile.email,
-                phone: profile.phone
+                phone: profile.phone,
+                password: confirmPassword
             }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
             showToast('success', '✅ Cập nhật hồ sơ thành công!');
+            setConfirmPassword('');
         } catch (e) {
             showToast('error', e.response?.data?.error || 'Lỗi khi cập nhật hồ sơ');
         } finally { setProfileSaving(false); }
@@ -291,6 +296,20 @@ const ProfileSettings = ({ user }) => {
                                                     placeholder="0xxx xxx xxx" value={profile.phone}
                                                     onChange={e => setProfile(p => ({ ...p, phone: e.target.value }))} />
                                             </div>
+                                        </div>
+                                        <div className="col-12">
+                                            <label className="text-warning x-small text-uppercase mb-1 fw-bold">Xác nhận bằng mật khẩu hiện tại *</label>
+                                            <div className="input-group">
+                                                <span className="input-group-text bg-black border-warning border-opacity-25"><Lock size={16} className="text-warning" /></span>
+                                                <input type={showConfirmPw ? "text" : "password"} className="form-control bg-black border-warning border-opacity-25 text-white"
+                                                    placeholder="Nhập mật khẩu của bạn để lưu thay đổi" value={confirmPassword}
+                                                    onChange={e => setConfirmPassword(e.target.value)} required />
+                                                <button type="button" className="input-group-text bg-black border-warning border-opacity-25 text-dim"
+                                                    onClick={() => setShowConfirmPw(!showConfirmPw)}>
+                                                    {showConfirmPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                                                </button>
+                                            </div>
+                                            <small className="text-dim x-small mt-1 d-block opacity-75">Bắt buộc nhập mật khẩu để đảm bảo bạn là chính chủ của tài khoản này.</small>
                                         </div>
                                         <div className="col-12 d-flex justify-content-end pt-2">
                                             <button type="submit" className="btn btn-gold d-flex align-items-center gap-2" disabled={profileSaving}>
@@ -556,13 +575,13 @@ const ProfileSettings = ({ user }) => {
                                 </h6>
                                 <div className="d-flex flex-column gap-2">
                                     {[
-                                        { label: 'Mã hóa dữ liệu', value: 'AES-256-GCM (Envelope Encryption)' },
-                                        { label: 'Bảo vệ mật khẩu', value: 'Argon2id (Memory-Hard Hash)' },
-                                        { label: 'Xác thực phiên', value: 'JSON Web Token (JWT)' },
-                                        { label: 'Hashing mù (Blind Index)', value: 'SHA-256 HMAC' },
-                                        { label: 'Xác thực 2 lớp (2FA)', value: profile.is2FAEnabled ? 'Đã kích hoạt' : 'Chưa kích hoạt', highlight: !profile.is2FAEnabled },
                                         { label: 'Truyền tải', value: 'HTTPS / TLS 1.3' },
                                         { label: 'TLS Session Resumption', value: 'Kích hoạt' },
+                                        { label: 'Xác thực phiên', value: 'JSON Web Token (JWT)' },
+                                        { label: 'Xác thực 2 lớp (2FA)', value: profile.is2FAEnabled ? 'Đã kích hoạt' : 'Chưa kích hoạt', highlight: !profile.is2FAEnabled },
+                                        { label: 'Mã hóa dữ liệu', value: 'AES-256-GCM (Envelope Encryption)' },
+                                        { label: 'Bảo vệ mật khẩu', value: 'Argon2id (Memory-Hard Hash)' },
+                                        { label: 'Hashing mù (Blind Index)', value: 'SHA-256 HMAC' },
                                         { label: 'Chính sách mật khẩu', value: 'Min 8 ký tự + Chữ hoa + Ký tự đặc biệt' },
                                     ].map(({ label, value, highlight }) => (
                                         <div key={label} className="d-flex align-items-center justify-content-between py-2 border-bottom border-light border-opacity-5">

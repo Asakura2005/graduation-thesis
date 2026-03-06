@@ -412,12 +412,24 @@ app.get('/api/auth/me/profile', authenticateToken, async (req, res) => {
 
 // Update profile
 app.put('/api/auth/me/profile', authenticateToken, async (req, res) => {
-    const { fullName, email, phone } = req.body;
+    const { fullName, email, phone, password } = req.body;
+    if (!password) return res.status(400).json({ error: 'Vui lòng nhập mật khẩu để xác nhận thay đổi' });
+
     try {
         const pool = await connectDB();
-        const emailHash = hashData(email);
 
-        // Check email collision with other users
+        // 1. Verify Password
+        const userRes = await pool.request()
+            .input('id', sql.UniqueIdentifier, req.user.id)
+            .query('SELECT password_hash FROM system_users WHERE user_id = @id');
+
+        if (!userRes.recordset.length) return res.status(404).json({ error: 'User not found' });
+
+        const isMatch = await argon2.verify(userRes.recordset[0].password_hash, password);
+        if (!isMatch) return res.status(401).json({ error: 'Mật khẩu xác nhận không chính xác' });
+
+        // 2. Check email collision with other users
+        const emailHash = hashData(email);
         const check = await pool.request()
             .input('eh', sql.NVarChar, emailHash)
             .input('id', sql.UniqueIdentifier, req.user.id)
