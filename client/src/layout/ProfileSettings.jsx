@@ -562,6 +562,7 @@ const ProfileSettings = ({ user }) => {
                                         { label: 'Hashing mù (Blind Index)', value: 'SHA-256 HMAC' },
                                         { label: 'Xác thực 2 lớp (2FA)', value: profile.is2FAEnabled ? 'Đã kích hoạt' : 'Chưa kích hoạt', highlight: !profile.is2FAEnabled },
                                         { label: 'Truyền tải', value: 'HTTPS / TLS 1.3' },
+                                        { label: 'TLS Session Resumption', value: 'Kích hoạt' },
                                         { label: 'Chính sách mật khẩu', value: 'Min 8 ký tự + Chữ hoa + Ký tự đặc biệt' },
                                     ].map(({ label, value, highlight }) => (
                                         <div key={label} className="d-flex align-items-center justify-content-between py-2 border-bottom border-light border-opacity-5">
