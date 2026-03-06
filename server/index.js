@@ -330,6 +330,13 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
 
 app.post('/api/auth/register', async (req, res) => {
     const { username, password, fullName, email, phone, role } = req.body;
+
+    // Password complexity validation
+    const passwordRegex = /^(?=.*[A-Z])(?=.*[!@#$&*.,?<>^%\-_\=+~]).{8,}$/;
+    if (!passwordRegex.test(password)) {
+        return res.status(400).json({ error: 'Mật khẩu phải chứa ít nhất 8 ký tự, 1 chữ hoa và 1 ký tự đặc biệt' });
+    }
+
     try {
         const pool = await connectDB();
         const emailHash = hashData(email);
