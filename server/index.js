@@ -891,9 +891,9 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Staff']),
             .input('val', sql.NVarChar, encTotalVal)
             .input('status', sql.NVarChar, encrypt('Pending'))
             .query(`
-                INSERT INTO shipments (tracking_number, logistics_id, shipment_date, origin_address, destination_address, total_value, status)
+                INSERT INTO shipments (shipment_id, tracking_number, logistics_id, shipment_date, origin_address, destination_address, total_value, status)
                 OUTPUT INSERTED.shipment_id
-                VALUES (@track, @log, @date, @origin, @dest, @val, @status)
+                VALUES (NEWID(), @track, @log, @date, @origin, @dest, @val, @status)
             `);
 
         const shipmentId = shipRes.recordset[0].shipment_id;
