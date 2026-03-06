@@ -1,0 +1,397 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+
+:root {
+  /* Professional Logistics Dark Mode Palette */
+  --primary: #f59e0b;
+  /* Amber 500 - Professional Gold */
+  --primary-hover: #d97706;
+  --primary-light: rgba(245, 158, 11, 0.1);
+
+  --secondary: #3b82f6;
+  /* Blue 500 */
+
+  --bg-body: #0f172a;
+  /* Slate 900 */
+  --bg-sidebar: #1e293b;
+  /* Slate 800 */
+  --bg-card: #1e293b;
+  /* Slate 800 */
+  --bg-hover: #334155;
+  /* Slate 700 */
+
+  --text-white: #f8fafc;
+  /* Slate 50 */
+  --text-light: #e2e8f0;
+  /* Slate 200 */
+  --text-dim: #94a3b8;
+  /* Slate 400 */
+
+  --border-color: #334155;
+  /* Slate 700 */
+}
+
+body {
+  background-color: var(--bg-body) !important;
+  color: var(--text-light) !important;
+  font-family: "Inter", sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Typography */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--text-white);
+  font-weight: 700;
+}
+
+/* Professional Cards (Solid over Glass) */
+.glass {
+  background-color: var(--bg-card) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 12px;
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  backdrop-filter: none !important;
+  /* Remove blur for solid look */
+}
+
+/* Input Fields */
+.form-control,
+.form-select {
+  background-color: #0f172a !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-white) !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2) !important;
+}
+
+.form-control::placeholder {
+  color: var(--text-dim) !important;
+  opacity: 0.7;
+}
+
+.input-group-text {
+  background-color: var(--bg-hover) !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--primary) !important;
+}
+
+/* Buttons */
+.btn-gold {
+  background-color: var(--primary) !important;
+  color: #0f172a !important;
+  border: none !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+  padding: 10px 20px !important;
+  transition: all 0.2s ease;
+}
+
+.btn-gold:hover {
+  background-color: var(--primary-hover) !important;
+  transform: translateY(-1px);
+}
+
+.btn-outline-gold {
+  background: transparent !important;
+  border: 1px solid var(--primary) !important;
+  color: var(--primary) !important;
+  border-radius: 8px !important;
+  transition: all 0.2s;
+}
+
+.btn-outline-gold:hover {
+  background-color: var(--primary-light) !important;
+}
+
+/* Tables - Fix White Background Issue */
+.table {
+  margin-bottom: 0;
+  color: var(--text-light) !important;
+  --bs-table-bg: transparent !important;
+  /* Important fix */
+  --bs-table-hover-bg: var(--bg-hover) !important;
+}
+
+.table thead th {
+  background-color: #0f172a !important;
+  color: var(--text-dim) !important;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 16px;
+  border-bottom: 2px solid var(--border-color) !important;
+}
+
+.table tbody td {
+  padding: 16px;
+  border-bottom: 1px solid var(--border-color) !important;
+  color: var(--text-light) !important;
+  vertical-align: middle;
+}
+
+.table-hover tbody tr:hover td {
+  background-color: var(--bg-hover) !important;
+  color: var(--text-white) !important;
+}
+
+/* Badges */
+.badge {
+  padding: 6px 12px !important;
+  border-radius: 6px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.5px;
+}
+
+/* Utility Classes */
+.text-gold {
+  color: var(--primary) !important;
+}
+
+.text-dim {
+  color: var(--text-dim) !important;
+}
+
+.bg-sidebar {
+  background-color: var(--bg-sidebar) !important;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-body);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
+.kpi-mini-bars {
+  display: flex;
+  gap: 4px;
+  align-items: flex-end;
+  padding-bottom: 4px;
+}
+.kpi-mini-bars span {
+  width: 6px;
+  border-radius: 6px;
+  background: rgba(255, 178, 74, 0.85);
+  opacity: 0.95;
+}
+
+.search-input {
+  padding-left: 44px !important; /* ép chắc chắn không bị đè */
+}
+
+.search-icon {
+  pointer-events: none;
+}
+
+.sidebar button:hover {
+  transform: translateX(4px);
+  transition: 0.2s;
+}
+
+.table tbody tr {
+  transition: all 0.2s;
+}
+
+.table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+  transform: translateX(4px);
+}
+
+.table-hover tbody tr {
+  transition: all 0.15s ease;
+}
+
+.table-hover tbody tr:hover {
+  background: rgba(255, 180, 0, 0.05);
+  transform: translateX(3px);
+}
+
+.btn-dark,
+.btn-danger {
+  transition: all 0.2s ease;
+}
+
+.btn-dark:hover,
+.btn-danger:hover {
+  transform: translateY(-2px);
+}
+
+input:focus,
+select:focus {
+  border-color: #ffb400 !important;
+  box-shadow: 0 0 0 0.2rem rgba(255, 180, 0, 0.15) !important;
+}
+\.btn-gold {
+  transition: all 0.2s ease;
+}
+
+.btn-gold:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 25px rgba(255, 180, 0, 0.25);
+}
+
+/* warehouse cards */
+
+.warehouse-card {
+  transition: all 0.25s ease;
+}
+
+.warehouse-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+}
+
+.warehouse-icon {
+  background: rgba(255, 193, 7, 0.08);
+  padding: 18px;
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+.warehouse-card:hover .warehouse-icon {
+  transform: scale(1.1);
+  background: rgba(255, 193, 7, 0.15);
+}
+
+.warehouse-type {
+  background: rgba(0, 123, 255, 0.15);
+  border: 1px solid rgba(0, 123, 255, 0.3);
+  color: #7dd3fc;
+}
+
+.warehouse-bg-icon {
+  transform: rotate(-15deg);
+}
+
+/*Danh mục hàng hóa (Master Data)*/
+.kpi-card {
+  height: 110px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.kpi-label {
+  height: 32px; /* FIX chiều cao label */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: #8aa4c4;
+}
+
+.kpi-value {
+  font-size: 28px;
+  font-weight: 700;
+  font-family: monospace;
+}
+.table-hover tbody tr {
+  transition: all 0.2s ease;
+}
+
+.table-hover tbody tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+  transform: scale(1.01);
+}
+.category-badge {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #9ecfff;
+  font-weight: 500;
+}
+.fade-in-up {
+  animation: fadeUp 0.4s ease;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* ===== audit detail badges(AuditLogViewer) ===== */
+
+.audit-detail-badge {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.2s ease;
+}
+
+.audit-detail-badge:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* detail text box */
+
+.audit-detail-box {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+/* ===== LOG KPI ===== */
+
+.log-stat-card {
+  height: 90px;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.log-stat-label {
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: #8aa4c4;
+}
+
+.log-stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  font-family: monospace;
+}
+
+/* ===== AUDIT ROW HOVER ===== */
+
+.audit-row {
+  transition: all 0.2s ease;
+}
+
+.audit-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+  transform: scale(1.01);
+}
