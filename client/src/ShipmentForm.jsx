@@ -119,6 +119,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                     unitValue: (parseFloat(selectedItem.unit_cost) * 1.2)
                 }]
             });
+            alert(`✅ Tạo vận đơn thành công!\nMã vận đơn: ${formData.trackingNumber}`);
             onSuccess();
             onSidebarClose();
         } catch (err) {
