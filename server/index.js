@@ -327,7 +327,7 @@ app.get('/api/auth/me/profile', authenticateToken, async (req, res) => {
     try {
         const pool = await connectDB();
         const result = await pool.request()
-            .input('id', sql.Int, req.user.id)
+            .input('id', sql.UniqueIdentifier, req.user.id)
             .query('SELECT * FROM system_users WHERE user_id = @id');
 
         const user = result.recordset[0];
@@ -354,8 +354,9 @@ app.put('/api/auth/me/profile', authenticateToken, async (req, res) => {
         // Check email collision with other users
         const check = await pool.request()
             .input('eh', sql.NVarChar, emailHash)
-            .input('id', sql.Int, req.user.id)
+            .input('id', sql.UniqueIdentifier, req.user.id)
             .query('SELECT user_id FROM system_users WHERE email_hash = @eh AND user_id != @id');
+
         if (check.recordset.length > 0) return res.status(400).json({ error: 'Email đã được sử dụng bởi tài khoản khác' });
 
         await pool.request()
@@ -363,7 +364,7 @@ app.put('/api/auth/me/profile', authenticateToken, async (req, res) => {
             .input('em', sql.NVarChar, encrypt(email))
             .input('eh', sql.NVarChar, emailHash)
             .input('ph', sql.NVarChar, encrypt(phone || ''))
-            .input('id', sql.Int, req.user.id)
+            .input('id', sql.UniqueIdentifier, req.user.id)
             .query('UPDATE system_users SET full_name=@fn, email=@em, email_hash=@eh, phone=@ph WHERE user_id=@id');
 
         await logAudit(req.user.id, 'UPDATE_PROFILE', { userId: req.user.id });
@@ -379,7 +380,7 @@ app.put('/api/auth/me/password', authenticateToken, async (req, res) => {
     try {
         const pool = await connectDB();
         const result = await pool.request()
-            .input('id', sql.Int, req.user.id)
+            .input('id', sql.UniqueIdentifier, req.user.id)
             .query('SELECT password_hash FROM system_users WHERE user_id = @id');
 
         const user = result.recordset[0];
@@ -391,7 +392,7 @@ app.put('/api/auth/me/password', authenticateToken, async (req, res) => {
         const newHash = await argon2.hash(newPassword);
         await pool.request()
             .input('ph', sql.NVarChar, newHash)
-            .input('id', sql.Int, req.user.id)
+            .input('id', sql.UniqueIdentifier, req.user.id)
             .query('UPDATE system_users SET password_hash = @ph WHERE user_id = @id');
 
         await logAudit(req.user.id, 'CHANGE_PASSWORD', { userId: req.user.id });
