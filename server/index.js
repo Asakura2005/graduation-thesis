@@ -212,7 +212,12 @@ app.get('/api/audit-logs', authenticateToken, async (req, res) => {
 
             try { uName = decrypt(log.username) || log.username; } catch (e) { }
             try { act = decrypt(log.action) || log.action; } catch (e) { }
-            try { time = decrypt(log.timestamp) || log.timestamp; } catch (e) { }
+            try {
+                const rawTime = decrypt(log.timestamp) || log.timestamp;
+                // Convert any date format (including SQL Server 'Mar 6 2026 1:36PM') to ISO string
+                const parsed = new Date(rawTime);
+                time = !isNaN(parsed) ? parsed.toISOString() : rawTime;
+            } catch (e) { }
 
             try {
                 const decryptedStr = decrypt(log.details);
@@ -741,6 +746,7 @@ app.get('/api/shipments', authenticateToken, async (req, res) => {
         // Decrypt Partner Names & Shipment Details
         const decryptedShipments = result.recordset.map(s => {
             let tracking = s.tracking_number, origin = s.origin_address, dest = s.destination_address, status = s.status, val = s.total_value;
+            let logName = s.logistics_name;
             try { tracking = decrypt(s.tracking_number) || s.tracking_number; } catch (e) { }
             try { origin = decrypt(s.origin_address) || s.origin_address; } catch (e) { }
             try { dest = decrypt(s.destination_address) || s.destination_address; } catch (e) { }
@@ -749,6 +755,7 @@ app.get('/api/shipments', authenticateToken, async (req, res) => {
                 if (!val || val === "NaN") val = "0";
             } catch (e) { }
             try { status = decrypt(s.status) || s.status; } catch (e) { }
+            try { logName = decrypt(s.logistics_name) || s.logistics_name; } catch (e) { }
 
             return {
                 ...s,
@@ -756,7 +763,8 @@ app.get('/api/shipments', authenticateToken, async (req, res) => {
                 origin_address: origin,
                 destination_address: dest,
                 total_value: val,
-                status: status
+                status: status,
+                logistics_name: logName || 'Unknown Logistics'
             };
         });
 
