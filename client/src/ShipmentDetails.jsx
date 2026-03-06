@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Package, MapPin, Calendar, DollarSign, Truck, CheckCircle, AlertCircle, Clock, Edit, Trash2, Save, X, Download, Search } from 'lucide-react';
+import { ArrowLeft, Package, MapPin, Calendar, DollarSign, Truck, CheckCircle, AlertCircle, Clock, Edit, Trash2, Save, X, Download, Search, Activity, User } from 'lucide-react';
 import axios from 'axios';
 import html2pdf from 'html2pdf.js';
 import { QRCodeSVG } from 'qrcode.react';
@@ -13,6 +13,9 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
     const [supplyItems, setSupplyItems] = useState([]);
     const [stockList, setStockList] = useState([]);
     const [partners, setPartners] = useState([]);
+    const [auditLogs, setAuditLogs] = useState([]);
+    const [logsLoading, setLogsLoading] = useState(true);
+
 
     const [editData, setEditData] = useState({
         originAddress: shipment.origin_address,
@@ -27,17 +30,29 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
         const fetchDetails = async () => {
             try {
                 const token = localStorage.getItem('token');
-                const [itemsRes, partnersRes, supplyItemsRes] = await Promise.all([
+                const [itemsRes, partnersRes, supplyItemsRes, logsRes] = await Promise.all([
                     axios.get(`http://localhost:5001/api/shipments/${shipment.shipment_id}/items`, {
                         headers: { Authorization: `Bearer ${token}` }
                     }),
                     axios.get('http://localhost:5001/api/partners', { headers: { Authorization: `Bearer ${token}` } }),
-                    axios.get('http://localhost:5001/api/items', { headers: { Authorization: `Bearer ${token}` } })
+                    axios.get('http://localhost:5001/api/items', { headers: { Authorization: `Bearer ${token}` } }),
+                    axios.get('http://localhost:5001/api/audit-logs', { headers: { Authorization: `Bearer ${token}` } })
                 ]);
                 setItems(itemsRes.data);
                 setPartners(partnersRes.data);
                 setSupplyItems(supplyItemsRes.data);
-            } catch (e) { console.error("Error fetching shipment items:", e); }
+
+                // Filter logs related to this shipment
+                const relevantLogs = (logsRes.data || []).filter(log =>
+                    log.details?.shipmentId === shipment.shipment_id ||
+                    log.details?.trackingNumber === shipment.tracking_number
+                );
+                setAuditLogs(relevantLogs);
+            } catch (e) {
+                console.error("Error fetching shipment details:", e);
+            } finally {
+                setLogsLoading(false);
+            }
         };
         fetchDetails();
     }, [shipment.shipment_id]);
@@ -395,6 +410,14 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                     const active = statusFlow.indexOf(shipment.status) >= index;
                                     const isCurrent = shipment.status === step;
 
+                                    // Find timestamp if active
+                                    const statusLog = active ? auditLogs.find(l =>
+                                        l.action === 'UPDATE_SHIPMENT_STATUS' && l.details?.status === step
+                                    ) : null;
+                                    // Special case for 'Pending' - use shipment_date if no log found
+                                    const initialTime = (step === 'Pending' && shipment.shipment_date) ? shipment.shipment_date : null;
+                                    const displayTime = statusLog ? statusLog.timestamp : initialTime;
+
                                     return (
                                         <div key={step} className="position-relative z-1 text-center" style={{ width: '80px' }}>
                                             <div
@@ -405,9 +428,16 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                                 {active ? <CheckCircle size={20} /> : <div style={{ width: '10px', height: '10px' }} className="rounded-circle bg-secondary opacity-50"></div>}
                                             </div>
                                             <div className={`x-small fw-bold ${active ? 'text-white' : 'text-dim'}`}>{step}</div>
-                                            {isCurrent && <div className="badge bg-primary text-white mt-1 shadow-sm">Hiện tại</div>}
+                                            {active && displayTime && (
+                                                <div className="text-dim x-small mt-1" style={{ fontSize: '0.65rem', lineHeight: '1.2' }}>
+                                                    {new Date(displayTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}<br />
+                                                    {new Date(displayTime).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}
+                                                </div>
+                                            )}
+                                            {isCurrent && <div className="badge bg-primary text-white mt-1 shadow-sm" style={{ fontSize: '0.6rem' }}>Hiện tại</div>}
                                         </div>
                                     );
+
                                 })}
                             </div>
 
@@ -442,6 +472,57 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                 </div>
                             )}
 
+                            {/* Activity Logs Section */}
+                            <div className="mt-5 pt-4 border-top border-light border-opacity-10">
+                                <h6 className="text-gold fw-bold mb-4 d-flex align-items-center gap-2">
+                                    <Activity size={16} /> NHẬT KÝ HOẠT ĐỘNG CHI TIẾT
+                                </h6>
+
+                                {logsLoading ? (
+                                    <div className="text-center py-3">
+                                        <div className="spinner-border spinner-border-sm text-gold" />
+                                    </div>
+                                ) : auditLogs.length === 0 ? (
+                                    <div className="text-dim x-small italic p-3 text-center border border-dashed border-light border-opacity-10 rounded">
+                                        Chưa có nhật ký hoạt động nào được ghi nhận cho vận đơn này.
+                                    </div>
+                                ) : (
+                                    <div className="d-flex flex-column gap-3">
+                                        {auditLogs.map((log, idx) => (
+                                            <div key={log.log_id || idx} className="p-3 rounded-3 bg-black bg-opacity-25 border border-light border-opacity-5 position-relative">
+                                                <div className="d-flex justify-content-between align-items-start mb-2">
+                                                    <span className="badge bg-gold bg-opacity-10 text-gold border border-gold border-opacity-25 x-small">
+                                                        {log.action}
+                                                    </span>
+                                                    <div className="d-flex align-items-center gap-1 text-dim x-small">
+                                                        <Clock size={12} />
+                                                        {new Date(log.timestamp).toLocaleString('vi-VN')}
+                                                    </div>
+                                                </div>
+                                                <div className="d-flex align-items-center gap-2 mb-1">
+                                                    <div className="bg-secondary bg-opacity-10 p-1 rounded">
+                                                        <User size={12} className="text-secondary" />
+                                                    </div>
+                                                    <span className="text-white small fw-semibold">{log.username || 'System'}</span>
+                                                </div>
+                                                {log.details && (
+                                                    <div className="mt-2 pt-2 border-top border-light border-opacity-5">
+                                                        {log.action === 'UPDATE_SHIPMENT_STATUS' ? (
+                                                            <div className="text-info x-small d-flex align-items-center gap-2">
+                                                                <Truck size={12} /> Cập nhật trạng thái thành: <strong>{log.details.status}</strong>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="text-dim x-small fw-mono">
+                                                                {JSON.stringify(log.details)}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -23,6 +23,8 @@ async function initDatabase() {
 
         console.log("Cleaning up existing tables for a clean start...");
         await pool.request().query(`
+            IF OBJECT_ID('inventory_stock', 'U') IS NOT NULL DROP TABLE inventory_stock;
+            IF OBJECT_ID('warehouses', 'U') IS NOT NULL DROP TABLE warehouses;
             IF OBJECT_ID('audit_logs', 'U') IS NOT NULL DROP TABLE audit_logs;
             IF OBJECT_ID('shipment_details', 'U') IS NOT NULL DROP TABLE shipment_details;
             IF OBJECT_ID('shipments', 'U') IS NOT NULL DROP TABLE shipments;
@@ -36,7 +38,7 @@ async function initDatabase() {
         // A. SYSTEM USERS
         await pool.request().query(`
             CREATE TABLE system_users (
-                user_id INT IDENTITY(1,1) PRIMARY KEY,
+                user_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
                 username NVARCHAR(MAX) NOT NULL,
                 username_hash NVARCHAR(64) NOT NULL UNIQUE,
                 password_hash NVARCHAR(MAX) NOT NULL,
@@ -53,7 +55,7 @@ async function initDatabase() {
         // B. PARTNERS & SUPPLY CHAIN
         await pool.request().query(`
             CREATE TABLE partners (
-                partner_id INT IDENTITY(1,1) PRIMARY KEY,
+                partner_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
                 partner_name NVARCHAR(MAX) NOT NULL,
                 contact_person NVARCHAR(MAX) NOT NULL,
                 email NVARCHAR(MAX) NOT NULL,
@@ -67,7 +69,7 @@ async function initDatabase() {
         // C. SUPPLY ITEMS
         await pool.request().query(`
             CREATE TABLE supply_items (
-                item_id INT IDENTITY(1,1) PRIMARY KEY,
+                item_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
                 item_name NVARCHAR(MAX) NOT NULL,
                 unit_cost NVARCHAR(MAX) NOT NULL,
                 category NVARCHAR(MAX),
@@ -78,11 +80,11 @@ async function initDatabase() {
         // D. SHIPMENTS
         await pool.request().query(`
             CREATE TABLE shipments (
-                shipment_id INT IDENTITY(1,1) PRIMARY KEY,
-                logistics_id INT NOT NULL,
+                shipment_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                logistics_id UNIQUEIDENTIFIER NOT NULL,
                 origin_address NVARCHAR(MAX) NOT NULL,
                 destination_address NVARCHAR(MAX) NOT NULL,
-                shipment_date NVARCHAR(MAX) NOT NULL,
+                shipment_date DATETIME NOT NULL DEFAULT GETDATE(),
                 status NVARCHAR(MAX) NOT NULL,
                 total_value NVARCHAR(MAX) NOT NULL,
                 tracking_number NVARCHAR(MAX) NOT NULL,
@@ -93,10 +95,10 @@ async function initDatabase() {
         // E. SHIPMENT DETAILS
         await pool.request().query(`
             CREATE TABLE shipment_details (
-                detail_id INT IDENTITY(1,1) PRIMARY KEY,
-                shipment_id INT NOT NULL,
-                item_id INT NOT NULL,
-                stock_id INT NULL,
+                detail_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                shipment_id UNIQUEIDENTIFIER NOT NULL,
+                item_id UNIQUEIDENTIFIER NOT NULL,
+                stock_id UNIQUEIDENTIFIER NULL,
                 quantity NVARCHAR(MAX) NOT NULL,
                 subtotal NVARCHAR(MAX) NOT NULL,
                 batch_number NVARCHAR(MAX) NOT NULL,
@@ -108,9 +110,9 @@ async function initDatabase() {
         // F. AUDIT LOGS
         await pool.request().query(`
             CREATE TABLE audit_logs (
-                log_id INT IDENTITY(1,1) PRIMARY KEY,
+                log_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
                 action NVARCHAR(MAX) NOT NULL,
-                user_id INT NOT NULL,
+                user_id UNIQUEIDENTIFIER NOT NULL,
                 [timestamp] NVARCHAR(MAX) NOT NULL,
                 details NVARCHAR(MAX) NOT NULL,
                 CONSTRAINT FK_audit_logs_user FOREIGN KEY (user_id) REFERENCES system_users(user_id)

@@ -52,7 +52,7 @@ async function connectDB() {
             await pool.request().query(`
                 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'warehouses')
                 CREATE TABLE warehouses (
-                    warehouse_id INT PRIMARY KEY IDENTITY(1,1),
+                    warehouse_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
                     name NVARCHAR(255) NOT NULL,
                     location NVARCHAR(255),
                     type NVARCHAR(50),
@@ -83,9 +83,9 @@ async function connectDB() {
             await pool.request().query(`
                 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'inventory_stock')
                 CREATE TABLE inventory_stock (
-                    stock_id INT PRIMARY KEY IDENTITY(1,1),
-                    warehouse_id INT FOREIGN KEY REFERENCES warehouses(warehouse_id) ON DELETE CASCADE,
-                    item_id INT FOREIGN KEY REFERENCES supply_items(item_id) ON DELETE CASCADE,
+                    stock_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                    warehouse_id UNIQUEIDENTIFIER FOREIGN KEY REFERENCES warehouses(warehouse_id) ON DELETE CASCADE,
+                    item_id UNIQUEIDENTIFIER FOREIGN KEY REFERENCES supply_items(item_id) ON DELETE CASCADE,
                     quantity NVARCHAR(255) DEFAULT '0', 
                     bin_location NVARCHAR(255)
                 )
@@ -127,20 +127,30 @@ async function connectDB() {
 
 // Function to Log Audit
 async function logAudit(userId, action, details) {
+    console.log(`[AUDIT] Recording action: ${action} for user: ${userId}`);
     try {
         const pool = await connectDB();
-        const jsonDetails = JSON.stringify(details);
+        const timestamp = new Date().toISOString();
+        const detailsWithTimestamp = {
+            ...details,
+            timestamp: timestamp // Add timestamp into the details object for traceability in SQL
+        };
+        const jsonDetails = JSON.stringify(detailsWithTimestamp);
         const encryptedDetails = encrypt(jsonDetails);
         const encryptedAction = encrypt(action);
-        const encryptedTimestamp = encrypt(new Date().toISOString());
+        const encryptedTimestamp = encrypt(timestamp);
 
         await pool.request()
             .input('userId', sql.UniqueIdentifier, userId)
             .input('action', sql.NVarChar, encryptedAction)
             .input('details', sql.NVarChar, encryptedDetails)
             .input('timestamp', sql.NVarChar, encryptedTimestamp)
-            .query("INSERT INTO audit_logs (log_id, user_id, action, details, timestamp) VALUES (NEWID(), @userId, @action, @details, @timestamp)");
-    } catch (err) { console.error('Audit Log Error:', err.message); }
+            .query("INSERT INTO audit_logs (log_id, user_id, action, details, [timestamp]) VALUES (NEWID(), @userId, @action, @details, @timestamp)");
+
+        console.log(`[AUDIT] Successfully recorded: ${action}`);
+    } catch (err) {
+        console.error('[AUDIT ERROR]:', err.message, err.stack);
+    }
 }
 
 // Helper: Sync Supply Item Total Stock
@@ -376,7 +386,7 @@ app.put('/api/auth/me/profile', authenticateToken, async (req, res) => {
 app.put('/api/auth/me/password', authenticateToken, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Vui lòng nhập đầy đủ thông tin' });
-    if (newPassword.length < 6) return res.status(400).json({ error: 'Mật khẩu mới phải có ít nhất 6 ký tự' });
+    if (newPassword.length < 8) return res.status(400).json({ error: 'Mật khẩu mới phải có ít nhất 8 ký tự' });
     try {
         const pool = await connectDB();
         const result = await pool.request()
@@ -829,17 +839,24 @@ app.get('/api/shipments', authenticateToken, async (req, res) => {
             try { dest = decrypt(s.destination_address) || s.destination_address; } catch (e) { }
             try {
                 val = decrypt(s.total_value) || s.total_value;
+                val = decrypt(s.total_value);
                 if (!val || val === "NaN") val = "0";
-            } catch (e) { }
+            } catch (e) { val = s.total_value; } // Fallback to original if decryption fails
             try { status = decrypt(s.status) || s.status; } catch (e) { }
             try { logName = decrypt(s.logistics_name) || s.logistics_name; } catch (e) { }
 
-            // Decrypt shipment_date
+            // Handle shipment_date (might be DATETIME or encrypted NVARCHAR)
             let shipDate = s.shipment_date;
-            try {
-                const decDate = decrypt(s.shipment_date);
-                if (decDate) shipDate = new Date(decDate).toISOString();
-            } catch (e) { }
+            if (s.shipment_date) {
+                if (s.shipment_date instanceof Date) {
+                    shipDate = s.shipment_date.toISOString();
+                } else {
+                    try {
+                        const decDate = decrypt(s.shipment_date);
+                        if (decDate) shipDate = new Date(decDate).toISOString();
+                    } catch (e) { }
+                }
+            }
 
             return {
                 ...s,
@@ -969,11 +986,11 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Staff']),
         const encDest = encrypt(destinationAddress);
         const encTotalVal = encrypt(totalValue.toString());
 
-        // 2. Insert Shipment
+        // 2. Insert Shipment (date is DATETIME now, not encrypted)
         const shipRes = await transaction.request()
             .input('track', sql.NVarChar, encTracking)
             .input('log', sql.UniqueIdentifier, logisticsId)
-            .input('date', sql.NVarChar, encrypt(new Date().toISOString()))
+            .input('date', sql.DateTime, new Date())
             .input('origin', sql.NVarChar, encOrigin)
             .input('dest', sql.NVarChar, encDest)
             .input('val', sql.NVarChar, encTotalVal)
@@ -1040,7 +1057,9 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Staff']),
         res.status(201).json({ message: 'Shipment created successfully', shipmentId });
 
     } catch (err) {
-        if (transaction) await transaction.rollback();
+        if (transaction) {
+            try { await transaction.rollback(); } catch (e) { /* Already aborted */ }
+        }
         console.error("Create Shipment Error:", err);
         res.status(500).json({ error: err.message });
     }

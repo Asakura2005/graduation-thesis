@@ -213,21 +213,22 @@ const AuditLogViewer = () => {
                         {Object.entries(log.details).map(([key, value]) => (
                           <div
                             key={key}
-                            className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-secondary border-opacity-25 shadow-sm"
+                            className={`d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border ${key === 'timestamp' ? 'border-primary' : 'border-secondary'} border-opacity-25 shadow-sm`}
                           >
                             <span
-                              className="text-dim me-1"
+                              className={`${key === 'timestamp' ? 'text-primary' : 'text-dim'} me-1`}
                               style={{ fontSize: "0.8rem" }}
                             >
+                              {key === 'timestamp' && <Clock size={10} className="me-1" />}
                               {key}:
                             </span>
                             <span
                               className="text-white fw-medium font-monospace"
                               style={{ fontSize: "0.85rem" }}
                             >
-                              {typeof value === "object"
-                                ? JSON.stringify(value)
-                                : String(value)}
+                              {key === 'timestamp'
+                                ? new Date(value).toLocaleString('vi-VN')
+                                : (typeof value === "object" ? JSON.stringify(value) : String(value))}
                             </span>
                           </div>
                         ))}
