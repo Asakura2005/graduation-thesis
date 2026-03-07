@@ -7,34 +7,30 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { useLanguage } from "../i18n/LanguageContext";
 
 const TransportChart = ({ shipments = [] }) => {
-  const days = [
-    { label: "T2", value: 1 },
-    { label: "T3", value: 2 },
-    { label: "T4", value: 3 },
-    { label: "T5", value: 4 },
-    { label: "T6", value: 5 },
-    { label: "T7", value: 6 },
-    { label: "CN", value: 0 },
-  ];
+  const { t } = useLanguage();
 
-  const data = days.map((day) => {
+  const dayValues = [1, 2, 3, 4, 5, 6, 0]; // Mon-Sun
+  const dayLabels = t('chart.days');
+
+  const data = dayValues.map((dayVal, idx) => {
     const count = shipments.filter((s) => {
       if (!s.shipment_date) return false;
-
       const d = new Date(s.shipment_date).getDay();
-      return d === day.value;
+      return d === dayVal;
     }).length;
 
     return {
-      day: day.label,
+      day: Array.isArray(dayLabels) ? dayLabels[idx] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][idx],
       shipments: count,
     };
   });
+
   return (
     <div className="glass p-4">
-      <h6 className="text-white mb-3">Xu hướng vận chuyển tuần này</h6>
+      <h6 className="text-white mb-3">{t('chart.title')}</h6>
 
       <ResponsiveContainer width="100%" height={200}>
         <LineChart data={data}>

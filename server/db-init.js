@@ -23,6 +23,7 @@ async function initDatabase() {
 
         console.log("Cleaning up existing tables for a clean start...");
         await pool.request().query(`
+            IF OBJECT_ID('login_attempts', 'U') IS NOT NULL DROP TABLE login_attempts;
             IF OBJECT_ID('inventory_stock', 'U') IS NOT NULL DROP TABLE inventory_stock;
             IF OBJECT_ID('warehouses', 'U') IS NOT NULL DROP TABLE warehouses;
             IF OBJECT_ID('audit_logs', 'U') IS NOT NULL DROP TABLE audit_logs;
@@ -119,6 +120,27 @@ async function initDatabase() {
                 details NVARCHAR(MAX) NOT NULL,
                 CONSTRAINT FK_audit_logs_user FOREIGN KEY (user_id) REFERENCES system_users(user_id)
             );
+        `);
+
+        // G. LOGIN ATTEMPTS (AI Anomaly Detection)
+        await pool.request().query(`
+            CREATE TABLE login_attempts (
+                attempt_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                user_id UNIQUEIDENTIFIER NULL,
+                username_hash NVARCHAR(64) NOT NULL,
+                ip_address NVARCHAR(MAX) NOT NULL,
+                user_agent NVARCHAR(MAX) NOT NULL,
+                attempt_time DATETIME DEFAULT GETDATE(),
+                success BIT NOT NULL DEFAULT 0,
+                risk_score FLOAT DEFAULT 0,
+                risk_factors NVARCHAR(MAX) NULL,
+                blocked BIT DEFAULT 0,
+                CONSTRAINT FK_login_attempts_user FOREIGN KEY (user_id) REFERENCES system_users(user_id)
+            );
+            CREATE INDEX IX_login_attempts_username ON login_attempts(username_hash);
+            CREATE INDEX IX_login_attempts_time ON login_attempts(attempt_time);
+            CREATE INDEX IX_login_attempts_user_id ON login_attempts(user_id);
+            CREATE INDEX IX_login_attempts_risk ON login_attempts(risk_score);
         `);
 
         console.log("Database Schema created perfectly!");

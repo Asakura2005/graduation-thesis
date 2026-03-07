@@ -1,15 +1,18 @@
 import React from "react";
 import { ShieldCheck } from "lucide-react";
+import { useLanguage } from "../i18n/LanguageContext";
 
 const BlockchainStatus = () => {
+  const { t } = useLanguage();
+
   return (
     <div className="glass p-4 text-center">
       <ShieldCheck size={40} className="text-gold mb-3" />
 
-      <h6 className="text-white">Trạng thái hạ tầng Blockchain</h6>
+      <h6 className="text-white">{t('blockchain.title')}</h6>
 
       <p className="text-dim small">
-        Tất cả các nodes đang hoạt động ổn định với độ trễ thấp.
+        {t('blockchain.description')}
       </p>
 
       <span className="badge bg-success">ONLINE</span>

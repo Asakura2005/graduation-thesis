@@ -1,7 +1,10 @@
 import React from "react";
 import { LogOut, Bell, Settings, User, Search, Grid } from "lucide-react";
+import { useLanguage } from "../i18n/LanguageContext";
 
 const Header = ({ user, handleLogout, setActiveTab }) => {
+  const { t } = useLanguage();
+
   return (
     <header
       className="d-flex justify-content-between align-items-center py-3 px-4 glass border-0 rounded-0 mb-4"
@@ -9,7 +12,7 @@ const Header = ({ user, handleLogout, setActiveTab }) => {
     >
       {/* LEFT */}
       <div className="d-flex align-items-center gap-3">
-        <h4 className="mb-0 fw-bold text-white">Bảng điều khiển</h4>
+        <h4 className="mb-0 fw-bold text-white">{t('sidebar.dashboard')}</h4>
       </div>
 
       {/* RIGHT */}
@@ -30,7 +33,7 @@ const Header = ({ user, handleLogout, setActiveTab }) => {
           />
           <input
             type="text"
-            placeholder="Tìm kiếm hệ thống..."
+            placeholder={t('dashboard.searchPlaceholder')}
             className="form-control search-input"
             style={{
               background: "rgba(255,255,255,0.05)",
@@ -83,7 +86,7 @@ const Header = ({ user, handleLogout, setActiveTab }) => {
                 className="dropdown-item d-flex align-items-center gap-2 py-2"
                 onClick={() => setActiveTab && setActiveTab('settings')}
               >
-                <User size={16} /> Hồ sơ cá nhân
+                <User size={16} /> {t('settings.tabs.profile')}
               </button>
             </li>
 
@@ -92,7 +95,7 @@ const Header = ({ user, handleLogout, setActiveTab }) => {
                 className="dropdown-item d-flex align-items-center gap-2 py-2"
                 onClick={() => setActiveTab && setActiveTab('settings')}
               >
-                <Settings size={16} /> Cài đặt
+                <Settings size={16} /> {t('sidebar.settings')}
               </button>
             </li>
 
@@ -105,7 +108,7 @@ const Header = ({ user, handleLogout, setActiveTab }) => {
                 className="dropdown-item d-flex align-items-center gap-2 py-2 text-danger"
                 onClick={handleLogout}
               >
-                <LogOut size={16} /> Đăng xuất
+                <LogOut size={16} /> {t('header.logout')}
               </button>
             </li>
           </ul>

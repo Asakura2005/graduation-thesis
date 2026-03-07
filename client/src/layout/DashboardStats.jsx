@@ -1,30 +1,27 @@
 import React, { useMemo } from "react";
 import { Boxes, TrendingUp, CheckCircle2, AlertTriangle } from "lucide-react";
+import { useLanguage } from "../i18n/LanguageContext";
 
 /**
  * shipments: array các vận đơn
- * Mình cố gắng đoán structure:
- * - s.status (string): Delivered / In Transit / Pending / ...
- * - s.total_value (string/number)
  */
 const DashboardStats = ({ shipments = [] }) => {
+  const { t } = useLanguage();
+
   const stats = useMemo(() => {
     const totalValue = shipments.reduce(
       (acc, s) => acc + Number.parseFloat(s.total_value || 0),
       0,
     );
 
-    // “Vận đơn hoạt động” = chưa Delivered (giống logic cũ)
     const activeCount = shipments.filter(
       (s) => s.status !== "Delivered",
     ).length;
 
-    // “Giao hàng thành công” = Delivered
     const deliveredCount = shipments.filter(
       (s) => s.status === "Delivered",
     ).length;
 
-    // “Cảnh báo hệ thống” = các status lỗi/issue (bạn chỉnh list này theo backend của bạn)
     const warningStatuses = new Set([
       "Issue",
       "Failed",
@@ -46,42 +43,42 @@ const DashboardStats = ({ shipments = [] }) => {
     };
   }, [shipments]);
 
-  // % tăng/giảm: mẫu bạn muốn có +12%, +18%...
-  // Nếu bạn có dữ liệu theo ngày (createdAt) mình sẽ tính thật.
-  // Hiện tại mình để mock để UI giống mẫu.
   const kpiList = [
     {
-      label: "Vận đơn hoạt động",
+      label: t('stats.activeShipments'),
       val: stats.activeCount,
       delta: "+12%",
       icon: Boxes,
-      color: "#ffb24a", // amber
+      color: "#ffb24a",
       extraRight: null,
+      isWarning: false,
     },
     {
-      label: "Tổng giá trị (Mã hóa)",
+      label: t('stats.totalValue'),
       val: `$${stats.totalValue.toLocaleString()}`,
       delta: "",
       icon: TrendingUp,
-      color: "#ffb24a", // amber
-      // mini bar chart giống mẫu
+      color: "#ffb24a",
       extraRight: <MiniBars />,
+      isWarning: false,
     },
     {
-      label: "Giao hàng thành công",
+      label: t('stats.delivered'),
       val: stats.deliveredCount,
       delta: "+18%",
       icon: CheckCircle2,
-      color: "#3dde86", // green
+      color: "#3dde86",
       extraRight: null,
+      isWarning: false,
     },
     {
-      label: "Cảnh báo hệ thống",
+      label: t('stats.warnings'),
       val: stats.warningCount,
-      delta: "Đang xử lý",
+      delta: t('stats.processing'),
       icon: AlertTriangle,
-      color: "#ff5d5d", // red
+      color: "#ff5d5d",
       extraRight: null,
+      isWarning: true,
     },
   ];
 
@@ -113,10 +110,9 @@ const DashboardStats = ({ shipments = [] }) => {
                     <span
                       className="fw-bold small"
                       style={{
-                        color:
-                          stat.label === "Cảnh báo hệ thống"
-                            ? "rgba(244,239,230,.65)"
-                            : "#3dde86",
+                        color: stat.isWarning
+                          ? "rgba(244,239,230,.65)"
+                          : "#3dde86",
                       }}
                     >
                       {stat.delta}
@@ -137,7 +133,6 @@ const DashboardStats = ({ shipments = [] }) => {
 };
 
 function MiniBars() {
-  // mini bar chart (decor) giống mẫu
   const bars = [10, 16, 12, 22, 18, 28, 20];
   return (
     <div className="kpi-mini-bars" aria-hidden="true">

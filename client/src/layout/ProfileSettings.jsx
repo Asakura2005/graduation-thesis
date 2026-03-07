@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import {
     User, Mail, Phone, Shield, Lock, Save, Eye, EyeOff,
-    CheckCircle, AlertCircle, Settings, Key, RefreshCcw, Smartphone, QrCode, Copy
+    CheckCircle, AlertCircle, Settings, Key, RefreshCcw, Smartphone, QrCode, Copy, Globe
 } from 'lucide-react';
 import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const ProfileSettings = ({ user }) => {
+    const { language, setLanguage, t } = useLanguage();
     const [activeSection, setActiveSection] = useState('profile');
     const [profile, setProfile] = useState({ full_name: '', email: '', phone: '', username: '', role: '' });
     const [profileLoading, setProfileLoading] = useState(true);
@@ -39,7 +41,7 @@ const ProfileSettings = ({ user }) => {
                 });
                 setProfile(res.data);
             } catch (e) {
-                showToast('error', 'Không thể tải hồ sơ: ' + (e.response?.data?.error || e.message));
+                showToast('error', t('profile.loadError') + (e.response?.data?.error || e.message));
             } finally {
                 setProfileLoading(false);
             }
@@ -49,8 +51,8 @@ const ProfileSettings = ({ user }) => {
 
     const handleProfileSave = async (e) => {
         e.preventDefault();
-        if (!profile.full_name || !profile.email) return showToast('error', 'Họ tên và Email là bắt buộc');
-        if (!confirmPassword) return showToast('error', 'Vui lòng nhập mật khẩu để xác nhận');
+        if (!profile.full_name || !profile.email) return showToast('error', t('profile.errorRequired'));
+        if (!confirmPassword) return showToast('error', t('profile.errorPassword'));
         setProfileSaving(true);
         try {
             await axios.put('http://localhost:5001/api/auth/me/profile', {
@@ -59,7 +61,7 @@ const ProfileSettings = ({ user }) => {
                 phone: profile.phone,
                 password: confirmPassword
             }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
-            showToast('success', '✅ Cập nhật hồ sơ thành công!');
+            showToast('success', t('profile.success'));
             setConfirmPassword('');
         } catch (e) {
             showToast('error', e.response?.data?.error || 'Lỗi khi cập nhật hồ sơ');
@@ -68,24 +70,24 @@ const ProfileSettings = ({ user }) => {
 
     // ---- Password rules ----
     const pwRules = [
-        { label: 'Ít nhất 8 ký tự', test: pw => pw.length >= 8 },
-        { label: 'Có ít nhất 1 chữ hoa (A-Z)', test: pw => /[A-Z]/.test(pw) },
-        { label: 'Có ít nhất 1 chữ số (0-9)', test: pw => /[0-9]/.test(pw) },
-        { label: 'Có ít nhất 1 ký tự đặc biệt (!@#$...)', test: pw => /[^A-Za-z0-9]/.test(pw) },
+        { label: t('password.rule1'), test: pw => pw.length >= 8 },
+        { label: t('password.rule2'), test: pw => /[A-Z]/.test(pw) },
+        { label: t('password.rule3'), test: pw => /[0-9]/.test(pw) },
+        { label: t('password.rule4'), test: pw => /[^A-Za-z0-9]/.test(pw) },
     ];
     const pwValid = (pw) => pwRules.every(r => r.test(pw));
 
     const handlePasswordChange = async (e) => {
         e.preventDefault();
-        if (!pwValid(pwForm.newPassword)) return showToast('error', 'Mật khẩu mới chưa đáp ứng yêu cầu bảo mật');
-        if (pwForm.newPassword !== pwForm.confirmPassword) return showToast('error', 'Mật khẩu xác nhận không khớp');
+        if (!pwValid(pwForm.newPassword)) return showToast('error', t('password.errorWeak'));
+        if (pwForm.newPassword !== pwForm.confirmPassword) return showToast('error', t('password.errorNoMatch'));
         setPwSaving(true);
         try {
             await axios.put('http://localhost:5001/api/auth/me/password', {
                 currentPassword: pwForm.currentPassword,
                 newPassword: pwForm.newPassword
             }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
-            showToast('success', '✅ Đổi mật khẩu thành công!');
+            showToast('success', t('password.success'));
             setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
         } catch (e) {
             showToast('error', e.response?.data?.error || 'Lỗi đổi mật khẩu');
@@ -102,7 +104,7 @@ const ProfileSettings = ({ user }) => {
             setTwoFaSetup(res.data);
             setTwoFaCode('');
         } catch (e) {
-            showToast('error', 'Lỗi tạo mã QR 2FA');
+            showToast('error', t('common.error'));
         } finally { setTwoFaLoading(false); }
     };
 
@@ -115,7 +117,7 @@ const ProfileSettings = ({ user }) => {
                 secret: twoFaSetup.secret
             }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
-            showToast('success', '✅ Kích hoạt 2FA thành công!');
+            showToast('success', t('twofa.success'));
             setProfile(p => ({ ...p, is2FAEnabled: true }));
             setTwoFaSetup(null);
             setTwoFaCode('');
@@ -125,14 +127,14 @@ const ProfileSettings = ({ user }) => {
     };
 
     const handleDisable2FA = async () => {
-        if (!disablePassword) return showToast('error', 'Vui lòng nhập mật khẩu xác nhận');
+        if (!disablePassword) return showToast('error', t('profile.errorPassword'));
         setTwoFaLoading(true);
         try {
             await axios.post('http://localhost:5001/api/auth/2fa/disable', {
                 password: disablePassword
             }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
-            showToast('success', 'Đã tắt bảo mật 2 lớp');
+            showToast('success', t('twofa.disabled'));
             setProfile(p => ({ ...p, is2FAEnabled: false }));
             setDisablePassword('');
         } catch (e) {
@@ -155,10 +157,11 @@ const ProfileSettings = ({ user }) => {
     };
 
     const sections = [
-        { id: 'profile', Icon: User, label: 'Hồ sơ cá nhân' },
-        { id: 'password', Icon: Key, label: 'Đổi mật khẩu' },
-        { id: 'twofa', Icon: Smartphone, label: 'Xác thực 2 lớp' },
-        { id: 'security', Icon: Shield, label: 'Bảo mật & Phiên' },
+        { id: 'profile', Icon: User, label: t('settings.tabs.profile') },
+        { id: 'password', Icon: Key, label: t('settings.tabs.password') },
+        { id: 'twofa', Icon: Smartphone, label: t('settings.tabs.twofa') },
+        { id: 'security', Icon: Shield, label: t('settings.tabs.security') },
+        { id: 'language', Icon: Globe, label: t('settings.tabs.language') },
     ];
 
     const pwStrength = (pw) => {
@@ -169,13 +172,14 @@ const ProfileSettings = ({ user }) => {
         if (/[A-Z]/.test(pw)) score++;
         if (/[0-9]/.test(pw)) score++;
         if (/[^A-Za-z0-9]/.test(pw)) score++;
+        const labels = t('password.strengthLabels');
         const map = [
             { level: 0, label: '', color: '' },
-            { level: 1, label: 'Rất yếu', color: '#ef4444' },
-            { level: 2, label: 'Yếu', color: '#f97316' },
-            { level: 3, label: 'Trung bình', color: '#eab308' },
-            { level: 4, label: 'Mạnh', color: '#22c55e' },
-            { level: 5, label: 'Rất mạnh', color: '#10b981' },
+            { level: 1, label: Array.isArray(labels) ? labels[1] : 'Very Weak', color: '#ef4444' },
+            { level: 2, label: Array.isArray(labels) ? labels[2] : 'Weak', color: '#f97316' },
+            { level: 3, label: Array.isArray(labels) ? labels[3] : 'Fair', color: '#eab308' },
+            { level: 4, label: Array.isArray(labels) ? labels[4] : 'Strong', color: '#22c55e' },
+            { level: 5, label: Array.isArray(labels) ? labels[5] : 'Very Strong', color: '#10b981' },
         ];
         return map[score] || map[4];
     };
@@ -206,8 +210,8 @@ const ProfileSettings = ({ user }) => {
                     <Settings size={24} className="text-gold" />
                 </div>
                 <div>
-                    <h5 className="mb-0 fw-bold text-gold">Cài đặt & Hồ sơ</h5>
-                    <small className="text-dim">Quản lý thông tin tài khoản và bảo mật</small>
+                    <h5 className="mb-0 fw-bold text-gold">{t('settings.title')}</h5>
+                    <small className="text-dim">{t('settings.subtitle')}</small>
                 </div>
             </div>
 
@@ -243,27 +247,27 @@ const ProfileSettings = ({ user }) => {
                     {activeSection === 'profile' && (
                         <div className="p-4 rounded-3" style={cardStyle}>
                             <h6 className="text-gold fw-bold mb-4 d-flex align-items-center gap-2">
-                                <User size={16} /> Thông tin cá nhân
+                                <User size={16} /> {t('profile.title')}
                             </h6>
                             {profileLoading ? (
                                 <div className="text-center py-5">
                                     <div className="spinner-border text-gold" />
-                                    <div className="text-dim mt-2">Đang tải...</div>
+                                    <div className="text-dim mt-2">{t('profile.loading')}</div>
                                 </div>
                             ) : (
                                 <form onSubmit={handleProfileSave}>
                                     <div className="row g-3">
                                         <div className="col-md-6">
-                                            <label className="text-dim x-small text-uppercase mb-1">Tên đăng nhập</label>
+                                            <label className="text-dim x-small text-uppercase mb-1">{t('profile.username')}</label>
                                             <div className="d-flex align-items-center gap-2 p-2 rounded-3"
                                                 style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
                                                 <User size={16} className="text-dim" />
                                                 <span className="text-white fw-semibold">{profile.username}</span>
-                                                <span className="badge bg-secondary bg-opacity-25 text-dim ms-auto x-small">Không thể thay đổi</span>
+                                                <span className="badge bg-secondary bg-opacity-25 text-dim ms-auto x-small">{t('profile.usernameReadonly')}</span>
                                             </div>
                                         </div>
                                         <div className="col-md-6">
-                                            <label className="text-dim x-small text-uppercase mb-1">Vai trò</label>
+                                            <label className="text-dim x-small text-uppercase mb-1">{t('profile.role')}</label>
                                             <div className="d-flex align-items-center gap-2 p-2 rounded-3"
                                                 style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
                                                 <Shield size={16} className="text-dim" />
@@ -271,16 +275,16 @@ const ProfileSettings = ({ user }) => {
                                             </div>
                                         </div>
                                         <div className="col-12">
-                                            <label className="text-dim x-small text-uppercase mb-1">Họ và tên *</label>
+                                            <label className="text-dim x-small text-uppercase mb-1">{t('profile.fullName')}</label>
                                             <div className="input-group">
                                                 <span className="input-group-text bg-black border-secondary border-opacity-25"><User size={16} className="text-dim" /></span>
                                                 <input type="text" className="form-control bg-black border-secondary border-opacity-25 text-white"
-                                                    placeholder="Nhập họ và tên đầy đủ" value={profile.full_name}
+                                                    placeholder={t('profile.fullNamePlaceholder')} value={profile.full_name}
                                                     onChange={e => setProfile(p => ({ ...p, full_name: e.target.value }))} required />
                                             </div>
                                         </div>
                                         <div className="col-md-7">
-                                            <label className="text-dim x-small text-uppercase mb-1">Email *</label>
+                                            <label className="text-dim x-small text-uppercase mb-1">{t('profile.email')}</label>
                                             <div className="input-group">
                                                 <span className="input-group-text bg-black border-secondary border-opacity-25"><Mail size={16} className="text-dim" /></span>
                                                 <input type="email" className="form-control bg-black border-secondary border-opacity-25 text-white"
@@ -289,32 +293,32 @@ const ProfileSettings = ({ user }) => {
                                             </div>
                                         </div>
                                         <div className="col-md-5">
-                                            <label className="text-dim x-small text-uppercase mb-1">Số điện thoại</label>
+                                            <label className="text-dim x-small text-uppercase mb-1">{t('profile.phone')}</label>
                                             <div className="input-group">
                                                 <span className="input-group-text bg-black border-secondary border-opacity-25"><Phone size={16} className="text-dim" /></span>
                                                 <input type="tel" className="form-control bg-black border-secondary border-opacity-25 text-white"
-                                                    placeholder="0xxx xxx xxx" value={profile.phone}
+                                                    placeholder={t('profile.phonePlaceholder')} value={profile.phone}
                                                     onChange={e => setProfile(p => ({ ...p, phone: e.target.value }))} />
                                             </div>
                                         </div>
                                         <div className="col-12">
-                                            <label className="text-warning x-small text-uppercase mb-1 fw-bold">Xác nhận bằng mật khẩu hiện tại *</label>
+                                            <label className="text-warning x-small text-uppercase mb-1 fw-bold">{t('profile.confirmPassword')}</label>
                                             <div className="input-group">
                                                 <span className="input-group-text bg-black border-warning border-opacity-25"><Lock size={16} className="text-warning" /></span>
                                                 <input type={showConfirmPw ? "text" : "password"} className="form-control bg-black border-warning border-opacity-25 text-white"
-                                                    placeholder="Nhập mật khẩu của bạn để lưu thay đổi" value={confirmPassword}
+                                                    placeholder={t('profile.confirmPasswordPlaceholder')} value={confirmPassword}
                                                     onChange={e => setConfirmPassword(e.target.value)} required />
                                                 <button type="button" className="input-group-text bg-black border-warning border-opacity-25 text-dim"
                                                     onClick={() => setShowConfirmPw(!showConfirmPw)}>
                                                     {showConfirmPw ? <EyeOff size={16} /> : <Eye size={16} />}
                                                 </button>
                                             </div>
-                                            <small className="text-dim x-small mt-1 d-block opacity-75">Bắt buộc nhập mật khẩu để đảm bảo bạn là chính chủ của tài khoản này.</small>
+                                            <small className="text-dim x-small mt-1 d-block opacity-75">{t('profile.confirmPasswordHint')}</small>
                                         </div>
                                         <div className="col-12 d-flex justify-content-end pt-2">
                                             <button type="submit" className="btn btn-gold d-flex align-items-center gap-2" disabled={profileSaving}>
                                                 {profileSaving ? <span className="spinner-border spinner-border-sm" /> : <Save size={16} />}
-                                                {profileSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
+                                                {profileSaving ? t('profile.saving') : t('profile.save')}
                                             </button>
                                         </div>
                                     </div>
@@ -327,18 +331,18 @@ const ProfileSettings = ({ user }) => {
                     {activeSection === 'password' && (
                         <div className="p-4 rounded-3" style={cardStyle}>
                             <h6 className="text-gold fw-bold mb-4 d-flex align-items-center gap-2">
-                                <Key size={16} /> Đổi mật khẩu
+                                <Key size={16} /> {t('password.title')}
                             </h6>
                             <form onSubmit={handlePasswordChange}>
                                 <div className="d-flex flex-column gap-3" style={{ maxWidth: 500 }}>
                                     {/* Current */}
                                     <div>
-                                        <label className="text-dim x-small text-uppercase mb-1">Mật khẩu hiện tại *</label>
+                                        <label className="text-dim x-small text-uppercase mb-1">{t('password.current')}</label>
                                         <div className="input-group">
                                             <span className="input-group-text bg-black border-secondary border-opacity-25"><Lock size={16} className="text-dim" /></span>
                                             <input type={showPw.current ? 'text' : 'password'}
                                                 className="form-control bg-black border-secondary border-opacity-25 text-white"
-                                                placeholder="Nhập mật khẩu hiện tại" value={pwForm.currentPassword}
+                                                placeholder={t('password.currentPlaceholder')} value={pwForm.currentPassword}
                                                 onChange={e => setPwForm(p => ({ ...p, currentPassword: e.target.value }))} required />
                                             <button type="button" className="input-group-text bg-black border-secondary border-opacity-25 text-dim"
                                                 onClick={() => setShowPw(s => ({ ...s, current: !s.current }))}>
@@ -349,12 +353,12 @@ const ProfileSettings = ({ user }) => {
 
                                     {/* New */}
                                     <div>
-                                        <label className="text-dim x-small text-uppercase mb-1">Mật khẩu mới *</label>
+                                        <label className="text-dim x-small text-uppercase mb-1">{t('password.new')}</label>
                                         <div className="input-group">
                                             <span className="input-group-text bg-black border-secondary border-opacity-25"><Lock size={16} className="text-dim" /></span>
                                             <input type={showPw.newPw ? 'text' : 'password'}
                                                 className="form-control bg-black border-secondary border-opacity-25 text-white"
-                                                placeholder="Nhập mật khẩu mới"
+                                                placeholder={t('password.newPlaceholder')}
                                                 value={pwForm.newPassword}
                                                 onChange={e => setPwForm(p => ({ ...p, newPassword: e.target.value }))} required />
                                             <button type="button" className="input-group-text bg-black border-secondary border-opacity-25 text-dim"
@@ -367,7 +371,7 @@ const ProfileSettings = ({ user }) => {
                                         {pwForm.newPassword && (
                                             <div className="mt-2">
                                                 <div className="d-flex justify-content-between mb-1">
-                                                    <span className="x-small text-dim">Độ mạnh</span>
+                                                    <span className="x-small text-dim">{t('password.strength')}</span>
                                                     <span className="x-small fw-bold" style={{ color: strength.color }}>{strength.label}</span>
                                                 </div>
                                                 <div className="rounded-pill overflow-hidden" style={{ height: 4, background: 'rgba(255,255,255,0.1)' }}>
@@ -379,7 +383,7 @@ const ProfileSettings = ({ user }) => {
                                         {/* Password rules checklist */}
                                         {pwForm.newPassword && (
                                             <div className="mt-3 p-3 rounded-3" style={{ background: 'rgba(0,0,0,0.3)' }}>
-                                                <div className="x-small text-dim mb-2 fw-bold">YÊU CẦU MẬT KHẨU</div>
+                                                <div className="x-small text-dim mb-2 fw-bold">{t('password.requirements')}</div>
                                                 {pwRules.map(rule => {
                                                     const pass = rule.test(pwForm.newPassword);
                                                     return (
@@ -397,12 +401,12 @@ const ProfileSettings = ({ user }) => {
 
                                     {/* Confirm */}
                                     <div>
-                                        <label className="text-dim x-small text-uppercase mb-1">Xác nhận mật khẩu mới *</label>
+                                        <label className="text-dim x-small text-uppercase mb-1">{t('password.confirm')}</label>
                                         <div className="input-group">
                                             <span className="input-group-text bg-black border-secondary border-opacity-25"><Lock size={16} className="text-dim" /></span>
                                             <input type={showPw.confirm ? 'text' : 'password'}
                                                 className="form-control bg-black border-secondary border-opacity-25 text-white"
-                                                placeholder="Nhập lại mật khẩu mới" value={pwForm.confirmPassword}
+                                                placeholder={t('password.confirmPlaceholder')} value={pwForm.confirmPassword}
                                                 onChange={e => setPwForm(p => ({ ...p, confirmPassword: e.target.value }))} required />
                                             <button type="button" className="input-group-text bg-black border-secondary border-opacity-25 text-dim"
                                                 onClick={() => setShowPw(s => ({ ...s, confirm: !s.confirm }))}>
@@ -411,12 +415,12 @@ const ProfileSettings = ({ user }) => {
                                         </div>
                                         {pwForm.confirmPassword && pwForm.newPassword !== pwForm.confirmPassword && (
                                             <div className="text-danger x-small mt-1 d-flex align-items-center gap-1">
-                                                <AlertCircle size={12} /> Mật khẩu không khớp
+                                                <AlertCircle size={12} /> {t('password.noMatch')}
                                             </div>
                                         )}
                                         {pwForm.confirmPassword && pwForm.newPassword === pwForm.confirmPassword && pwForm.confirmPassword && (
                                             <div className="x-small mt-1 d-flex align-items-center gap-1" style={{ color: '#10b981' }}>
-                                                <CheckCircle size={12} /> Mật khẩu khớp
+                                                <CheckCircle size={12} /> {t('password.match')}
                                             </div>
                                         )}
                                     </div>
@@ -424,7 +428,7 @@ const ProfileSettings = ({ user }) => {
                                     <button type="submit" className="btn btn-gold d-flex align-items-center gap-2 align-self-start"
                                         disabled={pwSaving || !pwValid(pwForm.newPassword)}>
                                         {pwSaving ? <span className="spinner-border spinner-border-sm" /> : <Key size={16} />}
-                                        {pwSaving ? 'Đang xử lý...' : 'Đổi mật khẩu'}
+                                        {pwSaving ? t('password.saving') : t('password.save')}
                                     </button>
                                 </div>
                             </form>
@@ -444,8 +448,8 @@ const ProfileSettings = ({ user }) => {
                                     <Smartphone size={24} style={{ color: profile.is2FAEnabled ? '#10b981' : '#eab308' }} />
                                 </div>
                                 <div>
-                                    <div className="fw-bold text-white">Xác thực 2 lớp (2FA)</div>
-                                    <small className="text-dim">Tăng cường bảo mật bằng cách xác minh danh tính qua ứng dụng di động</small>
+                                    <div className="fw-bold text-white">{t('twofa.title')}</div>
+                                    <small className="text-dim">{t('twofa.subtitle')}</small>
                                 </div>
                                 <span className={`ms-auto badge`} style={{
                                     background: profile.is2FAEnabled ? 'rgba(16,185,129,0.2)' : 'rgba(234,179,8,0.2)',
@@ -453,7 +457,7 @@ const ProfileSettings = ({ user }) => {
                                     border: `1px solid ${profile.is2FAEnabled ? 'rgba(16,185,129,0.4)' : 'rgba(234,179,8,0.4)'}`,
                                     padding: '6px 12px', borderRadius: 20
                                 }}>
-                                    {profile.is2FAEnabled ? 'Đang hoạt động' : 'Chưa kích hoạt'}
+                                    {profile.is2FAEnabled ? t('twofa.active') : t('twofa.inactive')}
                                 </span>
                             </div>
 
@@ -465,11 +469,11 @@ const ProfileSettings = ({ user }) => {
                                     </div>
                                     <div className="flex-grow-1">
                                         <div className="fw-bold text-white">Google Authenticator</div>
-                                        <small className="text-dim">Tạo mã OTP mỗi 30 giây trên điện thoại của bạn</small>
+                                        <small className="text-dim">{t('twofa.googleAuthDesc')}</small>
                                     </div>
                                     {!profile.is2FAEnabled && !twoFaSetup && (
                                         <button className="btn btn-gold btn-sm d-flex align-items-center gap-2" onClick={handleGenerate2FA} disabled={twoFaLoading}>
-                                            {twoFaLoading ? <span className="spinner-border spinner-border-sm" /> : <Shield size={14} />} Thiết lập ngay
+                                            {twoFaLoading ? <span className="spinner-border spinner-border-sm" /> : <Shield size={14} />} {t('twofa.setup')}
                                         </button>
                                     )}
                                 </div>
@@ -477,17 +481,17 @@ const ProfileSettings = ({ user }) => {
                                 {profile.is2FAEnabled && (
                                     <div className="d-flex flex-column gap-3 p-3 rounded-3" style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)' }}>
                                         <div className="text-danger fw-bold d-flex align-items-center gap-2">
-                                            <AlertCircle size={16} /> Tắt tính năng bảo vệ
+                                            <AlertCircle size={16} /> {t('twofa.disable')}
                                         </div>
                                         <div>
-                                            <label className="text-dim x-small text-uppercase mb-1">Nhập mật khẩu của bạn để xác nhận</label>
+                                            <label className="text-dim x-small text-uppercase mb-1">{t('twofa.disableConfirm')}</label>
                                             <div className="input-group" style={{ maxWidth: 300 }}>
                                                 <span className="input-group-text bg-black border-danger border-opacity-25"><Lock size={16} className="text-dim" /></span>
-                                                <input type="password" placeholder="Nhập mật khẩu" value={disablePassword} onChange={e => setDisablePassword(e.target.value)} className="form-control bg-black border-danger border-opacity-25 text-white" />
+                                                <input type="password" placeholder={t('common.passwordPlaceholder')} value={disablePassword} onChange={e => setDisablePassword(e.target.value)} className="form-control bg-black border-danger border-opacity-25 text-white" />
                                             </div>
                                         </div>
                                         <button className="btn btn-outline-danger align-self-start btn-sm" disabled={twoFaLoading || !disablePassword} onClick={handleDisable2FA}>
-                                            {twoFaLoading ? 'Đang xử lý...' : 'Hủy xác thực 2 lớp'}
+                                            {twoFaLoading ? t('common.processing') : t('twofa.disableBtn')}
                                         </button>
                                     </div>
                                 )}
@@ -497,9 +501,9 @@ const ProfileSettings = ({ user }) => {
                                         {/* Steps */}
                                         <div className="d-flex flex-column gap-3 mb-4">
                                             {[
-                                                { step: '1', title: 'Tải ứng dụng', desc: 'Tải Google Authenticator từ App Store hoặc Google Play', icon: '📱' },
-                                                { step: '2', title: 'Quét mã QR', desc: 'Mở ứng dụng và quét mã QR bên dưới để liên kết tài khoản', icon: '📷' },
-                                                { step: '3', title: 'Nhập mã xác nhận', desc: 'Nhập mã 6 chữ số từ ứng dụng để hoàn tất kích hoạt', icon: '✅' },
+                                                { step: '1', title: t('twofa.step1'), desc: t('twofa.step1Desc'), icon: '📱' },
+                                                { step: '2', title: t('twofa.step2'), desc: t('twofa.step2Desc'), icon: '📷' },
+                                                { step: '3', title: t('twofa.step3'), desc: t('twofa.step3Desc'), icon: '✅' },
                                             ].map(({ step, title, desc, icon }) => (
                                                 <div key={step} className="d-flex align-items-start gap-3 p-3 rounded-3"
                                                     style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -522,12 +526,12 @@ const ProfileSettings = ({ user }) => {
                                                     style={{ width: 140, height: 140, display: 'inline-flex' }}>
                                                     <QRCodeSVG value={twoFaSetup.qrUrl} size={124} level="M" />
                                                 </div>
-                                                <div className="x-small text-dim">Quét bằng Google Authenticator</div>
+                                                <div className="x-small text-dim">{t('twofa.scanQR')}</div>
                                             </div>
 
                                             <div className="flex-grow-1" style={{ minWidth: 200 }}>
                                                 <div className="mb-3">
-                                                    <label className="text-dim x-small text-uppercase mb-1">Hoặc nhập mã gốc (Secret Key)</label>
+                                                    <label className="text-dim x-small text-uppercase mb-1">{t('twofa.secretKey')}</label>
                                                     <div className="d-flex align-items-center gap-2 p-2 rounded-3"
                                                         style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', fontFamily: 'monospace' }}>
                                                         <span className="text-gold fw-bold text-center ms-2">{twoFaSetup.secret}</span>
@@ -542,7 +546,7 @@ const ProfileSettings = ({ user }) => {
                                                 </div>
 
                                                 <div className="mb-3">
-                                                    <label className="text-dim x-small text-uppercase mb-1">Nhập mã xác nhận (6 chữ số)</label>
+                                                    <label className="text-dim x-small text-uppercase mb-1">{t('twofa.otpLabel')}</label>
                                                     <div className="input-group">
                                                         <span className="input-group-text bg-black border-secondary border-opacity-25">
                                                             <Smartphone size={16} className="text-dim" />
@@ -556,7 +560,7 @@ const ProfileSettings = ({ user }) => {
                                                 <button className="btn btn-gold w-100 d-flex align-items-center justify-content-center gap-2"
                                                     disabled={twoFaLoading || twoFaCode.length < 6} onClick={handleVerify2FA}>
                                                     {twoFaLoading ? <span className="spinner-border spinner-border-sm" /> : <Shield size={16} />}
-                                                    Xác nhận & Kích hoạt 2FA
+                                                    {t('twofa.verifyBtn')}
                                                 </button>
                                             </div>
                                         </div>
@@ -571,18 +575,18 @@ const ProfileSettings = ({ user }) => {
                         <div className="d-flex flex-column gap-3">
                             <div className="p-4 rounded-3" style={cardStyle}>
                                 <h6 className="text-gold fw-bold mb-3 d-flex align-items-center gap-2">
-                                    <Shield size={16} /> Trạng thái bảo mật
+                                    <Shield size={16} /> {t('security.title')}
                                 </h6>
                                 <div className="d-flex flex-column gap-2">
                                     {[
-                                        { label: 'Truyền tải', value: 'HTTPS / TLS 1.3' },
-                                        { label: 'TLS Session Resumption', value: 'Kích hoạt' },
-                                        { label: 'Xác thực phiên', value: 'JSON Web Token (JWT)' },
-                                        { label: 'Xác thực 2 lớp (2FA)', value: profile.is2FAEnabled ? 'Đã kích hoạt' : 'Chưa kích hoạt', highlight: !profile.is2FAEnabled },
-                                        { label: 'Mã hóa dữ liệu', value: 'AES-256-GCM (Envelope Encryption)' },
-                                        { label: 'Bảo vệ mật khẩu', value: 'Argon2id (Memory-Hard Hash)' },
-                                        { label: 'Hashing mù (Blind Index)', value: 'SHA-256 HMAC' },
-                                        { label: 'Chính sách mật khẩu', value: 'Min 8 ký tự + Chữ hoa + Ký tự đặc biệt' },
+                                        { label: t('security.transport'), value: 'HTTPS / TLS 1.3' },
+                                        { label: t('security.tlsResumption'), value: t('security.tlsResumptionValue') },
+                                        { label: t('security.sessionAuth'), value: 'JSON Web Token (JWT)' },
+                                        { label: t('security.twoFaStatus'), value: profile.is2FAEnabled ? t('security.twoFaEnabled') : t('security.twoFaDisabled'), highlight: !profile.is2FAEnabled },
+                                        { label: t('security.encryption'), value: 'AES-256-GCM (Envelope Encryption)' },
+                                        { label: t('security.passwordProtection'), value: 'Argon2id (Memory-Hard Hash)' },
+                                        { label: t('security.blindIndex'), value: 'SHA-256 HMAC' },
+                                        { label: t('security.passwordPolicy'), value: t('security.passwordPolicyValue') },
                                     ].map(({ label, value, highlight }) => (
                                         <div key={label} className="d-flex align-items-center justify-content-between py-2 border-bottom border-light border-opacity-5">
                                             <span className="text-dim small">{label}</span>
@@ -597,19 +601,86 @@ const ProfileSettings = ({ user }) => {
 
                             <div className="p-4 rounded-3" style={cardStyle}>
                                 <h6 className="text-gold fw-bold mb-3 d-flex align-items-center gap-2">
-                                    <RefreshCcw size={16} /> Phiên đăng nhập hiện tại
+                                    <RefreshCcw size={16} /> {t('security.session')}
                                 </h6>
                                 <div className="d-flex flex-column gap-1">
                                     {[
-                                        { label: 'Tài khoản', value: profile.username },
-                                        { label: 'Vai trò', value: getRoleBadge(profile.role) },
-                                        { label: 'Đăng nhập lúc', value: new Date().toLocaleString('vi-VN') },
+                                        { label: t('security.account'), value: profile.username },
+                                        { label: t('security.roleLabel'), value: getRoleBadge(profile.role) },
+                                        { label: t('security.loginTime'), value: new Date().toLocaleString(language === 'vi' ? 'vi-VN' : 'en-US') },
                                     ].map(({ label, value }) => (
                                         <div key={label} className="d-flex justify-content-between align-items-center py-2 border-bottom border-light border-opacity-5">
                                             <span className="text-dim small">{label}</span>
                                             {typeof value === 'string' ? <span className="text-white small fw-semibold">{value}</span> : value}
                                         </div>
                                     ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* --- Language Section --- */}
+                    {activeSection === 'language' && (
+                        <div className="d-flex flex-column gap-3">
+                            <div className="p-4 rounded-3" style={cardStyle}>
+                                <h6 className="text-gold fw-bold mb-2 d-flex align-items-center gap-2">
+                                    <Globe size={16} /> {t('language.title')}
+                                </h6>
+                                <p className="text-dim small mb-4">{t('language.subtitle')}</p>
+
+                                <div className="d-flex flex-column gap-3" style={{ maxWidth: 500 }}>
+                                    {/* Vietnamese Option */}
+                                    <button
+                                        className="d-flex align-items-center gap-3 p-3 rounded-3 border-0 text-start w-100"
+                                        style={{
+                                            background: language === 'vi' ? 'rgba(212,175,55,0.12)' : 'rgba(255,255,255,0.04)',
+                                            border: language === 'vi' ? '2px solid rgba(212,175,55,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s ease',
+                                            outline: language === 'vi' ? '2px solid rgba(212,175,55,0.3)' : 'none',
+                                        }}
+                                        onClick={() => { setLanguage('vi'); showToast('success', `${t('language.applied')} Tiếng Việt`); }}
+                                    >
+                                        <div style={{ fontSize: 28 }}>🇻🇳</div>
+                                        <div className="flex-grow-1">
+                                            <div className="fw-bold text-white">Tiếng Việt</div>
+                                            <small className="text-dim">{t('language.viDesc')}</small>
+                                        </div>
+                                        {language === 'vi' && (
+                                            <CheckCircle size={20} className="text-gold" />
+                                        )}
+                                    </button>
+
+                                    {/* English Option */}
+                                    <button
+                                        className="d-flex align-items-center gap-3 p-3 rounded-3 border-0 text-start w-100"
+                                        style={{
+                                            background: language === 'en' ? 'rgba(212,175,55,0.12)' : 'rgba(255,255,255,0.04)',
+                                            border: language === 'en' ? '2px solid rgba(212,175,55,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s ease',
+                                            outline: language === 'en' ? '2px solid rgba(212,175,55,0.3)' : 'none',
+                                        }}
+                                        onClick={() => { setLanguage('en'); showToast('success', `${t('language.applied')} English`); }}
+                                    >
+                                        <div style={{ fontSize: 28 }}>🇬🇧</div>
+                                        <div className="flex-grow-1">
+                                            <div className="fw-bold text-white">English</div>
+                                            <small className="text-dim">{t('language.enDesc')}</small>
+                                        </div>
+                                        {language === 'en' && (
+                                            <CheckCircle size={20} className="text-gold" />
+                                        )}
+                                    </button>
+                                </div>
+
+                                {/* Current language info */}
+                                <div className="mt-4 p-3 rounded-3 d-flex align-items-center gap-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                    <Globe size={14} className="text-dim" />
+                                    <span className="text-dim small">{t('language.current')}:</span>
+                                    <span className="text-white fw-semibold small">
+                                        {language === 'vi' ? '🇻🇳 Tiếng Việt' : '🇬🇧 English'}
+                                    </span>
                                 </div>
                             </div>
                         </div>

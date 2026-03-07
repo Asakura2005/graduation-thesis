@@ -7,9 +7,12 @@ import {
   Plus,
   Box,
   Settings,
+  Brain,
 } from "lucide-react";
+import { useLanguage } from "../i18n/LanguageContext";
 
 const Sidebar = ({ user, activeTab, setActiveTab, onOpenCreateShipment }) => {
+  const { t } = useLanguage();
   const isAdmin = user?.role === "Admin";
 
   const navBtn = (tabKey, Icon, label) => (
@@ -49,15 +52,15 @@ const Sidebar = ({ user, activeTab, setActiveTab, onOpenCreateShipment }) => {
 
       {/* Menu */}
       <div className="nav flex-column gap-2">
-        {navBtn("dashboard", LayoutDashboard, "Bảng điều khiển")}
-        {navBtn("shipments", Truck, "Quản lý Vận đơn")}
+        {navBtn("dashboard", LayoutDashboard, t('sidebar.dashboard'))}
+        {navBtn("shipments", Truck, t('sidebar.shipments'))}
 
-        {/* Các mục này trong mẫu có luôn, nhưng bạn vẫn có thể giới hạn cho Admin */}
         {isAdmin && (
           <>
-            {navBtn("partners", Users, "Đối tác & NCC")}
-            {navBtn("inventory", Box, "Quản lý Kho hàng")}
-            {navBtn("audit", Activity, "Nhật ký Hệ thống")}
+            {navBtn("partners", Users, t('sidebar.partners'))}
+            {navBtn("inventory", Box, t('sidebar.inventory'))}
+            {navBtn("audit", Activity, t('sidebar.audit'))}
+            {navBtn("ai-security", Brain, t('sidebar.aiSecurity') || 'AI Security')}
           </>
         )}
       </div>
@@ -69,7 +72,7 @@ const Sidebar = ({ user, activeTab, setActiveTab, onOpenCreateShipment }) => {
           onClick={onOpenCreateShipment}
         >
           <Plus size={20} />
-          <span className="fw-bold">Tạo Vận đơn</span>
+          <span className="fw-bold">{t('sidebar.shipments')}</span>
         </button>
 
         <button
@@ -77,7 +80,7 @@ const Sidebar = ({ user, activeTab, setActiveTab, onOpenCreateShipment }) => {
           onClick={() => setActiveTab("settings")}
         >
           <Settings size={18} />
-          <span className="fw-semibold">Cài đặt</span>
+          <span className="fw-semibold">{t('sidebar.settings')}</span>
         </button>
       </div>
     </div>

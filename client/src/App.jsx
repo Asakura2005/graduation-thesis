@@ -8,6 +8,7 @@ import ShipmentDetails from "./ShipmentDetails";
 import PartnerForm from "./admin/PartnerForm";
 import InventoryManagement from "./admin/InventoryManagement";
 import AuditLogViewer from "./admin/AuditLogViewer";
+import AISecurityMonitor from "./admin/AISecurityMonitor";
 import Header from "./layout/Header";
 import Sidebar from "./layout/Sidebar";
 import DashboardStats from "./layout/DashboardStats";
@@ -16,8 +17,10 @@ import TrackingPage from "./TrackingPage";
 import TransportChart from "./layout/TransportChart";
 import BlockchainStatus from "./layout/BlockchainStatus";
 import Footer from "./layout/Footer";
+import { useLanguage } from "./i18n/LanguageContext";
 
 const App = () => {
+  const { t } = useLanguage();
   // 1. Intercept for public Tracking Page BEFORE Auth
   const currentPath = window.location.pathname;
   if (currentPath.startsWith("/tracking/")) {
@@ -206,18 +209,18 @@ const App = () => {
                     <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
                       <h5 className="mb-0 fw-bold d-flex align-items-center gap-2 text-gold">
                         <Package size={20} />
-                        DANH SÁCH VẬN ĐƠN
+                        {t('dashboard.shipmentList')}
                       </h5>
 
                       <div className="d-flex gap-2">
                         <input
                           className="form-control form-control-sm bg-dark text-light border-0"
-                          placeholder="Tìm mã vận đơn..."
+                          placeholder={t('dashboard.searchPlaceholder')}
                           style={{ width: "200px" }}
                         />
 
                         <button className="btn btn-sm btn-outline-light">
-                          Lọc
+                          {t('dashboard.filter')}
                         </button>
 
                         <button
@@ -233,25 +236,25 @@ const App = () => {
                       <table className="table table-hover align-middle mb-0 border-0">
                         <thead>
                           <tr>
-                            <th>Mã Vận Đơn</th>
-                            <th>Đơn Vị Vận Chuyển</th>
-                            <th>Lộ Trình</th>
-                            <th>Giá Trị</th>
-                            <th>Trạng Thái</th>
-                            <th className="text-end">Thao tác</th>
+                            <th>{t('dashboard.trackingCode')}</th>
+                            <th>{t('dashboard.carrier')}</th>
+                            <th>{t('dashboard.route')}</th>
+                            <th>{t('dashboard.value')}</th>
+                            <th>{t('dashboard.status')}</th>
+                            <th className="text-end">{t('dashboard.actions')}</th>
                           </tr>
                         </thead>
                         <tbody>
                           {loading ? (
                             <tr>
                               <td colSpan="6" className="text-center py-5">
-                                Đang tải dữ liệu...
+                                {t('dashboard.loading')}
                               </td>
                             </tr>
                           ) : shipments.length === 0 ? (
                             <tr>
                               <td colSpan="6" className="text-center py-5">
-                                Chưa có vận đơn.
+                                {t('dashboard.empty')}
                               </td>
                             </tr>
                           ) : (
@@ -324,7 +327,7 @@ const App = () => {
                   {/* Pagination Footer */}
                   <div className="d-flex justify-content-between align-items-center mt-3 small text-dim">
                     <span>
-                      Hiển thị {indexOfFirst + 1} –{" "}
+                      {t('dashboard.showing')} {indexOfFirst + 1} –{" "}
                       {Math.min(indexOfLast, shipments.length)} /{" "}
                       {shipments.length}
                     </span>
@@ -338,7 +341,7 @@ const App = () => {
                         disabled={currentPage === 1}
                         onClick={() => setCurrentPage(currentPage - 1)}
                       >
-                        Trang trước
+                        {t('dashboard.prevPage')}
                       </button>
 
                       <button
@@ -349,7 +352,7 @@ const App = () => {
                         disabled={indexOfLast >= shipments.length}
                         onClick={() => setCurrentPage(currentPage + 1)}
                       >
-                        Trang sau
+                        {t('dashboard.nextPage')}
                       </button>
                     </div>
                   </div>
@@ -367,7 +370,10 @@ const App = () => {
           {/* 4. Audit Logs Tab */}
           {activeTab === "audit" && <AuditLogViewer />}
 
-          {/* 5. Settings & Profile Tab */}
+          {/* 5. AI Security Monitor Tab */}
+          {activeTab === "ai-security" && <AISecurityMonitor />}
+
+          {/* 6. Settings & Profile Tab */}
           {activeTab === "settings" && <ProfileSettings user={user} />}
         </main>
         <Footer />

@@ -9,6 +9,7 @@ const argon2 = require('argon2');
 const { encrypt, decrypt, hashData } = require('./EncryptionService');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
+const anomalyDetector = require('./AnomalyDetectionService');
 
 const app = express();
 app.use(cors());
@@ -250,19 +251,115 @@ app.get('/api/audit-logs', authenticateToken, async (req, res) => {
 });
 
 // 1. Auth & Users (Legacy)
-// 1. Auth & Users (System Users - Secure with Argon2)
+// 1. Auth & Users (System Users - Secure with Argon2 + AI Anomaly Detection)
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
+    const clientIP = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+
     try {
         const pool = await connectDB();
         const usernameHash = hashData(username);
+
+        // === AI ANOMALY DETECTION: Pre-authentication analysis ===
+        let preAnalysis = { riskScore: 0, riskFactors: [], decision: 'ALLOW' };
+        try {
+            preAnalysis = await anomalyDetector.analyzeLogin(pool, {
+                usernameHash, ipAddress: clientIP, userAgent, userId: null
+            });
+        } catch (aiErr) {
+            console.error('[AI Anomaly] Pre-analysis error (non-blocking):', aiErr.message);
+        }
+
+        // Nếu bị BLOCK bởi AI (ví dụ: brute force) → từ chối ngay
+        if (preAnalysis.decision === 'BLOCK') {
+            try {
+                await anomalyDetector.recordAttempt(pool, {
+                    usernameHash, userId: null, ipAddress: clientIP, userAgent,
+                    success: false, riskScore: preAnalysis.riskScore,
+                    riskFactors: preAnalysis.riskFactors, blocked: true
+                });
+            } catch (recErr) { console.error('[AI Anomaly] Record error:', recErr.message); }
+
+            await logAudit(null, 'LOGIN_BLOCKED_BY_AI', {
+                username, riskScore: preAnalysis.riskScore,
+                factors: preAnalysis.riskFactors.map(f => f.type)
+            }).catch(() => {});
+
+            return res.status(403).json({
+                error: 'Tài khoản tạm thời bị khóa do phát hiện hoạt động bất thường. Vui lòng thử lại sau.',
+                riskScore: preAnalysis.riskScore,
+                blocked: true
+            });
+        }
 
         const result = await pool.request()
             .input('hash', sql.NVarChar, usernameHash)
             .query("SELECT * FROM system_users WHERE username_hash = @hash");
 
+        // Tìm user để lấy userId cho auto-ban (nếu cần)
+        const foundUser = result.recordset[0];
+        if (foundUser) {
+            // Auto-ban nếu bị BLOCK và đủ điều kiện
+            try {
+                const banResult = await anomalyDetector.autoBan(pool, {
+                    userId: foundUser.user_id,
+                    usernameHash,
+                    riskScore: preAnalysis.riskScore,
+                    riskFactors: preAnalysis.riskFactors,
+                    ipAddress: clientIP
+                });
+
+                if (banResult?.banned) {
+                    await logAudit(foundUser.user_id, 'ACCOUNT_AUTO_BANNED', {
+                        username, riskScore: preAnalysis.riskScore,
+                        duration: banResult.duration,
+                        banLevel: banResult.banLevel
+                    }).catch(() => {});
+                }
+            } catch (banErr) { console.error('[AutoBan] Error:', banErr.message); }
+        }
+
         const user = result.recordset[0];
-        if (!user) return res.status(401).json({ error: 'User not found' });
+        if (!user) {
+            // Ghi nhận login fail - user not found
+            try {
+                await anomalyDetector.recordAttempt(pool, {
+                    usernameHash, userId: null, ipAddress: clientIP, userAgent,
+                    success: false, riskScore: preAnalysis.riskScore,
+                    riskFactors: preAnalysis.riskFactors, blocked: false
+                });
+            } catch (recErr) { console.error('[AI Anomaly] Record error:', recErr.message); }
+            return res.status(401).json({ error: 'User not found' });
+        }
+
+        // === AUTO-BAN: Kiểm tra tài khoản có đang bị ban không ===
+        try {
+            const banStatus = await anomalyDetector.checkBan(pool, user.user_id);
+            if (banStatus.isBanned) {
+                // Ghi lại attempt bị từ chối vì đang bị ban
+                await anomalyDetector.recordAttempt(pool, {
+                    usernameHash, userId: user.user_id, ipAddress: clientIP, userAgent,
+                    success: false, riskScore: 100,
+                    riskFactors: [{ type: 'ACCOUNT_BANNED', score: 100, severity: 'critical', message: 'Account is currently banned' }],
+                    blocked: true
+                }).catch(() => {});
+
+                const timeRemaining = banStatus.isPermanent
+                    ? 'permanently'
+                    : `until ${banStatus.bannedUntil.toLocaleString('vi-VN')}`;
+
+                return res.status(403).json({
+                    error: `Tài khoản đã bị khóa ${banStatus.isPermanent ? 'vĩnh viễn' : 'đến ' + banStatus.bannedUntil.toLocaleString('vi-VN')} do hoạt động bất thường (Lần ${banStatus.banCount}).`,
+                    banned: true,
+                    bannedUntil: banStatus.bannedUntil,
+                    isPermanent: banStatus.isPermanent,
+                    banCount: banStatus.banCount
+                });
+            }
+        } catch (banErr) {
+            console.error('[AutoBan] Check error (non-blocking):', banErr.message);
+        }
 
         let isMatch = false;
         try {
@@ -274,23 +371,63 @@ app.post('/api/auth/login', async (req, res) => {
             return res.status(500).json({ error: 'Authentication service error' });
         }
 
-        if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
+        if (!isMatch) {
+            // Ghi nhận login fail - sai mật khẩu
+            try {
+                await anomalyDetector.recordAttempt(pool, {
+                    usernameHash, userId: user.user_id, ipAddress: clientIP, userAgent,
+                    success: false, riskScore: preAnalysis.riskScore,
+                    riskFactors: preAnalysis.riskFactors, blocked: false
+                });
+            } catch (recErr) { console.error('[AI Anomaly] Record error:', recErr.message); }
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        // === AI ANOMALY DETECTION: Post-authentication (có userId để phân tích sâu hơn) ===
+        let fullAnalysis = preAnalysis;
+        try {
+            fullAnalysis = await anomalyDetector.analyzeLogin(pool, {
+                usernameHash, ipAddress: clientIP, userAgent, userId: user.user_id
+            });
+        } catch (aiErr) {
+            console.error('[AI Anomaly] Full analysis error (non-blocking):', aiErr.message);
+        }
 
         let decryptedRole = user.role;
         let decryptedUsername = user.username;
         try { decryptedRole = decrypt(user.role) || user.role; } catch (e) { }
         try { decryptedUsername = decrypt(user.username) || user.username; } catch (e) { }
 
+        // Ghi nhận login thành công
+        try {
+            await anomalyDetector.recordAttempt(pool, {
+                usernameHash, userId: user.user_id, ipAddress: clientIP, userAgent,
+                success: true, riskScore: fullAnalysis.riskScore,
+                riskFactors: fullAnalysis.riskFactors, blocked: false
+            });
+        } catch (recErr) { console.error('[AI Anomaly] Record error:', recErr.message); }
+
         // 2FA Check
         if (user.is_two_fa_enabled) {
             const tempToken = jwt.sign({ id: user.user_id, role: decryptedRole, username: decryptedUsername, pending2FA: true }, process.env.JWT_SECRET || 'secret', { expiresIn: '5m' });
-            return res.json({ requires2FA: true, tempToken });
+            return res.json({ requires2FA: true, tempToken, riskScore: fullAnalysis.riskScore });
         }
 
         const token = jwt.sign({ id: user.user_id, role: decryptedRole, username: decryptedUsername }, process.env.JWT_SECRET || 'secret');
 
-        await logAudit(user.user_id, 'USER_LOGIN', { username: decryptedUsername });
-        res.json({ token, role: decryptedRole, username: decryptedUsername });
+        await logAudit(user.user_id, 'USER_LOGIN', {
+            username: decryptedUsername,
+            riskScore: fullAnalysis.riskScore,
+            aiDecision: fullAnalysis.decision
+        });
+
+        res.json({
+            token,
+            role: decryptedRole,
+            username: decryptedUsername,
+            riskScore: fullAnalysis.riskScore,
+            warnings: fullAnalysis.decision === 'WARN' ? fullAnalysis.riskFactors : []
+        });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1471,6 +1608,304 @@ app.delete('/api/partners/:id', authenticateToken, authorizeRole(['Admin']), asy
         if (err.number === 547) return res.status(400).json({ error: 'Không thể xóa đối tác đã có giao dịch vận đơn.' });
         res.status(500).json({ error: err.message });
     }
+});
+
+// === AI SECURITY ANALYTICS API ===
+// Endpoint cho Admin Dashboard - thống kê login + phát hiện bất thường
+app.get('/api/security/login-analytics', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+    try {
+        const pool = await connectDB();
+        const analytics = await anomalyDetector.getAnalytics(pool);
+        res.json(analytics);
+    } catch (err) {
+        console.error('[Security Analytics] Error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// API lấy lịch sử login attempts của 1 user cụ thể
+app.get('/api/security/login-history/:userId', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+    try {
+        const pool = await connectDB();
+        const result = await pool.request()
+            .input('userId', sql.UniqueIdentifier, req.params.userId)
+            .query(`
+                SELECT TOP 50 attempt_id, ip_address, user_agent, attempt_time,
+                       success, risk_score, risk_factors, blocked
+                FROM login_attempts
+                WHERE user_id = @userId
+                ORDER BY attempt_time DESC
+            `);
+
+        const history = result.recordset.map(row => {
+            let ip = row.ip_address;
+            let ua = row.user_agent;
+            let factors = row.risk_factors;
+            try { ip = decrypt(row.ip_address); } catch (e) { }
+            try { ua = decrypt(row.user_agent); } catch (e) { }
+            try { factors = JSON.parse(decrypt(row.risk_factors)); } catch (e) { }
+            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors };
+        });
+
+        res.json(history);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// =====================================================
+//  AI ANOMALY DETECTION & AUTO-BAN API ENDPOINTS
+// =====================================================
+
+// GET /api/ai/analytics - Dashboard tổng quan AI Anomaly Detection (Admin only)
+app.get('/api/ai/analytics', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+    try {
+        const pool = await connectDB();
+        const analytics = await anomalyDetector.getAnalytics(pool);
+
+        // Thống kê bổ sung: Tổng số user bị ban hiện tại
+        const bannedCount = await pool.request().query(`
+            SELECT COUNT(*) as count FROM system_users
+            WHERE banned_until IS NOT NULL AND banned_until > GETDATE()
+        `);
+
+        // Thống kê 7 ngày gần nhất
+        const weeklyStats = await pool.request().query(`
+            SELECT
+                CAST(attempt_time AS DATE) as date,
+                COUNT(*) as totalAttempts,
+                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successCount,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failCount,
+                SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END) as blockedCount,
+                AVG(risk_score) as avgRisk
+            FROM login_attempts
+            WHERE attempt_time >= DATEADD(DAY, -7, GETDATE())
+            GROUP BY CAST(attempt_time AS DATE)
+            ORDER BY date DESC
+        `);
+
+        // Top IPs bị block nhiều nhất
+        const topBlockedIPs = await pool.request().query(`
+            SELECT TOP 5 ip_address, COUNT(*) as blockCount
+            FROM login_attempts
+            WHERE blocked = 1 AND attempt_time >= DATEADD(DAY, -7, GETDATE())
+            GROUP BY ip_address
+            ORDER BY blockCount DESC
+        `);
+
+        const decryptedIPs = topBlockedIPs.recordset.map(row => {
+            let ip = row.ip_address;
+            try { ip = decrypt(row.ip_address); } catch (e) { }
+            return { ip, blockCount: row.blockCount };
+        });
+
+        // Phân bố risk score
+        const riskDistribution = await pool.request().query(`
+            SELECT
+                CASE
+                    WHEN risk_score < 20 THEN 'SAFE'
+                    WHEN risk_score < 40 THEN 'LOW'
+                    WHEN risk_score < 70 THEN 'MEDIUM'
+                    ELSE 'HIGH'
+                END as riskLevel,
+                COUNT(*) as count
+            FROM login_attempts
+            WHERE attempt_time >= DATEADD(DAY, -7, GETDATE())
+            GROUP BY CASE
+                WHEN risk_score < 20 THEN 'SAFE'
+                WHEN risk_score < 40 THEN 'LOW'
+                WHEN risk_score < 70 THEN 'MEDIUM'
+                ELSE 'HIGH'
+            END
+        `);
+
+        res.json({
+            ...analytics,
+            bannedUsersCount: bannedCount.recordset[0].count,
+            weeklyStats: weeklyStats.recordset,
+            topBlockedIPs: decryptedIPs,
+            riskDistribution: riskDistribution.recordset,
+            config: {
+                riskThreshold: anomalyDetector.RISK_THRESHOLD,
+                warnThreshold: anomalyDetector.WARN_THRESHOLD,
+                maxFailedAttempts: anomalyDetector.MAX_FAILED_ATTEMPTS,
+                autoBanEnabled: anomalyDetector.AUTO_BAN_ENABLED,
+                banEscalation: anomalyDetector.BAN_DURATION_ESCALATION
+            }
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/ai/banned-users - Danh sách tất cả user đang bị ban
+app.get('/api/ai/banned-users', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+    try {
+        const pool = await connectDB();
+        const bannedUsers = await anomalyDetector.getBannedUsers(pool);
+        res.json(bannedUsers);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/ai/unban/:userId - Admin gỡ ban cho user
+app.post('/api/ai/unban/:userId', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+    const { userId } = req.params;
+    const { resetCount } = req.body;
+    try {
+        const pool = await connectDB();
+        const result = await anomalyDetector.unbanUser(pool, userId, resetCount || false);
+
+        if (result.success) {
+            await logAudit(req.user.id, 'ADMIN_UNBAN_USER', {
+                targetUserId: userId,
+                resetCount: resetCount || false,
+                admin: req.user.username
+            });
+        }
+
+        res.json(result);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/ai/user-activity/:userId - Lịch sử hoạt động login của 1 user
+app.get('/api/ai/user-activity/:userId', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+    const { userId } = req.params;
+    try {
+        const pool = await connectDB();
+        const result = await pool.request()
+            .input('userId', sql.UniqueIdentifier, userId)
+            .query(`
+                SELECT TOP 50 la.*, su.username
+                FROM login_attempts la
+                LEFT JOIN system_users su ON la.user_id = su.user_id
+                WHERE la.user_id = @userId
+                ORDER BY la.attempt_time DESC
+            `);
+
+        const activity = result.recordset.map(row => {
+            let ip = row.ip_address;
+            let ua = row.user_agent;
+            let factors = row.risk_factors;
+            let uname = row.username;
+            try { ip = decrypt(row.ip_address); } catch (e) { }
+            try { ua = decrypt(row.user_agent); } catch (e) { }
+            try { factors = JSON.parse(decrypt(row.risk_factors)); } catch (e) { }
+            try { uname = decrypt(row.username); } catch (e) { }
+            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname };
+        });
+
+        // Lấy thông tin ban hiện tại
+        const banStatus = await anomalyDetector.checkBan(pool, userId);
+
+        res.json({ activity, banStatus });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/ai/alerts - Cảnh báo bất thường real-time (24h gần nhất)
+app.get('/api/ai/alerts', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+    try {
+        const pool = await connectDB();
+        const result = await pool.request().query(`
+            SELECT TOP 30 la.*, su.username
+            FROM login_attempts la
+            LEFT JOIN system_users su ON la.user_id = su.user_id
+            WHERE la.risk_score >= 40
+              AND la.attempt_time >= DATEADD(HOUR, -24, GETDATE())
+            ORDER BY la.attempt_time DESC
+        `);
+
+        const alerts = result.recordset.map(row => {
+            let ip = row.ip_address;
+            let ua = row.user_agent;
+            let factors = row.risk_factors;
+            let uname = row.username;
+            try { ip = decrypt(row.ip_address); } catch (e) { }
+            try { ua = decrypt(row.user_agent); } catch (e) { }
+            try { factors = JSON.parse(decrypt(row.risk_factors)); } catch (e) { }
+            try { uname = decrypt(row.username); } catch (e) { }
+            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname };
+        });
+
+        res.json(alerts);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/ai/manual-ban/:userId - Admin ban tay cho user
+app.post('/api/ai/manual-ban/:userId', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+    const { userId } = req.params;
+    const { duration, reason } = req.body; // duration in minutes, -1 = permanent
+    try {
+        const pool = await connectDB();
+
+        let bannedUntil;
+        if (duration === -1) {
+            bannedUntil = new Date('9999-12-31T23:59:59.000Z');
+        } else {
+            bannedUntil = new Date(Date.now() + (duration || 60) * 60 * 1000);
+        }
+
+        const banReason = {
+            type: 'MANUAL_BAN',
+            reason: reason || 'Admin manual ban',
+            bannedBy: req.user.username,
+            time: new Date().toISOString()
+        };
+
+        await pool.request()
+            .input('userId', sql.UniqueIdentifier, userId)
+            .input('bannedUntil', sql.DateTime, bannedUntil)
+            .input('banReason', sql.NVarChar, encrypt(JSON.stringify(banReason)))
+            .query(`
+                UPDATE system_users
+                SET banned_until = @bannedUntil,
+                    ban_reason = @banReason,
+                    ban_count = ISNULL(ban_count, 0) + 1
+                WHERE user_id = @userId
+            `);
+
+        await logAudit(req.user.id, 'ADMIN_MANUAL_BAN', {
+            targetUserId: userId,
+            duration: duration === -1 ? 'PERMANENT' : `${duration} minutes`,
+            reason: reason
+        });
+
+        res.json({ success: true, bannedUntil, isPermanent: duration === -1 });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/ai/all-users - Danh sách tất cả users với trạng thái ban
+app.get('/api/ai/all-users', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+    try {
+        const pool = await connectDB();
+        const result = await pool.request().query(`
+            SELECT su.user_id, su.username, su.role, su.banned_until, su.ban_reason, su.ban_count,
+                   (SELECT COUNT(*) FROM login_attempts la WHERE la.user_id = su.user_id AND la.attempt_time >= DATEADD(DAY, -7, GETDATE())) as loginAttempts7d,
+                   (SELECT COUNT(*) FROM login_attempts la WHERE la.user_id = su.user_id AND la.blocked = 1 AND la.attempt_time >= DATEADD(DAY, -7, GETDATE())) as blockedAttempts7d,
+                   (SELECT AVG(la.risk_score) FROM login_attempts la WHERE la.user_id = su.user_id AND la.attempt_time >= DATEADD(DAY, -7, GETDATE())) as avgRisk7d
+            FROM system_users su
+        `);
+
+        const users = result.recordset.map(u => {
+            let username = u.username;
+            let role = u.role;
+            let banReason = u.ban_reason;
+            try { username = decrypt(u.username); } catch (e) { }
+            try { role = decrypt(u.role); } catch (e) { }
+            try { banReason = JSON.parse(decrypt(u.ban_reason)); } catch (e) { }
+
+            return {
+                userId: u.user_id,
+                username,
+                role,
+                bannedUntil: u.banned_until,
+                banReason,
+                banCount: u.ban_count || 0,
+                isBanned: u.banned_until && new Date(u.banned_until) > new Date(),
+                isPermanent: u.banned_until && new Date(u.banned_until).getFullYear() >= 9000,
+                loginAttempts7d: u.loginAttempts7d || 0,
+                blockedAttempts7d: u.blockedAttempts7d || 0,
+                avgRisk7d: Math.round(u.avgRisk7d || 0)
+            };
+        });
+
+        res.json(users);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // --- SERVER ---
