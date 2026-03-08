@@ -209,29 +209,166 @@ const AuditLogViewer = () => {
                   </td>
                   <td className="pe-3">
                     {typeof log.details === "object" && log.details !== null ? (
-                      <div className="d-flex flex-wrap gap-2 my-1">
-                        {Object.entries(log.details).map(([key, value]) => (
-                          <div
-                            key={key}
-                            className={`d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border ${key === 'timestamp' ? 'border-primary' : 'border-secondary'} border-opacity-25 shadow-sm`}
-                          >
-                            <span
-                              className={`${key === 'timestamp' ? 'text-primary' : 'text-dim'} me-1`}
-                              style={{ fontSize: "0.8rem" }}
-                            >
-                              {key === 'timestamp' && <Clock size={10} className="me-1" />}
-                              {key}:
-                            </span>
-                            <span
-                              className="text-white fw-medium font-monospace"
-                              style={{ fontSize: "0.85rem" }}
-                            >
-                              {key === 'timestamp'
-                                ? new Date(value).toLocaleString('vi-VN')
-                                : (typeof value === "object" ? JSON.stringify(value) : String(value))}
+                      <div className="d-flex flex-column gap-1 my-1">
+                        {/* UPDATE_SHIPMENT with changes array */}
+                        {log.action === 'UPDATE_SHIPMENT' && log.details.changes && log.details.changes.length > 0 ? (
+                          log.details.changes.map((change, ci) => (
+                            <div key={ci} className="d-flex align-items-center gap-2 bg-black bg-opacity-25 px-2 py-1 rounded small border border-warning border-opacity-15">
+                              <span className="text-warning" style={{ fontSize: "0.75rem", minWidth: '90px' }}>
+                                {change.field}:
+                              </span>
+                              <span className="text-danger text-decoration-line-through" style={{ fontSize: "0.8rem" }}>
+                                {change.from || '(trống)'}
+                              </span>
+                              <span className="text-dim">→</span>
+                              <span className="text-success fw-bold" style={{ fontSize: "0.8rem" }}>
+                                {change.to || '(trống)'}
+                              </span>
+                            </div>
+                          ))
+
+                        ) : log.action === 'UPDATE_SHIPMENT' ? (
+                          /* Old UPDATE_SHIPMENT without changes array */
+                          <div className="d-flex flex-column gap-1">
+                            {log.details.originAddress && (
+                              <div className="d-flex align-items-center gap-2 bg-black bg-opacity-25 px-2 py-1 rounded small border border-warning border-opacity-15">
+                                <span className="text-warning" style={{ fontSize: "0.75rem", minWidth: '90px' }}>Điểm đi:</span>
+                                <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.originAddress}</span>
+                              </div>
+                            )}
+                            {log.details.destinationAddress && (
+                              <div className="d-flex align-items-center gap-2 bg-black bg-opacity-25 px-2 py-1 rounded small border border-warning border-opacity-15">
+                                <span className="text-warning" style={{ fontSize: "0.75rem", minWidth: '90px' }}>Điểm đến:</span>
+                                <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.destinationAddress}</span>
+                              </div>
+                            )}
+                          </div>
+
+                        ) : log.action === 'CREATE_SHIPMENT' ? (
+                          <div className="d-flex flex-wrap gap-1">
+                            {log.details.trackingNumber && (
+                              <div className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-success border-opacity-15">
+                                <span className="text-success" style={{ fontSize: "0.75rem", minWidth: '90px' }}>Mã tracking:</span>
+                                <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.trackingNumber}</span>
+                              </div>
+                            )}
+                            {log.details.itemCount != null && (
+                              <div className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-secondary border-opacity-15">
+                                <span className="text-dim" style={{ fontSize: "0.75rem" }}>Sản phẩm:&nbsp;</span>
+                                <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.itemCount}</span>
+                              </div>
+                            )}
+                          </div>
+
+                        ) : log.action === 'UPDATE_SHIPMENT_STATUS' ? (
+                          <div className="d-flex align-items-center gap-2 bg-black bg-opacity-25 px-2 py-1 rounded small border border-info border-opacity-15">
+                            <span className="text-info" style={{ fontSize: "0.75rem" }}>Trạng thái mới:</span>
+                            <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.status}</span>
+                          </div>
+
+                        ) : log.action === 'DELETE_SHIPMENT' ? (
+                          <div className="d-flex align-items-center gap-2 bg-black bg-opacity-25 px-2 py-1 rounded small border border-danger border-opacity-15">
+                            <span className="text-danger" style={{ fontSize: "0.75rem" }}>Xóa vận đơn:</span>
+                            <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.trackingNumber || ''}</span>
+                          </div>
+
+                        ) : (log.action === 'USER_LOGIN' || log.action === 'USER_LOGIN_2FA') ? (
+                          <div className="d-flex flex-wrap gap-1">
+                            {log.details.username && (
+                              <div className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-info border-opacity-15">
+                                <span className="text-info" style={{ fontSize: "0.75rem" }}>Tài khoản:&nbsp;</span>
+                                <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.username}</span>
+                              </div>
+                            )}
+                            {log.details.riskScore != null && (
+                              <div className={`d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border ${log.details.riskScore > 50 ? 'border-danger' : log.details.riskScore > 20 ? 'border-warning' : 'border-success'} border-opacity-15`}>
+                                <span className="text-dim" style={{ fontSize: "0.75rem" }}>Risk:&nbsp;</span>
+                                <span className={`fw-bold ${log.details.riskScore > 50 ? 'text-danger' : log.details.riskScore > 20 ? 'text-warning' : 'text-success'}`} style={{ fontSize: "0.8rem" }}>
+                                  {log.details.riskScore}
+                                </span>
+                              </div>
+                            )}
+                            {log.details.aiDecision && (
+                              <div className={`d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border ${log.details.aiDecision === 'BLOCK' ? 'border-danger' : log.details.aiDecision === 'WARN' ? 'border-warning' : 'border-success'} border-opacity-15`}>
+                                <span className={`fw-bold ${log.details.aiDecision === 'BLOCK' ? 'text-danger' : log.details.aiDecision === 'WARN' ? 'text-warning' : 'text-success'}`} style={{ fontSize: "0.8rem" }}>
+                                  {log.details.aiDecision === 'ALLOW' ? '✓ Cho phép' : log.details.aiDecision === 'WARN' ? '⚠ Cảnh báo' : '✕ Chặn'}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                        ) : log.action === 'UPDATE_PARTNER' && log.details.changes && log.details.changes.length > 0 ? (
+                          <div className="d-flex flex-column gap-1">
+                            {log.details.partnerName && (
+                              <div className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-secondary border-opacity-15">
+                                <span className="text-dim" style={{ fontSize: "0.75rem" }}>Đối tác:&nbsp;</span>
+                                <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.partnerName}</span>
+                              </div>
+                            )}
+                            {log.details.changes.map((change, ci) => (
+                              <div key={ci} className="d-flex align-items-center gap-2 bg-black bg-opacity-25 px-2 py-1 rounded small border border-warning border-opacity-15">
+                                <span className="text-warning" style={{ fontSize: "0.75rem", minWidth: '100px' }}>
+                                  {change.field}:
+                                </span>
+                                <span className="text-danger text-decoration-line-through" style={{ fontSize: "0.8rem" }}>
+                                  {change.from || '(trống)'}
+                                </span>
+                                <span className="text-dim">→</span>
+                                <span className="text-success fw-bold" style={{ fontSize: "0.8rem" }}>
+                                  {change.to || '(trống)'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+
+                        ) : log.action === 'CREATE_PARTNER' ? (
+                          <div className="d-flex flex-wrap gap-1">
+                            {log.details.name && (
+                              <div className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-success border-opacity-15">
+                                <span className="text-success" style={{ fontSize: "0.75rem" }}>Tên:&nbsp;</span>
+                                <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.name}</span>
+                              </div>
+                            )}
+                            {log.details.type && (
+                              <div className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-secondary border-opacity-15">
+                                <span className="text-dim" style={{ fontSize: "0.75rem" }}>Loại:&nbsp;</span>
+                                <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.type}</span>
+                              </div>
+                            )}
+                          </div>
+
+                        ) : log.action === 'DELETE_PARTNER' ? (
+                          <div className="d-flex align-items-center gap-2 bg-black bg-opacity-25 px-2 py-1 rounded small border border-danger border-opacity-15">
+                            <span className="text-danger" style={{ fontSize: "0.75rem" }}>Xóa đối tác</span>
+                          </div>
+
+                        ) : (
+                          /* Generic fallback for all other actions */
+                          <div className="d-flex flex-wrap gap-1">
+                            {Object.entries(log.details)
+                              .filter(([key]) => !['timestamp', 'changes', 'itemsChanged', 'shipmentId', 'partnerId', 'partnerName'].includes(key))
+                              .map(([key, value]) => (
+                                <div key={key} className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-secondary border-opacity-15">
+                                  <span className="text-dim" style={{ fontSize: "0.75rem" }}>
+                                    {key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim()}:&nbsp;
+                                  </span>
+                                  <span className="text-white fw-medium" style={{ fontSize: "0.8rem" }}>
+                                    {typeof value === "object" ? JSON.stringify(value) : String(value)}
+                                  </span>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+
+                        {/* Timestamp - hiển thị cho tất cả */}
+                        {log.details.timestamp && (
+                          <div className="d-flex align-items-center gap-1 bg-black bg-opacity-25 px-2 py-1 rounded small border border-primary border-opacity-10 mt-1">
+                            <Clock size={10} className="text-primary" />
+                            <span className="text-primary" style={{ fontSize: "0.7rem" }}>
+                              {new Date(log.details.timestamp).toLocaleString('vi-VN')}
                             </span>
                           </div>
-                        ))}
+                        )}
                       </div>
                     ) : (
                       <div className="d-flex align-items-center gap-2 text-dim small bg-black bg-opacity-20 p-2 rounded">

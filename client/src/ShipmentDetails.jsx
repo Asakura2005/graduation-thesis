@@ -511,9 +511,67 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                                             <div className="text-info x-small d-flex align-items-center gap-2">
                                                                 <Truck size={12} /> Cập nhật trạng thái thành: <strong>{log.details.status}</strong>
                                                             </div>
+                                                        ) : log.action === 'CREATE_SHIPMENT' ? (
+                                                            <div className="x-small d-flex flex-column gap-1">
+                                                                <div className="d-flex align-items-center gap-2 text-success">
+                                                                    <Package size={12} />
+                                                                    <span>Tạo vận đơn mới</span>
+                                                                </div>
+                                                                {log.details.trackingNumber && (
+                                                                    <div className="text-dim ps-4">Mã tracking: <strong className="text-white">{log.details.trackingNumber}</strong></div>
+                                                                )}
+                                                                {log.details.itemCount != null && (
+                                                                    <div className="text-dim ps-4">Số sản phẩm: <strong className="text-white">{log.details.itemCount}</strong></div>
+                                                                )}
+                                                            </div>
+                                                        ) : log.action === 'UPDATE_SHIPMENT' ? (
+                                                            <div className="x-small d-flex flex-column gap-1">
+                                                                <div className="d-flex align-items-center gap-2 text-warning mb-1">
+                                                                    <Edit size={12} />
+                                                                    <span>Chỉnh sửa thông tin vận đơn</span>
+                                                                </div>
+                                                                {log.details.changes && log.details.changes.length > 0 ? (
+                                                                    log.details.changes.map((change, ci) => (
+                                                                        <div key={ci} className="ps-4 d-flex flex-column gap-0 mb-1">
+                                                                            <div className="text-secondary fw-semibold" style={{ fontSize: '0.7rem' }}>{change.field}:</div>
+                                                                            <div className="d-flex align-items-center gap-2 ps-2">
+                                                                                <span className="text-danger text-decoration-line-through" style={{ fontSize: '0.7rem' }}>{change.from || '(trống)'}</span>
+                                                                                <span className="text-dim">→</span>
+                                                                                <span className="text-success fw-bold" style={{ fontSize: '0.7rem' }}>{change.to || '(trống)'}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))
+                                                                ) : (
+                                                                    <>
+                                                                        {log.details.originAddress && (
+                                                                            <div className="text-dim ps-4">Điểm đi: <strong className="text-white">{log.details.originAddress}</strong></div>
+                                                                        )}
+                                                                        {log.details.destinationAddress && (
+                                                                            <div className="text-dim ps-4">Điểm đến: <strong className="text-white">{log.details.destinationAddress}</strong></div>
+                                                                        )}
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        ) : log.action === 'DELETE_SHIPMENT' ? (
+                                                            <div className="x-small d-flex align-items-center gap-2 text-danger">
+                                                                <Trash2 size={12} />
+                                                                <span>Xóa vận đơn {log.details.trackingNumber && <strong>{log.details.trackingNumber}</strong>}</span>
+                                                            </div>
                                                         ) : (
-                                                            <div className="text-dim x-small fw-mono">
-                                                                {JSON.stringify(log.details)}
+                                                            <div className="x-small d-flex flex-column gap-1">
+                                                                {Object.entries(log.details)
+                                                                    .filter(([key]) => key !== 'timestamp')
+                                                                    .map(([key, value]) => (
+                                                                        <div key={key} className="d-flex align-items-start gap-2 text-dim">
+                                                                            <span className="text-secondary text-capitalize" style={{ minWidth: '100px' }}>
+                                                                                {key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim()}:
+                                                                            </span>
+                                                                            <span className="text-white fw-semibold text-break">
+                                                                                {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                                                                            </span>
+                                                                        </div>
+                                                                    ))
+                                                                }
                                                             </div>
                                                         )}
                                                     </div>

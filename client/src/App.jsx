@@ -47,15 +47,19 @@ const App = () => {
   // New state for details view
   const [selectedShipment, setSelectedShipment] = useState(null);
 
-  // Xử lý Active Tab trực tiếp khi bấm Sidebar hoặc thoát detail
-  useEffect(() => {
-    if (activeTab === "audit") setShowLogs(true);
-    if (activeTab === "partners") setShowPartnerForm(true);
-    // Reset selection when changing tabs
-    if (activeTab !== "dashboard" && activeTab !== "shipments") {
+  // Xử lý Active Tab khi chuyển trang
+  const handleTabChange = (tabKey) => {
+    setActiveTab(tabKey);
+    if (tabKey === "audit") setShowLogs(true);
+    if (tabKey === "partners") setShowPartnerForm(true);
+
+    // Bấm menu luôn reset detail view vận đơn
+    if (tabKey === "dashboard" || tabKey === "shipments") {
+      setSelectedShipment(null);
+    } else {
       setSelectedShipment(null);
     }
-  }, [activeTab]);
+  };
 
   const fetchShipments = async () => {
     setLoading(true);
@@ -147,7 +151,7 @@ const App = () => {
       <Sidebar
         user={user}
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleTabChange}
         onOpenCreateShipment={() => setShowForm(true)}
         onOpenAddPartner={() => setShowPartnerForm(true)}
       />
@@ -160,7 +164,7 @@ const App = () => {
           minHeight: "100vh",
         }}
       >
-        <Header user={user} handleLogout={handleLogout} setActiveTab={setActiveTab} />
+        <Header user={user} handleLogout={handleLogout} setActiveTab={handleTabChange} />
 
         <main className="flex-grow-1 overflow-auto px-4 pt-3 pb-5 custom-scrollbar">
           {/* Modals & Popups (Chỉ còn ShipmentForm là modal) */}

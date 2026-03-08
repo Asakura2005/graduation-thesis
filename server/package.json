@@ -18,6 +18,7 @@
     "mssql": "^10.0.1",
     "qrcode": "^1.5.4",
     "selfsigned": "^5.5.0",
-    "speakeasy": "^2.0.0"
+    "speakeasy": "^2.0.0",
+    "synaptic": "^1.1.4"
   }
 }

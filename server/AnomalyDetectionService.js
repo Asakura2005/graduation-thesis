@@ -14,6 +14,7 @@
 
 const sql = require('mssql');
 const { encrypt, decrypt, hashData } = require('./EncryptionService');
+const synaptic = require('synaptic');
 
 class AnomalyDetectionService {
     constructor() {
@@ -36,6 +37,51 @@ class AnomalyDetectionService {
         ];
         this.AUTO_BAN_THRESHOLD = 70;  // Risk score >= 70 → tự động ban
         this.BLOCK_COUNT_TRIGGER = 3;  // Số lần bị BLOCK trong 1 giờ → tự động ban
+
+        // === AI NEURAL NETWORK (Synaptic) ===
+        // Mạng nơ-ron: 5 input (bruteForce, time, ip, device, rapid), 6 hidden, 1 output (risk)
+        this.net = new synaptic.Architect.Perceptron(5, 6, 1);
+        this._trainAI();
+    }
+
+    /**
+     * Huấn luyện mạng Neural Network với tập dữ liệu mẫu ban đầu (Bootstrap Training)
+     */
+    _trainAI() {
+        console.log('[AI Anomaly] 🧠 Đang huấn luyện mạng Neural Network (Synaptic)...');
+
+        // Data format: inputs map to [bruteForce, unusualTime, newIP, newDevice, rapidLogin]
+        // Quy tắc: Đầu ra (Output) >= 0.70 là tính chất sẽ bị Khóa tài khoản
+        const trainingData = [
+            // --- 🟢 NHÓM: BÌNH THƯỜNG (An toàn) ---
+            { input: [0, 0, 0, 0, 0], output: [0.0] }, // Hoàn hảo
+            { input: [0, 0, 1, 0, 0], output: [0.1] }, // Đổi IP nhưng giữ thiết bị (Chắc đổi wifi)
+            { input: [0, 0, 0, 1, 0], output: [0.1] }, // Thiết bị mới nhưng ở nhà (IP cũ)
+            { input: [0, 1, 0, 0, 0], output: [0.2] }, // Làm đêm ở văn phòng / ở nhà (IP cũ)
+            { input: [0.2, 0, 0, 0, 0], output: [0.15] },// Gõ sai pass 1-2 lần (Bình thường do người dùng thật)
+
+            // --- 🟡 NHÓM: NGHI NGỜ (Cảnh báo Admin, nhưng CÓ THỂ chưa khóa) ---
+            { input: [0, 0, 1, 1, 0], output: [0.4] }, // Mua điện thoại mới và lắp 4G mới (Hoặc có thể là người khác)
+            { input: [0, 1, 1, 1, 0], output: [0.65] }, // Nửa đêm, dùng IP mới, thiết bị mới (Rất đáng ngờ, ngấp nghé khóa)
+            { input: [0.4, 0, 0, 0, 1], output: [0.45] },// Gõ sai 2 lần mà đăng nhập liên tục cực nhanh dồn dập
+
+            // --- 🔴 NHÓM: HÀNH VI TẤN CÔNG (Chắc chắn khóa / Block) ---
+            { input: [0.8, 0, 0, 0, 0], output: [0.85] }, // Sai mật khẩu 4-5 lần (Chặn luôn cho an toàn)
+            { input: [1.0, 0, 0, 0, 0], output: [0.95] }, // Brute force cực mạnh (Chặn cứng)
+            { input: [0.6, 1, 1, 1, 1], output: [0.98] }, // Sai 3 lần + Nửa đêm + IP Lạ + Thiết bị Lạ + Gõ nhanh (100% Hacker Credentials Stuffing)
+            { input: [0.8, 0, 1, 0, 1], output: [0.88] }, // Đổi IP xong Brute Force nhanh máy chủ
+            { input: [0, 0, 1, 1, 1], output: [0.75] }    // Dùng thiết bị mới toanh IP lạ, đăng nhập liên tục nhanh chóng mặt
+        ];
+
+        const trainer = new synaptic.Trainer(this.net);
+        trainer.train(trainingData, {
+            rate: 0.1,
+            iterations: 5000,
+            error: 0.005,
+            log: 0
+        });
+
+        console.log('[AI Anomaly] ✅ Mạng Neural Network (Synaptic) đã được kích hoạt!');
     }
 
     /**
@@ -49,71 +95,34 @@ class AnomalyDetectionService {
         const riskFactors = [];
 
         try {
-            // === RULE 1: Brute Force Detection ===
-            const bruteForceScore = await this._checkBruteForce(pool, usernameHash);
-            if (bruteForceScore > 0) {
-                riskScore += bruteForceScore;
-                riskFactors.push({
-                    type: 'BRUTE_FORCE',
-                    score: bruteForceScore,
-                    severity: bruteForceScore >= 40 ? 'critical' : 'warning',
-                    message: 'Phát hiện nhiều lần đăng nhập thất bại liên tiếp'
-                });
-            }
+            // === Lấy dữ liệu thô từ quá khứ ===
+            const bScore = await this._checkBruteForce(pool, usernameHash); // 0, 20, 40, 50
+            const tScore = this._checkUnusualTime(); // 0, 15, 20
+            const ipScore = userId ? await this._checkNewIP(pool, userId, ipAddress) : 0; // 0, 20
+            const uaScore = userId ? await this._checkNewUserAgent(pool, userId, userAgent) : 0; // 0, 10
+            const rapidScore = userId ? await this._checkRapidLogin(pool, userId) : 0; // 0, 15
 
-            // === RULE 2: Unusual Login Time ===
-            const timeScore = this._checkUnusualTime();
-            if (timeScore > 0) {
-                riskScore += timeScore;
-                riskFactors.push({
-                    type: 'UNUSUAL_TIME',
-                    score: timeScore,
-                    severity: 'warning',
-                    message: `Đăng nhập ngoài giờ làm việc (${new Date().getHours()}:00)`
-                });
-            }
+            // === Chuẩn hóa Features (Normalize 0.0 -> 1.0) cho Mạng Neural ===
+            // Input map: [bruteForce, unusualTime, newIP, newDevice, rapidLogin]
+            const aiInputs = [
+                Math.min(bScore / 50, 1.0),
+                Math.min(tScore / 20, 1.0),
+                ipScore > 0 ? 1 : 0,
+                uaScore > 0 ? 1 : 0,
+                rapidScore > 0 ? 1 : 0
+            ];
 
-            // === RULE 3: New IP Address ===
-            if (userId) {
-                const ipScore = await this._checkNewIP(pool, userId, ipAddress);
-                if (ipScore > 0) {
-                    riskScore += ipScore;
-                    riskFactors.push({
-                        type: 'NEW_IP',
-                        score: ipScore,
-                        severity: 'warning',
-                        message: 'Đăng nhập từ địa chỉ IP chưa từng sử dụng'
-                    });
-                }
-            }
+            // === Chạy AI Prediction ===
+            const aiPrediction = this.net.activate(aiInputs);
+            riskScore = Math.floor(aiPrediction[0] * 100);
 
-            // === RULE 4: New User Agent (thiết bị/trình duyệt mới) ===
-            if (userId) {
-                const uaScore = await this._checkNewUserAgent(pool, userId, userAgent);
-                if (uaScore > 0) {
-                    riskScore += uaScore;
-                    riskFactors.push({
-                        type: 'NEW_DEVICE',
-                        score: uaScore,
-                        severity: 'info',
-                        message: 'Đăng nhập từ thiết bị/trình duyệt mới'
-                    });
-                }
-            }
+            // Ghi lại chi tiết (Explanations) để lưu vào DB cho Admin đọc hiểu vì sao AI chọn điểm này
+            if (bScore > 0) riskFactors.push({ type: 'BRUTE_FORCE', severity: bScore >= 40 ? 'critical' : 'warning', message: 'Phát hiện nhiều đăng nhập thất bại trước đó' });
+            if (tScore > 0) riskFactors.push({ type: 'UNUSUAL_TIME', severity: 'warning', message: `Đăng nhập ngoài giờ làm việc (${new Date().getHours()}:00)` });
+            if (ipScore > 0) riskFactors.push({ type: 'NEW_IP', severity: 'warning', message: 'Đăng nhập từ địa chỉ IP hoàn toàn mới' });
+            if (uaScore > 0) riskFactors.push({ type: 'NEW_DEVICE', severity: 'info', message: 'Đăng nhập từ thiết bị/trình duyệt lạ' });
+            if (rapidScore > 0) riskFactors.push({ type: 'RAPID_LOGIN', severity: 'warning', message: 'Tần suất đăng nhập quá nhanh' });
 
-            // === RULE 5: Rapid Login Pattern ===
-            if (userId) {
-                const rapidScore = await this._checkRapidLogin(pool, userId);
-                if (rapidScore > 0) {
-                    riskScore += rapidScore;
-                    riskFactors.push({
-                        type: 'RAPID_LOGIN',
-                        score: rapidScore,
-                        severity: 'warning',
-                        message: 'Tần suất đăng nhập bất thường (quá nhanh)'
-                    });
-                }
-            }
         } catch (err) {
             console.error('[AI Anomaly] Analysis error:', err.message);
             // Nếu lỗi, trả về score 0 để không chặn user
@@ -430,7 +439,7 @@ class AnomalyDetectionService {
             }
 
             let banReason = user.ban_reason;
-            try { banReason = decrypt(user.ban_reason); } catch (e) {}
+            try { banReason = decrypt(user.ban_reason); } catch (e) { }
 
             return {
                 isBanned: true,
@@ -554,6 +563,13 @@ class AnomalyDetectionService {
      */
     async unbanUser(pool, userId, resetCount = false) {
         try {
+            // 1. Lấy username_hash để xóa lịch sử sai
+            const userRes = await pool.request()
+                .input('userId', sql.UniqueIdentifier, userId)
+                .query("SELECT username_hash FROM system_users WHERE user_id = @userId");
+            const hash = userRes.recordset[0]?.username_hash;
+
+            // 2. Mở khóa tài khoản
             const query = resetCount
                 ? `UPDATE system_users SET banned_until = NULL, ban_reason = NULL, ban_count = 0 WHERE user_id = @userId`
                 : `UPDATE system_users SET banned_until = NULL, ban_reason = NULL WHERE user_id = @userId`;
@@ -562,7 +578,15 @@ class AnomalyDetectionService {
                 .input('userId', sql.UniqueIdentifier, userId)
                 .query(query);
 
-            console.log(`[AutoBan] ✅ Admin UNBANNED user: ${userId} | Reset count: ${resetCount}`);
+            // 3. Xóa bộ nhớ ngắn hạn của AI (xóa hết lần đăng nhập thất bại trước đó)
+            // Nếu không xóa, vừa gỡ ban xong AI nhìn thấy lịch sử fail cũ vẫn sẽ tự cày điểm Risk lên >70 và khóa lại ngay lập tức.
+            if (hash) {
+                await pool.request()
+                    .input('hash', sql.NVarChar, hash)
+                    .query(`DELETE FROM login_attempts WHERE username_hash = @hash AND success = 0`);
+            }
+
+            console.log(`[AutoBan] ✅ Admin UNBANNED user: ${userId} | Reset count: ${resetCount} | Cleared AI memory`);
             return { success: true };
         } catch (err) {
             console.error('[AutoBan] Unban error:', err.message);
@@ -584,8 +608,8 @@ class AnomalyDetectionService {
             return result.recordset.map(u => {
                 let username = u.username;
                 let banReason = u.ban_reason;
-                try { username = decrypt(u.username); } catch (e) {}
-                try { banReason = JSON.parse(decrypt(u.ban_reason)); } catch (e) {}
+                try { username = decrypt(u.username); } catch (e) { }
+                try { banReason = JSON.parse(decrypt(u.ban_reason)); } catch (e) { }
 
                 return {
                     userId: u.user_id,

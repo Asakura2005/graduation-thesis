@@ -261,66 +261,70 @@ app.post('/api/auth/login', async (req, res) => {
         const pool = await connectDB();
         const usernameHash = hashData(username);
 
-        // === AI ANOMALY DETECTION: Pre-authentication analysis ===
+        // === 1. TÌM TÀI KHOẢN TRƯỚC (để lấy user_id báo cho hệ thống) ===
+        const result = await pool.request()
+            .input('hash', sql.NVarChar, usernameHash)
+            .query("SELECT * FROM system_users WHERE username_hash = @hash");
+
+        const foundUser = result.recordset[0];
+        const userId = foundUser ? foundUser.user_id : null;
+
+        // === 2. AI ANOMALY DETECTION: Phân tích trước đăng nhập ===
         let preAnalysis = { riskScore: 0, riskFactors: [], decision: 'ALLOW' };
         try {
             preAnalysis = await anomalyDetector.analyzeLogin(pool, {
-                usernameHash, ipAddress: clientIP, userAgent, userId: null
+                usernameHash, ipAddress: clientIP, userAgent, userId: userId
             });
         } catch (aiErr) {
             console.error('[AI Anomaly] Pre-analysis error (non-blocking):', aiErr.message);
         }
 
-        // Nếu bị BLOCK bởi AI (ví dụ: brute force) → từ chối ngay
+        // === 3. XỬ LÝ NẾU BỊ BLOCK BỞI AI (Khóa tài khoản khẩn cấp) ===
         if (preAnalysis.decision === 'BLOCK') {
             try {
+                // Auto-ban nếu có tài khoản
+                if (userId) {
+                    const banResult = await anomalyDetector.autoBan(pool, {
+                        userId: userId,
+                        usernameHash,
+                        riskScore: preAnalysis.riskScore,
+                        riskFactors: preAnalysis.riskFactors,
+                        ipAddress: clientIP
+                    });
+
+                    if (banResult?.banned) {
+                        await logAudit(userId, 'ACCOUNT_AUTO_BANNED', {
+                            username, riskScore: preAnalysis.riskScore,
+                            duration: banResult.duration,
+                            banLevel: banResult.banLevel
+                        }).catch(() => { });
+                    }
+                }
+
+                // Ghi Log login attempt Blocked
                 await anomalyDetector.recordAttempt(pool, {
-                    usernameHash, userId: null, ipAddress: clientIP, userAgent,
+                    usernameHash, userId: userId, ipAddress: clientIP, userAgent,
                     success: false, riskScore: preAnalysis.riskScore,
                     riskFactors: preAnalysis.riskFactors, blocked: true
                 });
-            } catch (recErr) { console.error('[AI Anomaly] Record error:', recErr.message); }
+            } catch (recErr) { console.error('[AI Anomaly] Record / Ban error:', recErr.message); }
 
-            await logAudit(null, 'LOGIN_BLOCKED_BY_AI', {
-                username, riskScore: preAnalysis.riskScore,
-                factors: preAnalysis.riskFactors.map(f => f.type)
-            }).catch(() => {});
+            // Only log in audit table if we know which user it is
+            if (userId) {
+                await logAudit(userId, 'LOGIN_BLOCKED_BY_AI', {
+                    username, riskScore: preAnalysis.riskScore,
+                    factors: preAnalysis.riskFactors.map(f => f.type)
+                }).catch(() => { });
+            }
 
             return res.status(403).json({
-                error: 'Tài khoản tạm thời bị khóa do phát hiện hoạt động bất thường. Vui lòng thử lại sau.',
+                error: 'Tài khoản đã bị Tự động Khóa do hành vi đáng ngờ. Xin vui lòng liên hệ Admin.',
                 riskScore: preAnalysis.riskScore,
                 blocked: true
             });
         }
 
-        const result = await pool.request()
-            .input('hash', sql.NVarChar, usernameHash)
-            .query("SELECT * FROM system_users WHERE username_hash = @hash");
-
-        // Tìm user để lấy userId cho auto-ban (nếu cần)
-        const foundUser = result.recordset[0];
-        if (foundUser) {
-            // Auto-ban nếu bị BLOCK và đủ điều kiện
-            try {
-                const banResult = await anomalyDetector.autoBan(pool, {
-                    userId: foundUser.user_id,
-                    usernameHash,
-                    riskScore: preAnalysis.riskScore,
-                    riskFactors: preAnalysis.riskFactors,
-                    ipAddress: clientIP
-                });
-
-                if (banResult?.banned) {
-                    await logAudit(foundUser.user_id, 'ACCOUNT_AUTO_BANNED', {
-                        username, riskScore: preAnalysis.riskScore,
-                        duration: banResult.duration,
-                        banLevel: banResult.banLevel
-                    }).catch(() => {});
-                }
-            } catch (banErr) { console.error('[AutoBan] Error:', banErr.message); }
-        }
-
-        const user = result.recordset[0];
+        const user = foundUser;
         if (!user) {
             // Ghi nhận login fail - user not found
             try {
@@ -343,7 +347,7 @@ app.post('/api/auth/login', async (req, res) => {
                     success: false, riskScore: 100,
                     riskFactors: [{ type: 'ACCOUNT_BANNED', score: 100, severity: 'critical', message: 'Account is currently banned' }],
                     blocked: true
-                }).catch(() => {});
+                }).catch(() => { });
 
                 const timeRemaining = banStatus.isPermanent
                     ? 'permanently'
@@ -1360,13 +1364,23 @@ app.put('/api/shipments/:id', authenticateToken, authorizeRole(['Admin']), async
         const pool = await connectDB();
 
         // Security check: Only allow if pending
-        const checkRes = await pool.request().input('id', sql.UniqueIdentifier, req.params.id).query("SELECT status FROM shipments WHERE shipment_id = @id");
+        const checkRes = await pool.request().input('id', sql.UniqueIdentifier, req.params.id).query("SELECT * FROM shipments WHERE shipment_id = @id");
         if (checkRes.recordset.length === 0) return res.status(404).json({ error: 'Shipment not found' });
-        let decodedStatus = checkRes.recordset[0].status;
+        const oldShipment = checkRes.recordset[0];
+        let decodedStatus = oldShipment.status;
         try { decodedStatus = decrypt(decodedStatus) || decodedStatus; } catch (e) { }
         if (decodedStatus !== 'Pending') {
             return res.status(400).json({ error: 'Không thể sửa đơn hàng đã xử lý (Không còn ở trạng thái Pending).' });
         }
+
+        // Decrypt old values for change comparison
+        let oldOrigin = oldShipment.origin_address;
+        let oldDest = oldShipment.destination_address;
+        let oldTotalVal = oldShipment.total_value;
+        let oldLogisticsId = oldShipment.logistics_id;
+        try { oldOrigin = decrypt(oldShipment.origin_address) || oldOrigin; } catch (e) { }
+        try { oldDest = decrypt(oldShipment.destination_address) || oldDest; } catch (e) { }
+        try { oldTotalVal = decrypt(oldShipment.total_value) || oldTotalVal; } catch (e) { }
 
         transaction = new sql.Transaction(pool);
         await transaction.begin();
@@ -1463,10 +1477,55 @@ app.put('/api/shipments/:id', authenticateToken, authorizeRole(['Admin']), async
         ])];
         for (const iId of uniqueItemIds) await syncItemTotalStock(iId);
 
-        await logAudit(req.user.id, 'UPDATE_SHIPMENT', { shipmentId: req.params.id, originAddress, destinationAddress });
+        // Build detailed change log (after commit, so errors here won't affect the update)
+        try {
+            const changes = [];
+            if (oldOrigin !== originAddress) changes.push({ field: 'Điểm đi', from: oldOrigin, to: originAddress });
+            if (oldDest !== destinationAddress) changes.push({ field: 'Điểm đến', from: oldDest, to: destinationAddress });
+            if (String(oldTotalVal) !== String(totalValue)) changes.push({ field: 'Tổng giá trị', from: `$${oldTotalVal}`, to: `$${totalValue}` });
+            if (oldLogisticsId !== logisticsId) changes.push({ field: 'Đơn vị vận chuyển', from: oldLogisticsId, to: logisticsId });
+
+            // Compare items: build human-readable summaries of old vs new
+            if (items && items.length > 0) {
+                const oldSummaries = [];
+                for (const oldItem of oldItemsRes.recordset) {
+                    let itemName = oldItem.item_id;
+                    let qty = 0;
+                    try {
+                        const nameRes = await pool.request().input('iid', sql.UniqueIdentifier, oldItem.item_id)
+                            .query("SELECT item_name FROM supply_items WHERE item_id = @iid");
+                        if (nameRes.recordset[0]) {
+                            try { itemName = decrypt(nameRes.recordset[0].item_name); } catch (e) { itemName = nameRes.recordset[0].item_name; }
+                        }
+                    } catch (e) { }
+                    try { qty = parseInt(decrypt(oldItem.quantity)); } catch (e) { qty = parseInt(oldItem.quantity) || 0; }
+                    oldSummaries.push(`${itemName} (x${qty})`);
+                }
+
+                const newSummaries = items.map(i => `${i.item_name || i.itemId} (x${i.quantity})`);
+
+                const oldStr = oldSummaries.join(', ') || '(trống)';
+                const newStr = newSummaries.join(', ') || '(trống)';
+                if (oldStr !== newStr) {
+                    changes.push({ field: 'Sản phẩm', from: oldStr, to: newStr });
+                }
+            }
+
+            await logAudit(req.user.id, 'UPDATE_SHIPMENT', {
+                shipmentId: req.params.id,
+                originAddress,
+                destinationAddress,
+                changes
+            });
+        } catch (logErr) {
+            console.error("Audit log error (non-blocking):", logErr.message);
+        }
+
         res.json({ message: 'Shipment updated successfully' });
     } catch (err) {
-        if (transaction) await transaction.rollback();
+        if (transaction) {
+            try { await transaction.rollback(); } catch (rbErr) { /* already committed or aborted */ }
+        }
         console.error("Update Shipment Error:", err);
         res.status(500).json({ error: err.message });
     }
@@ -1543,6 +1602,17 @@ app.get('/api/partners', authenticateToken, async (req, res) => {
 // 9. Create Partner
 app.post('/api/partners', authenticateToken, authorizeRole(['Admin', 'Staff']), async (req, res) => {
     const { name, contact, phone, email, type } = req.body;
+
+    // Validate phone & email
+    if (phone) {
+        if (!/^\+\d{8,15}$/.test(phone)) {
+            return res.status(400).json({ error: 'SĐT không hợp lệ' });
+        }
+    }
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+        return res.status(400).json({ error: 'Email không hợp lệ' });
+    }
+
     try {
         const pool = await connectDB();
 
@@ -1571,8 +1641,32 @@ app.post('/api/partners', authenticateToken, authorizeRole(['Admin', 'Staff']), 
 app.put('/api/partners/:id', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
     const { id } = req.params;
     const { name, contact, phone, email, type } = req.body;
+
+    // Validate phone & email
+    if (phone) {
+        if (!/^\+\d{8,15}$/.test(phone)) {
+            return res.status(400).json({ error: 'SĐT không hợp lệ' });
+        }
+    }
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+        return res.status(400).json({ error: 'Email không hợp lệ' });
+    }
+
     try {
         const pool = await connectDB();
+
+        // Fetch old data for change comparison
+        const oldRes = await pool.request().input('id', sql.UniqueIdentifier, id)
+            .query("SELECT * FROM partners WHERE partner_id = @id");
+        if (oldRes.recordset.length === 0) return res.status(404).json({ error: 'Partner not found' });
+
+        const old = oldRes.recordset[0];
+        let oldName = old.partner_name, oldContact = old.contact_person, oldPhone = old.contact_phone, oldEmail = old.email, oldType = old.type;
+        try { oldName = decrypt(old.partner_name) || oldName; } catch (e) { }
+        try { oldContact = decrypt(old.contact_person) || oldContact; } catch (e) { }
+        try { oldPhone = decrypt(old.contact_phone) || oldPhone; } catch (e) { }
+        try { oldEmail = decrypt(old.email) || oldEmail; } catch (e) { }
+        try { oldType = decrypt(old.type) || oldType; } catch (e) { }
 
         const encName = encrypt(name);
         const encContact = encrypt(contact);
@@ -1591,7 +1685,15 @@ app.put('/api/partners/:id', authenticateToken, authorizeRole(['Admin']), async 
                 partner_name=@name, contact_person=@contact, contact_phone=@phone, email=@email, type=@type 
                 WHERE partner_id=@id`);
 
-        await logAudit(req.user.id, 'UPDATE_PARTNER', { partnerId: id, name, type });
+        // Build detailed change log
+        const changes = [];
+        if (oldName !== name) changes.push({ field: 'Tên đối tác', from: oldName, to: name });
+        if (oldContact !== contact) changes.push({ field: 'Người liên hệ', from: oldContact, to: contact });
+        if (oldPhone !== phone) changes.push({ field: 'Số điện thoại', from: oldPhone, to: phone });
+        if (oldEmail !== email) changes.push({ field: 'Email', from: oldEmail, to: email });
+        if (oldType !== type) changes.push({ field: 'Loại đối tác', from: oldType, to: type });
+
+        await logAudit(req.user.id, 'UPDATE_PARTNER', { partnerId: id, partnerName: name, changes });
         res.json({ message: 'Partner updated' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
