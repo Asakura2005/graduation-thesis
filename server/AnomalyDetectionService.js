@@ -15,9 +15,75 @@
 const sql = require('mssql');
 const { encrypt, decrypt, hashData } = require('./EncryptionService');
 const synaptic = require('synaptic');
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * Thuật toán Phân phối xác suất chuẩn nhiều chiều (Multivariate Gaussian)
+ * Mục đích: Tự động bắt "Điểm ngoại lai" (Outliers) - những hành vi
+ * đăng nhập có xác suất xảy ra < 0.1% so với bình thường.
+ */
+class MultivariateGaussian {
+    constructor() {
+        this.mu = []; // Kỳ vọng (Mean)
+        this.sigma2 = []; // Phương sai (Variance)
+        this.isTrained = false;
+        this.featuresCount = 5;
+    }
+
+    train(dataset) {
+        if (!dataset || dataset.length < 5) return; // Quá ít dữ liệu để lập biểu đồ
+
+        const m = dataset.length;
+        this.mu = new Array(this.featuresCount).fill(0);
+        this.sigma2 = new Array(this.featuresCount).fill(0);
+
+        // 1. Tính Kỳ vọng (Mean)
+        for (let i = 0; i < m; i++) {
+            for (let j = 0; j < this.featuresCount; j++) {
+                this.mu[j] += dataset[i][j];
+            }
+        }
+        for (let j = 0; j < this.featuresCount; j++) {
+            this.mu[j] /= m;
+        }
+
+        // 2. Tính Phương sai (Variance)
+        for (let i = 0; i < m; i++) {
+            for (let j = 0; j < this.featuresCount; j++) {
+                this.sigma2[j] += Math.pow(dataset[i][j] - this.mu[j], 2);
+            }
+        }
+        for (let j = 0; j < this.featuresCount; j++) {
+            this.sigma2[j] /= m;
+            if (this.sigma2[j] <= 0.0001) this.sigma2[j] = 0.0001; // Limit singularity
+        }
+        this.isTrained = true;
+    }
+
+    /**
+     * Đo lường xác suất xuất hiện chuỗi hành vi này (Probability p)
+     */
+    predictProbability(x) {
+        if (!this.isTrained) return 1.0;
+
+        let p = 1.0;
+        for (let j = 0; j < this.featuresCount; j++) {
+            const mean = this.mu[j];
+            const variance = this.sigma2[j];
+            const exponent = Math.exp(-Math.pow(x[j] - mean, 2) / (2 * variance));
+            const prob = (1 / (Math.sqrt(2 * Math.PI * variance))) * exponent;
+            p *= prob;
+        }
+        return p;
+    }
+}
 
 class AnomalyDetectionService {
     constructor() {
+        // Đường dẫn lưu bộ não AI
+        this.MODEL_PATH = path.join(__dirname, 'ai_model.json');
+
         // === Cấu hình ngưỡng ===
         this.RISK_THRESHOLD = 70;        // Risk score >= 70 → BLOCK
         this.WARN_THRESHOLD = 40;        // Risk score 40-69 → WARN
@@ -38,10 +104,46 @@ class AnomalyDetectionService {
         this.AUTO_BAN_THRESHOLD = 70;  // Risk score >= 70 → tự động ban
         this.BLOCK_COUNT_TRIGGER = 3;  // Số lần bị BLOCK trong 1 giờ → tự động ban
 
-        // === AI NEURAL NETWORK (Synaptic) ===
-        // Mạng nơ-ron: 5 input (bruteForce, time, ip, device, rapid), 6 hidden, 1 output (risk)
-        this.net = new synaptic.Architect.Perceptron(5, 6, 1);
-        this._trainAI();
+        // === AI NEURAL NETWORK (Supervised) ===
+        this._initAI();
+
+        // === GAUSSIAN ANOMALY AI (Unsupervised) ===
+        this.gaussianAI = new MultivariateGaussian();
+        this.lastGaussianTrainTime = 0;
+    }
+
+    /**
+     * Khởi tạo AI: Nếu đã có bộ não lưu trên đĩa thì tải lên, chưa có thì huấn luyện mẫu (Bootstrap)
+     */
+    _initAI() {
+        if (fs.existsSync(this.MODEL_PATH)) {
+            try {
+                const modelData = JSON.parse(fs.readFileSync(this.MODEL_PATH, 'utf8'));
+                this.net = synaptic.Network.fromJSON(modelData);
+                console.log('[AI Anomaly] 🧠 Đã nạp thành công bộ não AI từ file ai_model.json');
+            } catch (err) {
+                console.error('[AI Anomaly] Lỗi đọc file model, sẽ tiến hành huấn luyện lại:', err.message);
+                this.net = new synaptic.Architect.Perceptron(5, 6, 1);
+                this._trainAI();
+            }
+        } else {
+            console.log('[AI Anomaly] ⚠️ Chưa có bộ não AI, bắt đầu huấn luyện từ số 0...');
+            this.net = new synaptic.Architect.Perceptron(5, 6, 1);
+            this._trainAI();
+        }
+    }
+
+    /**
+     * Lưu trữ bộ não AI ra file để học hỏi liên tục (Continuous Learning)
+     */
+    saveModel() {
+        try {
+            const exported = this.net.toJSON();
+            fs.writeFileSync(this.MODEL_PATH, JSON.stringify(exported));
+            console.log('[AI Anomaly] 💾 Bộ não AI đã được ghi nhớ vào ổ cứng.');
+        } catch (err) {
+            console.error('[AI Anomaly] Không thể lưu model AI:', err.message);
+        }
     }
 
     /**
@@ -59,6 +161,7 @@ class AnomalyDetectionService {
             { input: [0, 0, 0, 1, 0], output: [0.1] }, // Thiết bị mới nhưng ở nhà (IP cũ)
             { input: [0, 1, 0, 0, 0], output: [0.2] }, // Làm đêm ở văn phòng / ở nhà (IP cũ)
             { input: [0.2, 0, 0, 0, 0], output: [0.15] },// Gõ sai pass 1-2 lần (Bình thường do người dùng thật)
+            { input: [0.8, 0, 0, 0, 0], output: [0.45] },// [ĐÃ GIẢM NHẸ] Gõ sai pass 4-5 lần nhưng MỌI THỨ KHÁC bình thường -> Cảnh báo (WARN) chứ không Khóa.
 
             // --- 🟡 NHÓM: NGHI NGỜ (Cảnh báo Admin, nhưng CÓ THỂ chưa khóa) ---
             { input: [0, 0, 1, 1, 0], output: [0.4] }, // Mua điện thoại mới và lắp 4G mới (Hoặc có thể là người khác)
@@ -66,8 +169,8 @@ class AnomalyDetectionService {
             { input: [0.4, 0, 0, 0, 1], output: [0.45] },// Gõ sai 2 lần mà đăng nhập liên tục cực nhanh dồn dập
 
             // --- 🔴 NHÓM: HÀNH VI TẤN CÔNG (Chắc chắn khóa / Block) ---
-            { input: [0.8, 0, 0, 0, 0], output: [0.85] }, // Sai mật khẩu 4-5 lần (Chặn luôn cho an toàn)
-            { input: [1.0, 0, 0, 0, 0], output: [0.95] }, // Brute force cực mạnh (Chặn cứng)
+            { input: [1.0, 0, 0, 0, 0], output: [0.95] }, // Brute force CỰC KỲ NHIỀU (Sai > 10 lần) (Chặn cứng)
+            { input: [0.8, 0, 1, 1, 0], output: [0.85] }, // Sai 4-5 lần + IP LẠ + THIẾT BỊ LẠ (Chắc chắn là Hacker đang rà pass)
             { input: [0.6, 1, 1, 1, 1], output: [0.98] }, // Sai 3 lần + Nửa đêm + IP Lạ + Thiết bị Lạ + Gõ nhanh (100% Hacker Credentials Stuffing)
             { input: [0.8, 0, 1, 0, 1], output: [0.88] }, // Đổi IP xong Brute Force nhanh máy chủ
             { input: [0, 0, 1, 1, 1], output: [0.75] }    // Dùng thiết bị mới toanh IP lạ, đăng nhập liên tục nhanh chóng mặt
@@ -81,7 +184,65 @@ class AnomalyDetectionService {
             log: 0
         });
 
-        console.log('[AI Anomaly] ✅ Mạng Neural Network (Synaptic) đã được kích hoạt!');
+        console.log('[AI Anomaly] ✅ Mạng Neural Network (Synaptic) đã được đào tạo (Bootstrap)!');
+        this.saveModel(); // Lưu lại ngay sau khi train xong
+    }
+
+    /**
+     * FeedBack Loop: Dành cho Admin dạy lại AI khi có False Positive (nhận diện nhầm)
+     */
+    provideFeedback(aiInputs, isSafe = true) {
+        if (!aiInputs || aiInputs.length !== 5) return;
+
+        const expectedOutput = isSafe ? [0.0] : [1.0];
+
+        console.log(`[AI Anomaly] 🎓 Đang nạp dữ liệu học lại (Feedback Loop). Input: [${aiInputs}], Target: ${expectedOutput[0]}`);
+        const trainer = new synaptic.Trainer(this.net);
+
+        // Huấn luyện bổ sung thêm trọng số vào mạng lưới hiện tại thay vì ghi đè hoàn toàn
+        trainer.train([{ input: aiInputs, output: expectedOutput }], {
+            rate: 0.05,        // Learning rate nhỏ lại để không quên các kiến thức khác
+            iterations: 500,   // Lặp nhanh để điều chỉnh trọng số cục bộ
+            error: 0.01,
+            log: 0
+        });
+
+        this.saveModel(); // Ghi nhớ kiến thức mới
+        console.log('[AI Anomaly] 🎓 AI đã rút kinh nghiệm thành công!');
+    }
+
+    /**
+     * Hàm phụ: Thu thập dữ liệu lịch sử để dạy thuật toán Unsupervised (Gaussian)
+     * Tránh tốn tải DB nên chỉ cho train định kỳ 1 tiếng 1 lần
+     */
+    async _trainUnsupervisedAI(pool) {
+        const now = Date.now();
+        if (now - this.lastGaussianTrainTime < 3600000) return; // 1 giờ train 1 lần
+
+        try {
+            const result = await pool.request().query(`
+                SELECT TOP 300 risk_factors FROM login_attempts 
+                WHERE success = 1 AND risk_factors IS NOT NULL
+                ORDER BY attempt_time DESC
+            `);
+
+            const dataset = [];
+            for (const row of result.recordset) {
+                try {
+                    const factorsJSON = JSON.parse(decrypt(row.risk_factors));
+                    const aiMemoryContext = factorsJSON.find(f => f.type === 'AI_MEMORY_STATE');
+                    if (aiMemoryContext && aiMemoryContext.inputVector) {
+                        dataset.push(aiMemoryContext.inputVector);
+                    }
+                } catch (e) { } // Bỏ qua nếu decrypt lỗi
+            }
+
+            this.gaussianAI.train(dataset);
+            this.lastGaussianTrainTime = now;
+            console.log(`[AI Anomaly] 📊 Gaussian AI đã xây dựng xong biểu đồ phân bố cho ${dataset.length} trạng thái bình thường.`);
+        } catch (err) {
+            console.error('[AI Anomaly] Lỗi lúc thu thập mẫu Gaussian AI:', err.message);
+        }
     }
 
     /**
@@ -95,9 +256,12 @@ class AnomalyDetectionService {
         const riskFactors = [];
 
         try {
+            // Khởi động Background Training cho AI Thống Kê
+            this._trainUnsupervisedAI(pool);
+
             // === Lấy dữ liệu thô từ quá khứ ===
             const bScore = await this._checkBruteForce(pool, usernameHash); // 0, 20, 40, 50
-            const tScore = this._checkUnusualTime(); // 0, 15, 20
+            const tScore = await this._checkUnusualTime(pool, userId); // 0, 15, 20 (Đã nâng cấp cá nhân hóa)
             const ipScore = userId ? await this._checkNewIP(pool, userId, ipAddress) : 0; // 0, 20
             const uaScore = userId ? await this._checkNewUserAgent(pool, userId, userAgent) : 0; // 0, 10
             const rapidScore = userId ? await this._checkRapidLogin(pool, userId) : 0; // 0, 15
@@ -112,9 +276,33 @@ class AnomalyDetectionService {
                 rapidScore > 0 ? 1 : 0
             ];
 
-            // === Chạy AI Prediction ===
+            // Ghi chép lại Input để dùng cho Feedback Loop sau này
+            riskFactors.push({ type: 'AI_MEMORY_STATE', inputVector: aiInputs, hidden: true });
+
+            // ENSEMBLE LEARNING (KẾT HỢP 2 AI)
+            // === 1. Chạy Supervised AI Prediction (Mạng Nơ-ron) ===
             const aiPrediction = this.net.activate(aiInputs);
-            riskScore = Math.floor(aiPrediction[0] * 100);
+            let neuralScore = Math.floor(aiPrediction[0] * 100);
+
+            // === 2. Chạy Unsupervised AI (Cảnh báo Outlier Khẩn Cấp) ===
+            const gaussProb = this.gaussianAI.predictProbability(aiInputs);
+
+            // Xử lý Cụm báo động Unsupervised
+            let gaussianPenalty = 0;
+            if (this.gaussianAI.isTrained) {
+                // p cực thấp (ví dụ < 0.005) nghĩa là sự kiện này xảy ra với tỉ lệ vô cùng hiếm
+                // Hoàn toàn chệch ra khỏi phân phối đám mây bình thường của hệ thống.
+                if (gaussProb < 0.0001) {
+                    gaussianPenalty = 60; // Gần như Block ngay lập tức
+                    riskFactors.push({ type: 'UNSUPERVISED_OUTLIER', severity: 'critical', message: 'Hành vi vô cùng kì dị (Probability < 0.01%!' });
+                } else if (gaussProb < 0.01) {
+                    gaussianPenalty = 30; // Đáng ngờ dị biệt
+                    riskFactors.push({ type: 'UNSUPERVISED_ANOMALY', severity: 'warning', message: 'Thuật toán Unsupervised phát hiện điểm bất thường so với đám đông' });
+                }
+            }
+
+            // Gộp điểm từ 2 AI lại
+            riskScore = Math.min(neuralScore + gaussianPenalty, 100);
 
             // Ghi lại chi tiết (Explanations) để lưu vào DB cho Admin đọc hiểu vì sao AI chọn điểm này
             if (bScore > 0) riskFactors.push({ type: 'BRUTE_FORCE', severity: bScore >= 40 ? 'critical' : 'warning', message: 'Phát hiện nhiều đăng nhập thất bại trước đó' });
@@ -176,19 +364,54 @@ class AnomalyDetectionService {
     }
 
     /**
-     * Rule 2: Kiểm tra đăng nhập ngoài giờ làm việc
+     * Rule 2 (Mức 3 - Personalized): Kiểm tra đăng nhập ngoài giờ theo thói quen cá nhân
      */
-    _checkUnusualTime() {
-        const hour = new Date().getHours();
-        // Đăng nhập lúc 0:00 - 5:59 → rủi ro cao hơn
-        if (hour >= 0 && hour < this.WORK_HOURS.start) {
-            return 20;
+    async _checkUnusualTime(pool, userId) {
+        const currentHour = new Date().getHours();
+
+        // Nếu không có userId (đăng nhập lần đầu/đăng nhập sai), dùng rule chung
+        if (!userId) {
+            return (currentHour >= 0 && currentHour < this.WORK_HOURS.start) ? 20 :
+                (currentHour >= this.WORK_HOURS.end) ? 15 : 0;
         }
-        // Đăng nhập lúc 22:00 - 23:59 → rủi ro trung bình
-        if (hour >= this.WORK_HOURS.end) {
-            return 15;
+
+        try {
+            // Lịch sử 20 lần đăng nhập gần nhất của riêng người này
+            const result = await pool.request()
+                .input('userId', sql.UniqueIdentifier, userId)
+                .query(`
+                    SELECT TOP 20 attempt_time
+                    FROM login_attempts
+                    WHERE user_id = @userId AND success = 1
+                    ORDER BY attempt_time DESC
+                `);
+
+            if (result.recordset.length < 5) {
+                // Chưa đủ dữ liệu để tạo Profiling cá nhân -> dùng rule chung
+                return (currentHour >= 0 && currentHour < this.WORK_HOURS.start) ? 20 :
+                    (currentHour >= this.WORK_HOURS.end) ? 15 : 0;
+            }
+
+            // Tính toán mức độ phân bố giờ (K-Means/Standard Deviation đơn giản)
+            const hours = result.recordset.map(r => new Date(r.attempt_time).getHours());
+
+            // Tìm xem currentHour có nằm trong các giờ quen thuộc không
+            // Lấy khoảng cách nhỏ nhất tới các giờ thường làm của user
+            let minDiff = 24;
+            for (let h of hours) {
+                // Xử lý vòng tròn của thời gian (0h và 23h là sát nhau)
+                let diff = Math.min(Math.abs(currentHour - h), 24 - Math.abs(currentHour - h));
+                if (diff < minDiff) minDiff = diff;
+            }
+
+            // Nếu giờ đăng nhập hiện tại cách xa NHẤT với thói quen của user là bao nhiêu tiếng?
+            if (minDiff <= 2) return 0;       // Cách giờ bình thường <= 2 tiếng: An toàn tuyệt đối (Hợp lệ)
+            if (minDiff > 6) return 20;       // Cách tới > 6 tiếng so với mọi thói quen cũ: Cực kỳ bất thường!
+            return 10;                        // Hơi lạ
+        } catch (err) {
+            console.error('[AI Anomaly] Time Check error:', err.message);
+            return 0;
         }
-        return 0;
     }
 
     /**
@@ -502,8 +725,8 @@ class AnomalyDetectionService {
             let bannedUntil;
             let durationText;
             if (banMinutes === -1) {
-                // Ban vĩnh viễn
-                bannedUntil = new Date('9999-12-31T23:59:59.000Z');
+                // Ban vĩnh viễn (Sử dụng năm 2999 để tránh lỗi Out Of Range timezone của SQL Server)
+                bannedUntil = new Date('2999-12-31T00:00:00.000Z');
                 durationText = 'PERMANENT';
             } else {
                 bannedUntil = new Date(Date.now() + banMinutes * 60 * 1000);
@@ -558,18 +781,48 @@ class AnomalyDetectionService {
     }
 
     /**
-     * Admin unban: Gỡ ban thủ công bởi Admin
+     * Admin unban: Gỡ ban thủ công bởi Admin và Gửi Feedback lại cho AI học (Continuous Learning)
      * @param {boolean} resetCount - Nếu true, reset ban_count về 0
+     * @param {boolean} isFalsePositive - [Tùy chọn] Báo cáo đây là AI nhận diện nhầm, cần dạy lại AI
      */
-    async unbanUser(pool, userId, resetCount = false) {
+    async unbanUser(pool, userId, resetCount = false, isFalsePositive = true) {
         try {
-            // 1. Lấy username_hash để xóa lịch sử sai
+            // 1. Lấy thông tin tài khoản bị ban (username_hash và reason)
             const userRes = await pool.request()
                 .input('userId', sql.UniqueIdentifier, userId)
-                .query("SELECT username_hash FROM system_users WHERE user_id = @userId");
+                .query("SELECT username_hash, ban_reason FROM system_users WHERE user_id = @userId");
             const hash = userRes.recordset[0]?.username_hash;
+            const encryptedBanReason = userRes.recordset[0]?.ban_reason;
 
-            // 2. Mở khóa tài khoản
+            // 2. [CƠ CHẾ MỚI] Dạy lại AI (Feedback Loop) nếu đây là mở khóa do AI bắt nhầm người
+            if (isFalsePositive && hash) {
+                // Truy xuất lại attempt bị khóa gần nhất của người này
+                const lastAttemptResult = await pool.request()
+                    .input('hash', sql.NVarChar, hash)
+                    .query(`
+                        SELECT TOP 1 risk_factors
+                        FROM login_attempts
+                        WHERE username_hash = @hash AND blocked = 1
+                        ORDER BY attempt_time DESC
+                    `);
+
+                if (lastAttemptResult.recordset.length > 0 && lastAttemptResult.recordset[0].risk_factors) {
+                    try {
+                        const factorsJSON = JSON.parse(decrypt(lastAttemptResult.recordset[0].risk_factors));
+                        // Tìm yếu tố chứa trạng thái memory của AI lúc đưa ra quyết định
+                        const aiMemoryContext = factorsJSON.find(f => f.type === 'AI_MEMORY_STATE');
+
+                        if (aiMemoryContext && aiMemoryContext.inputVector) {
+                            // Gọi hàm dạy lại: Báo với não bộ rằng input này phải ra Output 0 (Safe)
+                            this.provideFeedback(aiMemoryContext.inputVector, true);
+                        }
+                    } catch (e) {
+                        console.error('[AI Anomaly] Không thể trích xuất dataset cũ để dạy AI:', e.message);
+                    }
+                }
+            }
+
+            // 3. Mở khóa tài khoản
             const query = resetCount
                 ? `UPDATE system_users SET banned_until = NULL, ban_reason = NULL, ban_count = 0 WHERE user_id = @userId`
                 : `UPDATE system_users SET banned_until = NULL, ban_reason = NULL WHERE user_id = @userId`;
@@ -578,15 +831,14 @@ class AnomalyDetectionService {
                 .input('userId', sql.UniqueIdentifier, userId)
                 .query(query);
 
-            // 3. Xóa bộ nhớ ngắn hạn của AI (xóa hết lần đăng nhập thất bại trước đó)
-            // Nếu không xóa, vừa gỡ ban xong AI nhìn thấy lịch sử fail cũ vẫn sẽ tự cày điểm Risk lên >70 và khóa lại ngay lập tức.
+            // 4. Xóa bộ nhớ ngắn hạn của các Rule (xóa lịch sử login fail)
             if (hash) {
                 await pool.request()
                     .input('hash', sql.NVarChar, hash)
                     .query(`DELETE FROM login_attempts WHERE username_hash = @hash AND success = 0`);
             }
 
-            console.log(`[AutoBan] ✅ Admin UNBANNED user: ${userId} | Reset count: ${resetCount} | Cleared AI memory`);
+            console.log(`[AutoBan] ✅ Admin UNBANNED user: ${userId} | Tích hợp Feedback AI: ${isFalsePositive}`);
             return { success: true };
         } catch (err) {
             console.error('[AutoBan] Unban error:', err.message);
