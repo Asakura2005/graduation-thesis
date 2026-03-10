@@ -83,7 +83,8 @@ const AuditLogViewer = () => {
       colorClass = "bg-danger text-white";
     else if (action.includes("REGISTER") || action.includes("CREATE"))
       colorClass = "bg-success text-white";
-    else if (action.includes("LOGIN")) colorClass = "bg-info text-dark";
+    else if (action.includes("LOGIN") && !action.includes("FAILED") && !action.includes("BLOCKED")) colorClass = "bg-info text-dark";
+    else if (action.includes("BLOCKED_BY_AI")) colorClass = "bg-dark text-danger border border-danger border-opacity-25";
 
     return (
       <span className={`badge ${colorClass} bg-opacity-75 px-2 py-1`}>
@@ -272,27 +273,63 @@ const AuditLogViewer = () => {
                             <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.trackingNumber || ''}</span>
                           </div>
 
-                        ) : (log.action === 'USER_LOGIN' || log.action === 'USER_LOGIN_2FA') ? (
-                          <div className="d-flex flex-wrap gap-1">
-                            {log.details.username && (
-                              <div className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-info border-opacity-15">
-                                <span className="text-info" style={{ fontSize: "0.75rem" }}>Tài khoản:&nbsp;</span>
-                                <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.username}</span>
-                              </div>
-                            )}
-                            {log.details.riskScore != null && (
-                              <div className={`d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border ${log.details.riskScore > 50 ? 'border-danger' : log.details.riskScore > 20 ? 'border-warning' : 'border-success'} border-opacity-15`}>
-                                <span className="text-dim" style={{ fontSize: "0.75rem" }}>Risk:&nbsp;</span>
-                                <span className={`fw-bold ${log.details.riskScore > 50 ? 'text-danger' : log.details.riskScore > 20 ? 'text-warning' : 'text-success'}`} style={{ fontSize: "0.8rem" }}>
-                                  {log.details.riskScore}
-                                </span>
-                              </div>
-                            )}
-                            {log.details.aiDecision && (
-                              <div className={`d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border ${log.details.aiDecision === 'BLOCK' ? 'border-danger' : log.details.aiDecision === 'WARN' ? 'border-warning' : 'border-success'} border-opacity-15`}>
-                                <span className={`fw-bold ${log.details.aiDecision === 'BLOCK' ? 'text-danger' : log.details.aiDecision === 'WARN' ? 'text-warning' : 'text-success'}`} style={{ fontSize: "0.8rem" }}>
-                                  {log.details.aiDecision === 'ALLOW' ? '✓ Cho phép' : log.details.aiDecision === 'WARN' ? '⚠ Cảnh báo' : '✕ Chặn'}
-                                </span>
+                        ) : (log.action === 'USER_LOGIN' || log.action === 'USER_LOGIN_2FA' || log.action === 'LOGIN_BLOCKED_BY_AI') ? (
+                          <div className="d-flex flex-column gap-2">
+                            <div className="d-flex flex-wrap gap-1">
+                              {log.details.username && (
+                                <div className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-info border-opacity-15">
+                                  <span className="text-info" style={{ fontSize: "0.75rem" }}>Tài khoản:&nbsp;</span>
+                                  <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.username}</span>
+                                </div>
+                              )}
+                              {log.details.riskScore != null && (
+                                <div className={`d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border ${log.details.riskScore > 50 ? 'border-danger' : log.details.riskScore > 20 ? 'border-warning' : 'border-success'} border-opacity-15`}>
+                                  <span className="text-dim" style={{ fontSize: "0.75rem" }}>Risk:&nbsp;</span>
+                                  <span className={`fw-bold ${log.details.riskScore > 50 ? 'text-danger' : log.details.riskScore > 20 ? 'text-warning' : 'text-success'}`} style={{ fontSize: "0.8rem" }}>
+                                    {log.details.riskScore}
+                                  </span>
+                                </div>
+                              )}
+                              {log.details.aiDecision && (
+                                <div className={`d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border ${log.details.aiDecision === 'BLOCK' ? 'border-danger' : log.details.aiDecision === 'WARN' ? 'border-warning' : 'border-success'} border-opacity-15`}>
+                                  <span className={`fw-bold ${log.details.aiDecision === 'BLOCK' ? 'text-danger' : log.details.aiDecision === 'WARN' ? 'text-warning' : 'text-success'}`} style={{ fontSize: "0.8rem" }}>
+                                    {log.details.aiDecision === 'ALLOW' ? '✓ Cho phép' : log.details.aiDecision === 'WARN' ? '⚠ Cảnh báo' : '✕ Chặn'}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Render Factors beautifully if they exist */}
+                            {log.details.factors && Array.isArray(log.details.factors) && log.details.factors.length > 0 && (
+                              <div className="d-flex flex-wrap gap-1 mt-1">
+                                {log.details.factors.map((f, fi) => {
+                                  if (f === 'AI_MEMORY_STATE') return null; // Hide internal state
+
+                                  const factorColors = {
+                                    'UNSUPERVISED_OUTLIER': { bg: 'rgba(255, 71, 87, 0.15)', text: '#ff4757', icon: '🧠', label: 'Dị biệt AI' },
+                                    'UNSUPERVISED_ANOMALY': { bg: 'rgba(255, 165, 2, 0.15)', text: '#ffa502', icon: '📊', label: 'Bất thường' },
+                                    'BRUTE_FORCE': { bg: 'rgba(255, 71, 87, 0.2)', text: '#ff4757', icon: '🛡️', label: 'Brute Force' },
+                                    'UNUSUAL_TIME': { bg: 'rgba(255, 165, 2, 0.15)', text: '#ffa502', icon: '⏰', label: 'Giờ lạ' },
+                                    'RAPID_LOGIN': { bg: 'rgba(255, 165, 2, 0.15)', text: '#ffa502', icon: '⚡', label: 'Login nhanh' },
+                                    'NEW_IP': { bg: 'rgba(45, 135, 255, 0.15)', text: '#2d87ff', icon: '🌐', label: 'IP lạ' },
+                                    'NEW_DEVICE': { bg: 'rgba(45, 135, 255, 0.15)', text: '#2d87ff', icon: '📱', label: 'Thiết bị lạ' },
+                                  };
+
+                                  const style = factorColors[f] || { bg: 'rgba(255,255,255,0.1)', text: '#aaa', icon: '❓', label: f };
+
+                                  return (
+                                    <span key={fi} className="badge d-flex align-items-center gap-1" style={{
+                                      background: style.bg,
+                                      color: style.text,
+                                      fontSize: '0.65rem',
+                                      border: `1px solid ${style.text}33`,
+                                      padding: '2px 8px'
+                                    }}>
+                                      <span>{style.icon}</span>
+                                      <span>{style.label}</span>
+                                    </span>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>

@@ -951,6 +951,29 @@ app.post('/api/warehouses', authenticateToken, authorizeRole(['Admin']), async (
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// 6.2 Delete Warehouse
+app.delete('/api/warehouses/:id', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+    const { id } = req.params;
+    console.log(`[DELETE_WAREHOUSE] Attempting to delete warehouse: ${id} by user: ${req.user.id}`);
+    try {
+        const pool = await connectDB();
+        // Check if warehouse has items (foreign key constraint usually handles this, but we can be explicit)
+        const checkItems = await pool.request().input('id', sql.UniqueIdentifier, id).query("SELECT COUNT(*) as count FROM inventory_stock WHERE warehouse_id = @id");
+        if (checkItems.recordset[0].count > 0) {
+            return res.status(400).json({ error: 'Không thể xóa kho đang chứa hàng hóa. Vui lòng chuyển hoặc xóa hết hàng trước.' });
+        }
+
+        await pool.request().input('id', sql.UniqueIdentifier, id).query("DELETE FROM warehouses WHERE warehouse_id = @id");
+        await logAudit(req.user.id, 'DELETE_WAREHOUSE', { warehouseId: id });
+        res.json({ message: 'Warehouse deleted successfully' });
+    } catch (err) {
+        if (err.number === 547) {
+            return res.status(400).json({ error: 'Không thể xóa kho này vì có dữ liệu liên quan (Vận đơn, Tồn kho).' });
+        }
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // 7. Get Inventory Inside Warehouse (Specific Box)
 app.get('/api/warehouses/:id/inventory', authenticateToken, async (req, res) => {
     const { id } = req.params;

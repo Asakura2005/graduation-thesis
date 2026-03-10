@@ -728,6 +728,18 @@ const InventoryManagement = () => {
     }
   };
 
+  const handleDeleteWarehouse = async (id, name, e) => {
+    e.stopPropagation(); // Prevent opening details
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa kho "${name}"?`)) return;
+    try {
+      await axios.delete(`http://localhost:5001/api/warehouses/${id}`);
+      fetchWarehouses();
+      alert("Xóa kho thành công!");
+    } catch (err) {
+      alert(err.response?.data?.error || err.response?.data || err.message || "Lỗi xóa kho");
+    }
+  };
+
   if (selectedWarehouse) {
     return (
       <WarehouseDetail
@@ -780,6 +792,15 @@ const InventoryManagement = () => {
                       <div className="warehouse-icon mb-3">
                         <Box size={38} className="text-gold" />
                       </div>
+
+                      {/* Delete Button */}
+                      <button
+                        className="btn btn-sm btn-outline-danger position-absolute top-0 end-0 m-2 border-0 opacity-0 group-hover-opacity-100 transition-all"
+                        onClick={(e) => handleDeleteWarehouse(wh.warehouse_id, wh.name, e)}
+                        title="Xóa kho"
+                      >
+                        <Trash2 size={16} />
+                      </button>
 
                       <h5 className="fw-bold text-white mb-1">{wh.name}</h5>
 
@@ -889,6 +910,27 @@ const InventoryManagement = () => {
           </div>
         </div>
       )}
+      {/* CSS Animations & Hover Effects */}
+      <style>{`
+        .warehouse-card:hover .group-hover-opacity-100 {
+          opacity: 1 !important;
+        }
+        .warehouse-icon {
+          transition: transform 0.3s ease;
+        }
+        .warehouse-card:hover .warehouse-icon {
+          transform: translateY(-5px);
+        }
+        .warehouse-bg-icon {
+          transition: all 0.5s ease;
+        }
+        .warehouse-card:hover .warehouse-bg-icon {
+          transform: scale(1.2) rotate(-10deg);
+          opacity: 0.1 !important;
+        }
+        .cursor-pointer { cursor: pointer; }
+        .transition-all { transition: all 0.3s ease; }
+      `}</style>
     </div>
   );
 };
