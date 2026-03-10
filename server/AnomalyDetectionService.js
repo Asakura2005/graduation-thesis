@@ -119,7 +119,21 @@ class AnomalyDetectionService {
         if (fs.existsSync(this.MODEL_PATH)) {
             try {
                 const modelData = JSON.parse(fs.readFileSync(this.MODEL_PATH, 'utf8'));
-                this.net = synaptic.Network.fromJSON(modelData);
+
+                // Load Neural Network
+                if (modelData.neuralNetwork) {
+                    this.net = synaptic.Network.fromJSON(modelData.neuralNetwork);
+                } else {
+                    this.net = synaptic.Network.fromJSON(modelData);
+                }
+
+                // Load Gaussian AI State
+                if (modelData.gaussianAI) {
+                    this.gaussianAI.mu = modelData.gaussianAI.mu || [];
+                    this.gaussianAI.sigma2 = modelData.gaussianAI.sigma2 || [];
+                    this.gaussianAI.isTrained = modelData.gaussianAI.isTrained || false;
+                }
+
                 console.log('[AI Anomaly] 🧠 Đã nạp thành công bộ não AI từ file ai_model.json');
             } catch (err) {
                 console.error('[AI Anomaly] Lỗi đọc file model, sẽ tiến hành huấn luyện lại:', err.message);
@@ -138,9 +152,19 @@ class AnomalyDetectionService {
      */
     saveModel() {
         try {
-            const exported = this.net.toJSON();
-            fs.writeFileSync(this.MODEL_PATH, JSON.stringify(exported));
-            console.log('[AI Anomaly] 💾 Bộ não AI đã được ghi nhớ vào ổ cứng.');
+            const dataToSave = {
+                neuralNetwork: this.net.toJSON(),
+                gaussianAI: {
+                    mu: this.gaussianAI.mu,
+                    sigma2: this.gaussianAI.sigma2,
+                    isTrained: this.gaussianAI.isTrained
+                },
+                updatedAt: new Date().toISOString()
+            };
+
+            // Lưu dạng pretty-print (null, 2) để dễ đọc và kiểm tra (không còn là "1 đường thẳng")
+            fs.writeFileSync(this.MODEL_PATH, JSON.stringify(dataToSave, null, 2));
+            console.log('[AI Anomaly] 💾 Bộ não AI (Neural + Gaussian) đã được ghi nhớ vào ổ cứng.');
         } catch (err) {
             console.error('[AI Anomaly] Không thể lưu model AI:', err.message);
         }
@@ -217,7 +241,7 @@ class AnomalyDetectionService {
      */
     async _trainUnsupervisedAI(pool) {
         const now = Date.now();
-        if (now - this.lastGaussianTrainTime < 3600000) return; // 1 giờ train 1 lần
+        if (now - this.lastGaussianTrainTime < 300000) return; // Giảm xuống 5 phút để dễ test khi dev
 
         try {
             const result = await pool.request().query(`
@@ -239,6 +263,10 @@ class AnomalyDetectionService {
 
             this.gaussianAI.train(dataset);
             this.lastGaussianTrainTime = now;
+
+            // Lưu lại bộ não sau khi được train Gaussian
+            this.saveModel();
+
             console.log(`[AI Anomaly] 📊 Gaussian AI đã xây dựng xong biểu đồ phân bố cho ${dataset.length} trạng thái bình thường.`);
         } catch (err) {
             console.error('[AI Anomaly] Lỗi lúc thu thập mẫu Gaussian AI:', err.message);
@@ -424,9 +452,10 @@ class AnomalyDetectionService {
             const result = await pool.request()
                 .input('userId', sql.UniqueIdentifier, userId)
                 .query(`
-                    SELECT DISTINCT ip_address
+                    SELECT DISTINCT TOP 100 ip_address
                     FROM login_attempts
                     WHERE user_id = @userId AND success = 1
+                    ORDER BY attempt_time DESC
                 `);
 
             // Nếu user chưa có lịch sử login → bỏ qua rule này
@@ -463,9 +492,10 @@ class AnomalyDetectionService {
             const result = await pool.request()
                 .input('userId', sql.UniqueIdentifier, userId)
                 .query(`
-                    SELECT DISTINCT user_agent
+                    SELECT DISTINCT TOP 100 user_agent
                     FROM login_attempts
                     WHERE user_id = @userId AND success = 1
+                    ORDER BY attempt_time DESC
                 `);
 
             // Nếu user chưa có lịch sử → bỏ qua
@@ -652,8 +682,8 @@ class AnomalyDetectionService {
             const bannedUntil = new Date(user.banned_until);
             const now = new Date();
 
-            // Check ban vĩnh viễn (year 9999)
-            const isPermanent = bannedUntil.getFullYear() >= 9000;
+            // Check ban vĩnh viễn (Sử dụng ngưỡng >= 2900 để khớp với 2999 ở hàm autoBan)
+            const isPermanent = bannedUntil.getFullYear() >= 2900;
 
             if (!isPermanent && now >= bannedUntil) {
                 // Ban đã hết hạn → tự động unban
@@ -869,7 +899,7 @@ class AnomalyDetectionService {
                     bannedUntil: u.banned_until,
                     banReason: banReason,
                     banCount: u.ban_count,
-                    isPermanent: new Date(u.banned_until).getFullYear() >= 9000
+                    isPermanent: new Date(u.banned_until).getFullYear() >= 2900
                 };
             });
         } catch (err) {
