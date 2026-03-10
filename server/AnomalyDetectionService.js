@@ -182,10 +182,10 @@ class AnomalyDetectionService {
             // --- 🟢 NHÓM: BÌNH THƯỜNG (An toàn) ---
             { input: [0, 0, 0, 0, 0], output: [0.0] }, // Hoàn hảo
             { input: [0, 0, 1, 0, 0], output: [0.1] }, // Đổi IP nhưng giữ thiết bị (Chắc đổi wifi)
-            { input: [0, 0, 0, 1, 0], output: [0.1] }, // Thiết bị mới nhưng ở nhà (IP cũ)
-            { input: [0, 1, 0, 0, 0], output: [0.2] }, // Làm đêm ở văn phòng / ở nhà (IP cũ)
-            { input: [0.2, 0, 0, 0, 0], output: [0.15] },// Gõ sai pass 1-2 lần (Bình thường do người dùng thật)
-            { input: [0.8, 0, 0, 0, 0], output: [0.45] },// [ĐÃ GIẢM NHẸ] Gõ sai pass 4-5 lần nhưng MỌI THỨ KHÁC bình thường -> Cảnh báo (WARN) chứ không Khóa.
+            { input: [0.2, 0, 0, 0, 0], output: [0.1] },// Gõ sai pass 1 lần: Bình thường
+            { input: [0.6, 0, 0, 0, 0], output: [0.45] },// Gõ sai 3 lần: Cảnh báo (WARN)
+            { input: [0.8, 0, 0, 0, 0], output: [0.85] },// Gõ sai 5 lần: KHÓA NGAY (BLOCK)
+            { input: [1.0, 0, 0, 0, 0], output: [0.95] },// Gõ sai > 10 lần: KHÓA CỨNG
 
             // --- 🟡 NHÓM: NGHI NGỜ (Cảnh báo Admin, nhưng CÓ THỂ chưa khóa) ---
             { input: [0, 0, 1, 1, 0], output: [0.4] }, // Mua điện thoại mới và lắp 4G mới (Hoặc có thể là người khác)
@@ -218,21 +218,31 @@ class AnomalyDetectionService {
     provideFeedback(aiInputs, isSafe = true) {
         if (!aiInputs || aiInputs.length !== 5) return;
 
-        const expectedOutput = isSafe ? [0.0] : [1.0];
+        // === CHẮT LỌC KHI DẠY LẠI (Stricter Learning) ===
+        // Nếu input có dấu hiệu Brute Force cao (aiInputs[0] >= 0.6, tức sai từ 3 lần), 
+        // thì không bao giờ được phép dạy AI rằng đây là Safe (0.0).
+        let targetOutput = isSafe ? 0.0 : 1.0;
+        if (isSafe && aiInputs[0] >= 0.6) {
+            targetOutput = Math.max(0.4, aiInputs[0] * 0.7);
+            console.log(`[AI Anomaly] ⚠️ Guard: Phát hiện Brute Force cao. Điều chỉnh Target Output lên ${targetOutput}.`);
+        }
 
-        console.log(`[AI Anomaly] 🎓 Đang nạp dữ liệu học lại (Feedback Loop). Input: [${aiInputs}], Target: ${expectedOutput[0]}`);
-        const trainer = new synaptic.Trainer(this.net);
+        const expectedOutput = [targetOutput];
+        console.log(`[AI Anomaly] 🎓 Feedback Loop: Input: [${aiInputs}], Target: ${targetOutput}`);
 
-        // Huấn luyện bổ sung thêm trọng số vào mạng lưới hiện tại thay vì ghi đè hoàn toàn
-        trainer.train([{ input: aiInputs, output: expectedOutput }], {
-            rate: 0.05,        // Learning rate nhỏ lại để không quên các kiến thức khác
-            iterations: 500,   // Lặp nhanh để điều chỉnh trọng số cục bộ
-            error: 0.01,
-            log: 0
-        });
-
-        this.saveModel(); // Ghi nhớ kiến thức mới
-        console.log('[AI Anomaly] 🎓 AI đã rút kinh nghiệm thành công!');
+        try {
+            const trainer = new synaptic.Trainer(this.net);
+            trainer.train([{ input: aiInputs, output: expectedOutput }], {
+                rate: 0.05,
+                iterations: 500,
+                error: 0.01,
+                log: 0
+            });
+            this.saveModel();
+            console.log('[AI Anomaly] 🎓 AI đã rút kinh nghiệm thành công!');
+        } catch (err) {
+            console.error('[AI Anomaly] Feedback learning error:', err.message);
+        }
     }
 
     /**
@@ -331,6 +341,14 @@ class AnomalyDetectionService {
 
             // Gộp điểm từ 2 AI lại
             riskScore = Math.min(neuralScore + gaussianPenalty, 100);
+
+            // === CƠ CHẾ ĐIỂM SÀN (Risk Floor) ===
+            // Đảm bảo rủi ro không được thấp hơn điểm Brute Force thực tế
+            // AI có thể học IPs/Time, nhưng không được phép "tha bổng" Brute Force.
+            if (riskScore < bScore) {
+                console.log(`[AI Anomaly] 🛡️ Risk Floor Trigger: AI nghĩ là ${riskScore}, nhưng Brute Force thực tế là ${bScore}. Nâng lên ${bScore}.`);
+                riskScore = bScore;
+            }
 
             // Ghi lại chi tiết (Explanations) để lưu vào DB cho Admin đọc hiểu vì sao AI chọn điểm này
             if (bScore > 0) riskFactors.push({ type: 'BRUTE_FORCE', severity: bScore >= 40 ? 'critical' : 'warning', message: 'Phát hiện nhiều đăng nhập thất bại trước đó' });
