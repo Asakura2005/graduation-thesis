@@ -49,7 +49,10 @@ async function initDatabase() {
                 phone NVARCHAR(MAX) NULL,
                 role NVARCHAR(MAX) NOT NULL,
                 two_fa_secret NVARCHAR(MAX) NULL,
-                is_two_fa_enabled BIT DEFAULT 0
+                is_two_fa_enabled BIT DEFAULT 0,
+                banned_until NVARCHAR(MAX) NULL,
+                ban_reason NVARCHAR(MAX) NULL,
+                ban_count NVARCHAR(MAX) NULL
             );
             CREATE INDEX IX_system_users_email_hash ON system_users(email_hash);
             CREATE INDEX IX_system_users_username_hash ON system_users(username_hash);
@@ -87,7 +90,7 @@ async function initDatabase() {
                 logistics_id UNIQUEIDENTIFIER NOT NULL,
                 origin_address NVARCHAR(MAX) NOT NULL,
                 destination_address NVARCHAR(MAX) NOT NULL,
-                shipment_date DATETIME NOT NULL DEFAULT GETDATE(),
+                shipment_date NVARCHAR(MAX) NOT NULL,
                 status NVARCHAR(MAX) NOT NULL,
                 total_value NVARCHAR(MAX) NOT NULL,
                 tracking_number NVARCHAR(MAX) NOT NULL,
@@ -131,16 +134,15 @@ async function initDatabase() {
                 ip_address NVARCHAR(MAX) NOT NULL,
                 user_agent NVARCHAR(MAX) NOT NULL,
                 attempt_time DATETIME DEFAULT GETDATE(),
-                success BIT NOT NULL DEFAULT 0,
-                risk_score FLOAT DEFAULT 0,
+                success NVARCHAR(MAX) NOT NULL,
+                risk_score NVARCHAR(MAX) NULL,
                 risk_factors NVARCHAR(MAX) NULL,
-                blocked BIT DEFAULT 0,
+                blocked NVARCHAR(MAX) NULL,
                 CONSTRAINT FK_login_attempts_user FOREIGN KEY (user_id) REFERENCES system_users(user_id)
             );
             CREATE INDEX IX_login_attempts_username ON login_attempts(username_hash);
             CREATE INDEX IX_login_attempts_time ON login_attempts(attempt_time);
             CREATE INDEX IX_login_attempts_user_id ON login_attempts(user_id);
-            CREATE INDEX IX_login_attempts_risk ON login_attempts(risk_score);
         `);
 
         console.log("Database Schema created perfectly!");

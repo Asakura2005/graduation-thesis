@@ -1347,11 +1347,11 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Staff']),
         const encDest = encrypt(destinationAddress);
         const encTotalVal = encrypt(totalValue.toString());
 
-        // 2. Insert Shipment (date is DATETIME now, not encrypted)
+        // 2. Insert Shipment (shipment_date encrypted)
         const shipRes = await transaction.request()
             .input('track', sql.NVarChar, encTracking)
             .input('log', sql.UniqueIdentifier, logisticsId)
-            .input('date', sql.DateTime, new Date())
+            .input('date', sql.NVarChar, encrypt(new Date().toISOString()))
             .input('origin', sql.NVarChar, encOrigin)
             .input('dest', sql.NVarChar, encDest)
             .input('val', sql.NVarChar, encTotalVal)
@@ -1827,10 +1827,14 @@ app.get('/api/security/login-history/:userId', authenticateToken, authorizeRole(
             let ip = row.ip_address;
             let ua = row.user_agent;
             let factors = row.risk_factors;
+            let successVal = row.success, riskVal = row.risk_score, blockedVal = row.blocked;
             try { ip = decrypt(row.ip_address); } catch (e) { }
             try { ua = decrypt(row.user_agent); } catch (e) { }
             try { factors = JSON.parse(decrypt(row.risk_factors)); } catch (e) { }
-            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors };
+            try { successVal = parseInt(decrypt(row.success)) || 0; } catch (e) { }
+            try { riskVal = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { }
+            try { blockedVal = parseInt(decrypt(row.blocked)) || 0; } catch (e) { }
+            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, success: successVal, risk_score: riskVal, blocked: blockedVal };
         });
 
         res.json(history);
@@ -1847,68 +1851,83 @@ app.get('/api/ai/analytics', authenticateToken, authorizeRole(['Admin']), async 
         const pool = await connectDB();
         const analytics = await anomalyDetector.getAnalytics(pool);
 
-        // Thống kê bổ sung: Tổng số user bị ban hiện tại
-        const bannedCount = await pool.request().query(`
-            SELECT COUNT(*) as count FROM system_users
-            WHERE banned_until IS NOT NULL AND banned_until > GETDATE()
+        // Thống kê bổ sung: Tổng số user bị ban hiện tại (decrypt in-memory)
+        const allUsers = await pool.request().query(`
+            SELECT banned_until FROM system_users WHERE banned_until IS NOT NULL
         `);
+        let bannedUsersCount = 0;
+        for (const u of allUsers.recordset) {
+            let bu = u.banned_until;
+            try { bu = decrypt(u.banned_until); } catch (e) { }
+            if (new Date(bu) > new Date()) bannedUsersCount++;
+        }
 
-        // Thống kê 7 ngày gần nhất
-        const weeklyStats = await pool.request().query(`
-            SELECT
-                CAST(attempt_time AS DATE) as date,
-                COUNT(*) as totalAttempts,
-                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successCount,
-                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failCount,
-                SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END) as blockedCount,
-                AVG(risk_score) as avgRisk
+        // Thống kê 7 ngày gần nhất (decrypt in-memory)
+        const weeklyRaw = await pool.request().query(`
+            SELECT attempt_time, success, blocked, risk_score
             FROM login_attempts
             WHERE attempt_time >= DATEADD(DAY, -7, GETDATE())
-            GROUP BY CAST(attempt_time AS DATE)
-            ORDER BY date DESC
         `);
+        const weeklyMap = {};
+        for (const row of weeklyRaw.recordset) {
+            const dateKey = new Date(row.attempt_time).toISOString().split('T')[0];
+            if (!weeklyMap[dateKey]) weeklyMap[dateKey] = { date: dateKey, totalAttempts: 0, successCount: 0, failCount: 0, blockedCount: 0, riskSum: 0, riskCount: 0 };
+            weeklyMap[dateKey].totalAttempts++;
+            let s = 0, b = 0, r = 0;
+            try { s = parseInt(decrypt(row.success)) || 0; } catch (e) { s = row.success ? 1 : 0; }
+            try { b = parseInt(decrypt(row.blocked)) || 0; } catch (e) { b = row.blocked ? 1 : 0; }
+            try { r = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { r = row.risk_score || 0; }
+            if (s === 1) weeklyMap[dateKey].successCount++;
+            else weeklyMap[dateKey].failCount++;
+            if (b === 1) weeklyMap[dateKey].blockedCount++;
+            weeklyMap[dateKey].riskSum += r;
+            weeklyMap[dateKey].riskCount++;
+        }
+        const weeklyStats = Object.values(weeklyMap).map(d => ({
+            date: d.date, totalAttempts: d.totalAttempts, successCount: d.successCount,
+            failCount: d.failCount, blockedCount: d.blockedCount,
+            avgRisk: d.riskCount > 0 ? Math.round(d.riskSum / d.riskCount) : 0
+        })).sort((a, b) => new Date(b.date) - new Date(a.date));
 
-        // Top IPs bị block nhiều nhất
-        const topBlockedIPs = await pool.request().query(`
-            SELECT TOP 5 ip_address, COUNT(*) as blockCount
-            FROM login_attempts
-            WHERE blocked = 1 AND attempt_time >= DATEADD(DAY, -7, GETDATE())
-            GROUP BY ip_address
-            ORDER BY blockCount DESC
-        `);
-
-        const decryptedIPs = topBlockedIPs.recordset.map(row => {
-            let ip = row.ip_address;
-            try { ip = decrypt(row.ip_address); } catch (e) { }
-            return { ip, blockCount: row.blockCount };
-        });
-
-        // Phân bố risk score
-        const riskDistribution = await pool.request().query(`
-            SELECT
-                CASE
-                    WHEN risk_score < 20 THEN 'SAFE'
-                    WHEN risk_score < 40 THEN 'LOW'
-                    WHEN risk_score < 70 THEN 'MEDIUM'
-                    ELSE 'HIGH'
-                END as riskLevel,
-                COUNT(*) as count
+        // Top IPs bị block nhiều nhất (decrypt in-memory)
+        const allBlocked7d = await pool.request().query(`
+            SELECT ip_address, blocked
             FROM login_attempts
             WHERE attempt_time >= DATEADD(DAY, -7, GETDATE())
-            GROUP BY CASE
-                WHEN risk_score < 20 THEN 'SAFE'
-                WHEN risk_score < 40 THEN 'LOW'
-                WHEN risk_score < 70 THEN 'MEDIUM'
-                ELSE 'HIGH'
-            END
         `);
+        const ipBlockMap = {};
+        for (const row of allBlocked7d.recordset) {
+            let b = row.blocked;
+            try { b = decrypt(row.blocked); } catch (e) { }
+            if (b === '1' || b === 1) {
+                let ip = row.ip_address;
+                try { ip = decrypt(row.ip_address); } catch (e) { }
+                ipBlockMap[ip] = (ipBlockMap[ip] || 0) + 1;
+            }
+        }
+        const decryptedIPs = Object.entries(ipBlockMap)
+            .map(([ip, blockCount]) => ({ ip, blockCount }))
+            .sort((a, b) => b.blockCount - a.blockCount)
+            .slice(0, 5);
+
+        // Phân bố risk score (decrypt in-memory)
+        const riskDist = { SAFE: 0, LOW: 0, MEDIUM: 0, HIGH: 0 };
+        for (const row of weeklyRaw.recordset) {
+            let r = 0;
+            try { r = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { r = row.risk_score || 0; }
+            if (r < 20) riskDist.SAFE++;
+            else if (r < 40) riskDist.LOW++;
+            else if (r < 70) riskDist.MEDIUM++;
+            else riskDist.HIGH++;
+        }
+        const riskDistribution = Object.entries(riskDist).map(([riskLevel, count]) => ({ riskLevel, count }));
 
         res.json({
             ...analytics,
-            bannedUsersCount: bannedCount.recordset[0].count,
-            weeklyStats: weeklyStats.recordset,
+            bannedUsersCount,
+            weeklyStats,
             topBlockedIPs: decryptedIPs,
-            riskDistribution: riskDistribution.recordset,
+            riskDistribution,
             config: {
                 riskThreshold: anomalyDetector.RISK_THRESHOLD,
                 warnThreshold: anomalyDetector.WARN_THRESHOLD,
@@ -1969,11 +1988,15 @@ app.get('/api/ai/user-activity/:userId', authenticateToken, authorizeRole(['Admi
             let ua = row.user_agent;
             let factors = row.risk_factors;
             let uname = row.username;
+            let successVal = row.success, riskVal = row.risk_score, blockedVal = row.blocked;
             try { ip = decrypt(row.ip_address); } catch (e) { }
             try { ua = decrypt(row.user_agent); } catch (e) { }
             try { factors = JSON.parse(decrypt(row.risk_factors)); } catch (e) { }
             try { uname = decrypt(row.username); } catch (e) { }
-            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname };
+            try { successVal = parseInt(decrypt(row.success)) || 0; } catch (e) { }
+            try { riskVal = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { }
+            try { blockedVal = parseInt(decrypt(row.blocked)) || 0; } catch (e) { }
+            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname, success: successVal, risk_score: riskVal, blocked: blockedVal };
         });
 
         // Lấy thông tin ban hiện tại
@@ -1988,11 +2011,10 @@ app.get('/api/ai/alerts', authenticateToken, authorizeRole(['Admin']), async (re
     try {
         const pool = await connectDB();
         const result = await pool.request().query(`
-            SELECT TOP 30 la.*, su.username
+            SELECT TOP 100 la.*, su.username
             FROM login_attempts la
             LEFT JOIN system_users su ON la.user_id = su.user_id
-            WHERE la.risk_score >= 40
-              AND la.attempt_time >= DATEADD(HOUR, -24, GETDATE())
+            WHERE la.attempt_time >= DATEADD(HOUR, -24, GETDATE())
             ORDER BY la.attempt_time DESC
         `);
 
@@ -2001,12 +2023,14 @@ app.get('/api/ai/alerts', authenticateToken, authorizeRole(['Admin']), async (re
             let ua = row.user_agent;
             let factors = row.risk_factors;
             let uname = row.username;
+            let riskVal = 0;
             try { ip = decrypt(row.ip_address); } catch (e) { }
             try { ua = decrypt(row.user_agent); } catch (e) { }
             try { factors = JSON.parse(decrypt(row.risk_factors)); } catch (e) { }
             try { uname = decrypt(row.username); } catch (e) { }
-            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname };
-        });
+            try { riskVal = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { riskVal = row.risk_score || 0; }
+            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname, risk_score: riskVal };
+        }).filter(r => r.risk_score >= 40).slice(0, 30);
 
         res.json(alerts);
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -2033,15 +2057,24 @@ app.post('/api/ai/manual-ban/:userId', authenticateToken, authorizeRole(['Admin'
             time: new Date().toISOString()
         };
 
+        // Mã hoá banned_until và ban_count
+        // Lấy ban_count hiện tại
+        const currentUser = await pool.request()
+            .input('uid', sql.UniqueIdentifier, userId)
+            .query('SELECT ban_count FROM system_users WHERE user_id = @uid');
+        let currentBanCount = 0;
+        try { currentBanCount = parseInt(decrypt(currentUser.recordset[0]?.ban_count)) || 0; } catch (e) { currentBanCount = parseInt(currentUser.recordset[0]?.ban_count) || 0; }
+
         await pool.request()
             .input('userId', sql.UniqueIdentifier, userId)
-            .input('bannedUntil', sql.DateTime, bannedUntil)
+            .input('bannedUntil', sql.NVarChar, encrypt(bannedUntil.toISOString()))
             .input('banReason', sql.NVarChar, encrypt(JSON.stringify(banReason)))
+            .input('banCount', sql.NVarChar, encrypt((currentBanCount + 1).toString()))
             .query(`
                 UPDATE system_users
                 SET banned_until = @bannedUntil,
                     ban_reason = @banReason,
-                    ban_count = ISNULL(ban_count, 0) + 1
+                    ban_count = @banCount
                 WHERE user_id = @userId
             `);
 
@@ -2060,33 +2093,58 @@ app.get('/api/ai/all-users', authenticateToken, authorizeRole(['Admin']), async 
     try {
         const pool = await connectDB();
         const result = await pool.request().query(`
-            SELECT su.user_id, su.username, su.role, su.banned_until, su.ban_reason, su.ban_count,
-                   (SELECT COUNT(*) FROM login_attempts la WHERE la.user_id = su.user_id AND la.attempt_time >= DATEADD(DAY, -7, GETDATE())) as loginAttempts7d,
-                   (SELECT COUNT(*) FROM login_attempts la WHERE la.user_id = su.user_id AND la.blocked = 1 AND la.attempt_time >= DATEADD(DAY, -7, GETDATE())) as blockedAttempts7d,
-                   (SELECT AVG(la.risk_score) FROM login_attempts la WHERE la.user_id = su.user_id AND la.attempt_time >= DATEADD(DAY, -7, GETDATE())) as avgRisk7d
+            SELECT su.user_id, su.username, su.role, su.banned_until, su.ban_reason, su.ban_count
             FROM system_users su
         `);
+
+        // Get login attempts for last 7 days separately
+        const attemptResult = await pool.request().query(`
+            SELECT user_id, success, blocked, risk_score
+            FROM login_attempts
+            WHERE attempt_time >= DATEADD(DAY, -7, GETDATE())
+        `);
+
+        // Build per-user stats by decrypting in-memory
+        const userStats = {};
+        for (const row of attemptResult.recordset) {
+            const uid = row.user_id;
+            if (!uid) continue;
+            if (!userStats[uid]) userStats[uid] = { attempts: 0, blocked: 0, riskSum: 0, riskCount: 0 };
+            userStats[uid].attempts++;
+            let b = 0, r = 0;
+            try { b = parseInt(decrypt(row.blocked)) || 0; } catch (e) { b = row.blocked ? 1 : 0; }
+            try { r = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { r = row.risk_score || 0; }
+            if (b === 1) userStats[uid].blocked++;
+            userStats[uid].riskSum += r;
+            userStats[uid].riskCount++;
+        }
 
         const users = result.recordset.map(u => {
             let username = u.username;
             let role = u.role;
             let banReason = u.ban_reason;
+            let bannedUntil = u.banned_until;
+            let banCount = 0;
             try { username = decrypt(u.username); } catch (e) { }
             try { role = decrypt(u.role); } catch (e) { }
             try { banReason = JSON.parse(decrypt(u.ban_reason)); } catch (e) { }
+            try { bannedUntil = decrypt(u.banned_until); } catch (e) { }
+            try { banCount = parseInt(decrypt(u.ban_count)) || 0; } catch (e) { banCount = parseInt(u.ban_count) || 0; }
+
+            const stats = userStats[u.user_id] || { attempts: 0, blocked: 0, riskSum: 0, riskCount: 0 };
 
             return {
                 userId: u.user_id,
                 username,
                 role,
-                bannedUntil: u.banned_until,
+                bannedUntil: bannedUntil,
                 banReason,
-                banCount: u.ban_count || 0,
-                isBanned: u.banned_until && new Date(u.banned_until) > new Date(),
-                isPermanent: u.banned_until && new Date(u.banned_until).getFullYear() >= 9000,
-                loginAttempts7d: u.loginAttempts7d || 0,
-                blockedAttempts7d: u.blockedAttempts7d || 0,
-                avgRisk7d: Math.round(u.avgRisk7d || 0)
+                banCount: banCount,
+                isBanned: bannedUntil && new Date(bannedUntil) > new Date(),
+                isPermanent: bannedUntil && new Date(bannedUntil).getFullYear() >= 9000,
+                loginAttempts7d: stats.attempts,
+                blockedAttempts7d: stats.blocked,
+                avgRisk7d: stats.riskCount > 0 ? Math.round(stats.riskSum / stats.riskCount) : 0
             };
         });
 

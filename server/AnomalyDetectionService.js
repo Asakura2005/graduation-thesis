@@ -104,12 +104,12 @@ class AnomalyDetectionService {
         this.AUTO_BAN_THRESHOLD = 70;  // Risk score >= 70 → tự động ban
         this.BLOCK_COUNT_TRIGGER = 3;  // Số lần bị BLOCK trong 1 giờ → tự động ban
 
-        // === AI NEURAL NETWORK (Supervised) ===
-        this._initAI();
-
         // === GAUSSIAN ANOMALY AI (Unsupervised) ===
         this.gaussianAI = new MultivariateGaussian();
         this.lastGaussianTrainTime = 0;
+
+        // === AI NEURAL NETWORK (Supervised) ===
+        this._initAI();
     }
 
     /**
@@ -390,18 +390,22 @@ class AnomalyDetectionService {
                 .input('hash', sql.NVarChar, usernameHash)
                 .input('window', sql.Int, this.BRUTE_FORCE_WINDOW)
                 .query(`
-                    SELECT COUNT(*) as failCount
+                    SELECT success
                     FROM login_attempts
                     WHERE username_hash = @hash
-                      AND success = 0
                       AND attempt_time >= DATEADD(MINUTE, -@window, GETDATE())
                 `);
 
-            const failCount = result.recordset[0].failCount;
+            let failCount = 0;
+            for (const row of result.recordset) {
+                let s = row.success;
+                try { s = decrypt(row.success); } catch (e) { }
+                if (s === '0' || s === 0 || s === false) failCount++;
+            }
 
-            if (failCount >= this.MAX_FAILED_ATTEMPTS * 2) return 50; // Tấn công nghiêm trọng
-            if (failCount >= this.MAX_FAILED_ATTEMPTS) return 40;      // Brute force rõ ràng
-            if (failCount >= 3) return 20;                              // Đáng ngờ
+            if (failCount >= this.MAX_FAILED_ATTEMPTS * 2) return 50;
+            if (failCount >= this.MAX_FAILED_ATTEMPTS) return 40;
+            if (failCount >= 3) return 20;
             return 0;
         } catch (err) {
             console.error('[AI Anomaly] Brute force check error:', err.message);
@@ -426,11 +430,18 @@ class AnomalyDetectionService {
             const result = await pool.request()
                 .input('userId', sql.UniqueIdentifier, userId)
                 .query(`
-                    SELECT TOP 20 attempt_time
+                    SELECT TOP 50 attempt_time, success
                     FROM login_attempts
-                    WHERE user_id = @userId AND success = 1
+                    WHERE user_id = @userId
                     ORDER BY attempt_time DESC
                 `);
+
+            // Filter success=1 in memory (encrypted field)
+            result.recordset = result.recordset.filter(r => {
+                let s = r.success;
+                try { s = decrypt(r.success); } catch (e) { }
+                return s === '1' || s === 1 || s === true;
+            }).slice(0, 20);
 
             if (result.recordset.length < 5) {
                 // Chưa đủ dữ liệu để tạo Profiling cá nhân -> dùng rule chung
@@ -544,17 +555,24 @@ class AnomalyDetectionService {
      */
     async _checkRapidLogin(pool, userId) {
         try {
-            const result = await pool.request()
+            const rawResult = await pool.request()
                 .input('userId', sql.UniqueIdentifier, userId)
                 .query(`
-                    SELECT TOP 1 attempt_time
+                    SELECT TOP 20 attempt_time, success
                     FROM login_attempts
-                    WHERE user_id = @userId AND success = 1
+                    WHERE user_id = @userId
                     ORDER BY attempt_time DESC
                 `);
 
-            if (result.recordset.length > 0) {
-                const lastLogin = new Date(result.recordset[0].attempt_time);
+            // Filter success=1 in memory
+            const successRows = rawResult.recordset.filter(r => {
+                let s = r.success;
+                try { s = decrypt(r.success); } catch (e) { }
+                return s === '1' || s === 1 || s === true;
+            });
+
+            if (successRows.length > 0) {
+                const lastLogin = new Date(successRows[0].attempt_time);
                 const now = new Date();
                 const diffMinutes = (now - lastLogin) / (1000 * 60);
 
@@ -581,10 +599,10 @@ class AnomalyDetectionService {
                 .input('usernameHash', sql.NVarChar, usernameHash)
                 .input('ip', sql.NVarChar, encrypt(ipAddress))
                 .input('ua', sql.NVarChar, encrypt(userAgent))
-                .input('success', sql.Bit, success ? 1 : 0)
-                .input('risk', sql.Float, riskScore || 0)
+                .input('success', sql.NVarChar, encrypt(success ? '1' : '0'))
+                .input('risk', sql.NVarChar, encrypt((riskScore || 0).toString()))
                 .input('factors', sql.NVarChar, riskFactors ? encrypt(JSON.stringify(riskFactors)) : null)
-                .input('blocked', sql.Bit, blocked ? 1 : 0)
+                .input('blocked', sql.NVarChar, encrypt(blocked ? '1' : '0'))
                 .query(`
                     INSERT INTO login_attempts
                     (username_hash, user_id, ip_address, user_agent, success, risk_score, risk_factors, blocked)
@@ -606,69 +624,51 @@ class AnomalyDetectionService {
      */
     async getAnalytics(pool) {
         try {
-            // Thống kê 24h qua
-            const stats = await pool.request().query(`
-                SELECT
-                    COUNT(*) as totalAttempts,
-                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successCount,
-                    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failCount,
-                    SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END) as blockedCount,
-                    AVG(risk_score) as avgRiskScore,
-                    MAX(risk_score) as maxRiskScore
-                FROM login_attempts
-                WHERE attempt_time >= DATEADD(HOUR, -24, GETDATE())
-            `);
-
-            // Các lần đăng nhập có risk score cao (top 10)
-            const highRiskLogins = await pool.request().query(`
-                SELECT TOP 10 la.attempt_id, la.username_hash, la.ip_address,
+            const allAttempts = await pool.request().query(`
+                SELECT la.attempt_id, la.username_hash, la.ip_address,
                        la.user_agent, la.attempt_time, la.success, la.risk_score,
-                       la.risk_factors, la.blocked, su.username
+                       la.risk_factors, la.blocked, la.user_id, su.username
                 FROM login_attempts la
                 LEFT JOIN system_users su ON la.user_id = su.user_id
-                WHERE la.risk_score >= 40
+                WHERE la.attempt_time >= DATEADD(HOUR, -24, GETDATE())
                 ORDER BY la.attempt_time DESC
             `);
 
-            // Decrypt high risk login data
-            const decryptedHighRisk = highRiskLogins.recordset.map(login => {
-                let ip = login.ip_address;
-                let ua = login.user_agent;
-                let factors = login.risk_factors;
-                let uname = login.username;
-
-                try { ip = decrypt(login.ip_address); } catch (e) { }
-                try { ua = decrypt(login.user_agent); } catch (e) { }
-                try { factors = JSON.parse(decrypt(login.risk_factors)); } catch (e) { }
-                try { uname = decrypt(login.username); } catch (e) { }
-
-                return {
-                    ...login,
-                    ip_address: ip,
-                    user_agent: ua,
-                    risk_factors: factors,
-                    username: uname
-                };
+            const decryptedAll = allAttempts.recordset.map(row => {
+                let successVal = 0, riskVal = 0, blockedVal = 0;
+                try { successVal = parseInt(decrypt(row.success)) || 0; } catch (e) { successVal = row.success ? 1 : 0; }
+                try { riskVal = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { riskVal = row.risk_score || 0; }
+                try { blockedVal = parseInt(decrypt(row.blocked)) || 0; } catch (e) { blockedVal = row.blocked ? 1 : 0; }
+                let ip = row.ip_address, ua = row.user_agent, factors = row.risk_factors, uname = row.username;
+                try { ip = decrypt(row.ip_address); } catch (e) { }
+                try { ua = decrypt(row.user_agent); } catch (e) { }
+                try { factors = JSON.parse(decrypt(row.risk_factors)); } catch (e) { }
+                try { uname = decrypt(row.username); } catch (e) { }
+                return { ...row, success: successVal, risk_score: riskVal, blocked: blockedVal, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname };
             });
 
-            // Thống kê theo giờ trong 24h qua (biểu đồ timeline)
-            const hourlyStats = await pool.request().query(`
-                SELECT
-                    DATEPART(HOUR, attempt_time) as hour,
-                    COUNT(*) as attempts,
-                    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failures,
-                    SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END) as blocks
-                FROM login_attempts
-                WHERE attempt_time >= DATEADD(HOUR, -24, GETDATE())
-                GROUP BY DATEPART(HOUR, attempt_time)
-                ORDER BY hour
-            `);
+            const totalAttempts = decryptedAll.length;
+            const successCount = decryptedAll.filter(r => r.success === 1).length;
+            const failCount = decryptedAll.filter(r => r.success === 0).length;
+            const blockedCount = decryptedAll.filter(r => r.blocked === 1).length;
+            const riskScores = decryptedAll.map(r => r.risk_score);
+            const avgRiskScore = riskScores.length > 0 ? riskScores.reduce((a, b) => a + b, 0) / riskScores.length : 0;
+            const maxRiskScore = riskScores.length > 0 ? Math.max(...riskScores) : 0;
+            const stats = { totalAttempts, successCount, failCount, blockedCount, avgRiskScore, maxRiskScore };
 
-            return {
-                stats: stats.recordset[0],
-                highRiskLogins: decryptedHighRisk,
-                hourlyStats: hourlyStats.recordset
-            };
+            const decryptedHighRisk = decryptedAll.filter(r => r.risk_score >= 40).slice(0, 10);
+
+            const hourlyMap = {};
+            decryptedAll.forEach(r => {
+                const hour = new Date(r.attempt_time).getHours();
+                if (!hourlyMap[hour]) hourlyMap[hour] = { hour, attempts: 0, failures: 0, blocks: 0 };
+                hourlyMap[hour].attempts++;
+                if (r.success === 0) hourlyMap[hour].failures++;
+                if (r.blocked === 1) hourlyMap[hour].blocks++;
+            });
+            const hourlyStats = Object.values(hourlyMap).sort((a, b) => a.hour - b.hour);
+
+            return { stats, highRiskLogins: decryptedHighRisk, hourlyStats };
         } catch (err) {
             console.error('[AI Anomaly] Analytics error:', err.message);
             return { stats: {}, highRiskLogins: [], hourlyStats: [] };
@@ -697,16 +697,20 @@ class AnomalyDetectionService {
                 return { isBanned: false, bannedUntil: null, banReason: null, banCount: 0, isPermanent: false };
             }
 
-            const bannedUntil = new Date(user.banned_until);
+            let bannedUntilStr = user.banned_until;
+            try { bannedUntilStr = decrypt(user.banned_until); } catch (e) { }
+            const bannedUntil = new Date(bannedUntilStr);
             const now = new Date();
+
+            let banCount = 0;
+            try { banCount = parseInt(decrypt(user.ban_count)) || 0; } catch (e) { banCount = parseInt(user.ban_count) || 0; }
 
             // Check ban vĩnh viễn (Sử dụng ngưỡng >= 2900 để khớp với 2999 ở hàm autoBan)
             const isPermanent = bannedUntil.getFullYear() >= 2900;
 
             if (!isPermanent && now >= bannedUntil) {
-                // Ban đã hết hạn → tự động unban
                 await this._clearBan(pool, userId);
-                return { isBanned: false, bannedUntil: null, banReason: null, banCount: user.ban_count || 0, isPermanent: false };
+                return { isBanned: false, bannedUntil: null, banReason: null, banCount: banCount, isPermanent: false };
             }
 
             let banReason = user.ban_reason;
@@ -716,7 +720,7 @@ class AnomalyDetectionService {
                 isBanned: true,
                 bannedUntil: bannedUntil,
                 banReason: banReason,
-                banCount: user.ban_count || 0,
+                banCount: banCount,
                 isPermanent: isPermanent
             };
         } catch (err) {
@@ -733,34 +737,35 @@ class AnomalyDetectionService {
         if (!this.AUTO_BAN_ENABLED || !userId) return null;
 
         try {
-            // Kiểm tra số lần bị block trong 1 giờ qua
+            // Kiểm tra số lần bị block trong 1 giờ qua (decrypt in-memory)
             const blockResult = await pool.request()
                 .input('hash', sql.NVarChar, usernameHash)
                 .query(`
-                    SELECT COUNT(*) as blockCount
+                    SELECT blocked
                     FROM login_attempts
                     WHERE username_hash = @hash
-                      AND blocked = 1
                       AND attempt_time >= DATEADD(HOUR, -1, GETDATE())
                 `);
 
-            const blockCount = blockResult.recordset[0].blockCount;
+            let blockCount = 0;
+            for (const row of blockResult.recordset) {
+                let b = row.blocked;
+                try { b = decrypt(row.blocked); } catch (e) { }
+                if (b === '1' || b === 1 || b === true) blockCount++;
+            }
 
-            // Điều kiện ban: (1) risk >= threshold HOẶC (2) bị block quá nhiều trong 1h
             const shouldBan = riskScore >= this.AUTO_BAN_THRESHOLD || blockCount >= this.BLOCK_COUNT_TRIGGER;
-
             if (!shouldBan) return null;
 
-            // Lấy ban_count hiện tại để tính thời gian ban (leo thang)
             const userResult = await pool.request()
                 .input('userId', sql.UniqueIdentifier, userId)
                 .query('SELECT ban_count FROM system_users WHERE user_id = @userId');
 
-            const currentBanCount = userResult.recordset[0]?.ban_count || 0;
+            let currentBanCount = 0;
+            try { currentBanCount = parseInt(decrypt(userResult.recordset[0]?.ban_count)) || 0; } catch (e) { currentBanCount = parseInt(userResult.recordset[0]?.ban_count) || 0; }
             const escalationIndex = Math.min(currentBanCount, this.BAN_DURATION_ESCALATION.length - 1);
             const banMinutes = this.BAN_DURATION_ESCALATION[escalationIndex];
 
-            // Tạo ban reason (mã hóa AES)
             const reasonData = {
                 score: riskScore,
                 factors: riskFactors.map(f => f.type),
@@ -773,7 +778,6 @@ class AnomalyDetectionService {
             let bannedUntil;
             let durationText;
             if (banMinutes === -1) {
-                // Ban vĩnh viễn (Sử dụng năm 2999 để tránh lỗi Out Of Range timezone của SQL Server)
                 bannedUntil = new Date('2999-12-31T00:00:00.000Z');
                 durationText = 'PERMANENT';
             } else {
@@ -781,12 +785,12 @@ class AnomalyDetectionService {
                 durationText = `${banMinutes} minutes`;
             }
 
-            // Cập nhật database
+            // Cập nhật database (mã hoá banned_until và ban_count)
             await pool.request()
                 .input('userId', sql.UniqueIdentifier, userId)
-                .input('bannedUntil', sql.DateTime, bannedUntil)
+                .input('bannedUntil', sql.NVarChar, encrypt(bannedUntil.toISOString()))
                 .input('banReason', sql.NVarChar, encrypt(JSON.stringify(reasonData)))
-                .input('banCount', sql.Int, currentBanCount + 1)
+                .input('banCount', sql.NVarChar, encrypt((currentBanCount + 1).toString()))
                 .query(`
                     UPDATE system_users
                     SET banned_until = @bannedUntil,
@@ -845,23 +849,27 @@ class AnomalyDetectionService {
             // 2. [CƠ CHẾ MỚI] Dạy lại AI (Feedback Loop) nếu đây là mở khóa do AI bắt nhầm người
             if (isFalsePositive && hash) {
                 // Truy xuất lại attempt bị khóa gần nhất của người này
-                const lastAttemptResult = await pool.request()
+                // Tìm blocked attempt gần nhất (decrypt in-memory)
+                const allRecentAttempts = await pool.request()
                     .input('hash', sql.NVarChar, hash)
                     .query(`
-                        SELECT TOP 1 risk_factors
+                        SELECT TOP 20 risk_factors, blocked
                         FROM login_attempts
-                        WHERE username_hash = @hash AND blocked = 1
+                        WHERE username_hash = @hash
                         ORDER BY attempt_time DESC
                     `);
 
-                if (lastAttemptResult.recordset.length > 0 && lastAttemptResult.recordset[0].risk_factors) {
-                    try {
-                        const factorsJSON = JSON.parse(decrypt(lastAttemptResult.recordset[0].risk_factors));
-                        // Tìm yếu tố chứa trạng thái memory của AI lúc đưa ra quyết định
-                        const aiMemoryContext = factorsJSON.find(f => f.type === 'AI_MEMORY_STATE');
+                const blockedAttempt = allRecentAttempts.recordset.find(r => {
+                    let b = r.blocked;
+                    try { b = decrypt(r.blocked); } catch (e) { }
+                    return b === '1' || b === 1;
+                });
 
+                if (blockedAttempt && blockedAttempt.risk_factors) {
+                    try {
+                        const factorsJSON = JSON.parse(decrypt(blockedAttempt.risk_factors));
+                        const aiMemoryContext = factorsJSON.find(f => f.type === 'AI_MEMORY_STATE');
                         if (aiMemoryContext && aiMemoryContext.inputVector) {
-                            // Gọi hàm dạy lại: Báo với não bộ rằng input này phải ra Output 0 (Safe)
                             this.provideFeedback(aiMemoryContext.inputVector, true);
                         }
                     } catch (e) {
@@ -871,19 +879,29 @@ class AnomalyDetectionService {
             }
 
             // 3. Mở khóa tài khoản
+            const encZero = encrypt('0');
             const query = resetCount
-                ? `UPDATE system_users SET banned_until = NULL, ban_reason = NULL, ban_count = 0 WHERE user_id = @userId`
+                ? `UPDATE system_users SET banned_until = NULL, ban_reason = NULL, ban_count = '${encZero}' WHERE user_id = @userId`
                 : `UPDATE system_users SET banned_until = NULL, ban_reason = NULL WHERE user_id = @userId`;
 
             await pool.request()
                 .input('userId', sql.UniqueIdentifier, userId)
                 .query(query);
 
-            // 4. Xóa bộ nhớ ngắn hạn của các Rule (xóa lịch sử login fail)
+            // 4. Xóa bộ nhớ ngắn hạn (xóa login fail attempts - decrypt in-memory to find them)
             if (hash) {
-                await pool.request()
+                const failAttempts = await pool.request()
                     .input('hash', sql.NVarChar, hash)
-                    .query(`DELETE FROM login_attempts WHERE username_hash = @hash AND success = 0`);
+                    .query(`SELECT attempt_id, success FROM login_attempts WHERE username_hash = @hash`);
+                for (const row of failAttempts.recordset) {
+                    let s = row.success;
+                    try { s = decrypt(row.success); } catch (e) { }
+                    if (s === '0' || s === 0 || s === false) {
+                        await pool.request()
+                            .input('id', sql.UniqueIdentifier, row.attempt_id)
+                            .query(`DELETE FROM login_attempts WHERE attempt_id = @id`);
+                    }
+                }
             }
 
             console.log(`[AutoBan] ✅ Admin UNBANNED user: ${userId} | Tích hợp Feedback AI: ${isFalsePositive}`);
@@ -902,24 +920,33 @@ class AnomalyDetectionService {
             const result = await pool.request().query(`
                 SELECT user_id, username, username_hash, banned_until, ban_reason, ban_count
                 FROM system_users
-                WHERE banned_until IS NOT NULL AND banned_until > GETDATE()
+                WHERE banned_until IS NOT NULL
             `);
 
-            return result.recordset.map(u => {
+            const bannedUsers = [];
+            for (const u of result.recordset) {
+                let bannedUntilStr = u.banned_until;
+                try { bannedUntilStr = decrypt(u.banned_until); } catch (e) { }
+                const bannedUntil = new Date(bannedUntilStr);
+                if (bannedUntil <= new Date()) continue;
+
                 let username = u.username;
                 let banReason = u.ban_reason;
+                let banCount = 0;
                 try { username = decrypt(u.username); } catch (e) { }
                 try { banReason = JSON.parse(decrypt(u.ban_reason)); } catch (e) { }
+                try { banCount = parseInt(decrypt(u.ban_count)) || 0; } catch (e) { banCount = parseInt(u.ban_count) || 0; }
 
-                return {
+                bannedUsers.push({
                     userId: u.user_id,
                     username: username,
-                    bannedUntil: u.banned_until,
+                    bannedUntil: bannedUntil,
                     banReason: banReason,
-                    banCount: u.ban_count,
-                    isPermanent: new Date(u.banned_until).getFullYear() >= 2900
-                };
-            });
+                    banCount: banCount,
+                    isPermanent: bannedUntil.getFullYear() >= 2900
+                });
+            }
+            return bannedUsers;
         } catch (err) {
             console.error('[AutoBan] Get banned users error:', err.message);
             return [];
