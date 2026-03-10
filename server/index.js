@@ -108,6 +108,63 @@ async function connectDB() {
                 }
             } catch (e) { }
 
+            // Migration: Widen warehouses columns for encrypted data
+            try {
+                // type: NVARCHAR(50) -> NVARCHAR(MAX) (encrypted values are ~100+ chars)
+                const checkTypeCol = await pool.request().query(`
+                    SELECT CHARACTER_MAXIMUM_LENGTH as max_len 
+                    FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_NAME = 'warehouses' AND COLUMN_NAME = 'type'
+                `);
+                if (checkTypeCol.recordset[0] && checkTypeCol.recordset[0].max_len !== -1) {
+                    console.log('Migrating warehouses.type to NVARCHAR(MAX) for encryption...');
+                    await pool.request().query("ALTER TABLE warehouses ALTER COLUMN type NVARCHAR(MAX)");
+                }
+
+                // name: NVARCHAR(255) -> NVARCHAR(MAX)
+                const checkNameCol = await pool.request().query(`
+                    SELECT CHARACTER_MAXIMUM_LENGTH as max_len 
+                    FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_NAME = 'warehouses' AND COLUMN_NAME = 'name'
+                `);
+                if (checkNameCol.recordset[0] && checkNameCol.recordset[0].max_len !== -1) {
+                    console.log('Migrating warehouses.name to NVARCHAR(MAX) for encryption...');
+                    await pool.request().query("ALTER TABLE warehouses ALTER COLUMN name NVARCHAR(MAX) NOT NULL");
+                }
+
+                // location: NVARCHAR(255) -> NVARCHAR(MAX)
+                const checkLocCol = await pool.request().query(`
+                    SELECT CHARACTER_MAXIMUM_LENGTH as max_len 
+                    FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_NAME = 'warehouses' AND COLUMN_NAME = 'location'
+                `);
+                if (checkLocCol.recordset[0] && checkLocCol.recordset[0].max_len !== -1) {
+                    console.log('Migrating warehouses.location to NVARCHAR(MAX) for encryption...');
+                    await pool.request().query("ALTER TABLE warehouses ALTER COLUMN location NVARCHAR(MAX)");
+                }
+
+                // total_shelves: INT -> NVARCHAR(MAX) (if still INT)
+                const checkShelvesType = await pool.request().query(`
+                    SELECT DATA_TYPE 
+                    FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_NAME = 'warehouses' AND COLUMN_NAME = 'total_shelves'
+                `);
+                if (checkShelvesType.recordset[0] && checkShelvesType.recordset[0].DATA_TYPE !== 'nvarchar') {
+                    console.log('Migrating warehouses.total_shelves to NVARCHAR(MAX) for encryption...');
+                    // Drop default constraint first
+                    await pool.request().query(`
+                        DECLARE @constraintName NVARCHAR(200)
+                        SELECT @constraintName = d.name 
+                        FROM sys.default_constraints d
+                        JOIN sys.columns c ON d.parent_column_id = c.column_id AND d.parent_object_id = c.object_id
+                        WHERE c.name = 'total_shelves' AND OBJECT_NAME(d.parent_object_id) = 'warehouses'
+                        IF @constraintName IS NOT NULL
+                            EXEC('ALTER TABLE warehouses DROP CONSTRAINT ' + @constraintName)
+                    `);
+                    await pool.request().query("ALTER TABLE warehouses ALTER COLUMN total_shelves NVARCHAR(MAX)");
+                }
+            } catch (migWidenErr) { console.error("Migration Warn (widen warehouses):", migWidenErr.message); }
+
             // 3. Seed Sample Warehouses
             const checkWarehouse = await pool.request().query("SELECT COUNT(*) as count FROM warehouses");
             if (checkWarehouse.recordset[0].count === 0) {
@@ -457,8 +514,10 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
         try { decryptedSecret = decrypt(user.two_fa_secret); }
         catch (e) { decryptedSecret = user.two_fa_secret; } // Fallback for old unencrypted secrets
 
-        console.log(`[2FA Login] User: ${user.username}, Received: ${token}, Expected: ${speakeasy.totp({ secret: decryptedSecret, encoding: 'base32' })}`);
-        const isValid = speakeasy.totp.verify({ secret: decryptedSecret, encoding: 'base32', token: token, window: 4 });
+        const serverTime2FA = new Date();
+        console.log(`[2FA Login] Server Time: ${serverTime2FA.toISOString()} (Unix: ${Math.floor(serverTime2FA.getTime() / 1000)})`);
+        console.log(`[2FA Login] Received: ${token}, Expected: ${speakeasy.totp({ secret: decryptedSecret, encoding: 'base32' })}`);
+        const isValid = speakeasy.totp.verify({ secret: decryptedSecret, encoding: 'base32', token: token, window: 8 });
 
         if (!isValid) return res.status(401).json({ error: 'Mã xác thực không hợp lệ. Hãy kiểm tra lại Google Authenticator.' });
 
@@ -640,16 +699,18 @@ app.get('/api/auth/2fa/generate', authenticateToken, async (req, res) => {
 app.post('/api/auth/2fa/verify-setup', authenticateToken, async (req, res) => {
     const { token, secret } = req.body;
     try {
+        const serverTime = new Date();
+        console.log(`[2FA Verification] Server Time: ${serverTime.toISOString()} (Unix: ${Math.floor(serverTime.getTime() / 1000)})`);
         console.log(`[2FA Verification] Received Token: ${token}, Secret: ${secret}`);
         // Calculate the current expected token for debugging
         const expectedToken = speakeasy.totp({ secret: secret, encoding: 'base32' });
         console.log(`[2FA Verification] Expected Token right now: ${expectedToken}`);
 
-        // window: 4 allows a 2-minute margin of error (pre/post 4*30s)
-        const isValid = speakeasy.totp.verify({ secret: secret, encoding: 'base32', token: token, window: 4 });
+        // window: 8 allows a 4-minute margin of error (pre/post 8*30s) to handle clock skew
+        const isValid = speakeasy.totp.verify({ secret: secret, encoding: 'base32', token: token, window: 8 });
 
         if (!isValid) {
-            console.error('[2FA Verification] Failed. Token rejected.');
+            console.error(`[2FA Verification] Failed. Token '${token}' rejected. Expected '${expectedToken}'. Server epoch: ${Math.floor(serverTime.getTime() / 1000)}`);
             return res.status(400).json({ error: 'Mã xác thực không hợp lệ. Vui lòng thử lại.' });
         }
 

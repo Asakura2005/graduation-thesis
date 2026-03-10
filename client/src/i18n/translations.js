@@ -197,8 +197,13 @@ export const translations = {
         },
         // === CHART ===
         chart: {
-            title: 'Xu hướng vận chuyển tuần này',
+            title: 'Xu hướng vận chuyển',
             days: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'],
+            thisWeek: 'Tuần này',
+            lastWeek: 'Tuần trước',
+            prevWeek: 'Tuần trước',
+            nextWeek: 'Tuần sau',
+            totalShipments: 'Tổng vận đơn',
         },
         // === BLOCKCHAIN ===
         blockchain: {
@@ -408,8 +413,13 @@ export const translations = {
         },
         // === CHART ===
         chart: {
-            title: 'Shipping Trends This Week',
+            title: 'Shipping Trends',
             days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+            thisWeek: 'This Week',
+            lastWeek: 'Last Week',
+            prevWeek: 'Previous Week',
+            nextWeek: 'Next Week',
+            totalShipments: 'Total shipments',
         },
         // === BLOCKCHAIN ===
         blockchain: {

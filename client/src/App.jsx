@@ -15,7 +15,6 @@ import DashboardStats from "./layout/DashboardStats";
 import ProfileSettings from "./layout/ProfileSettings";
 import TrackingPage from "./TrackingPage";
 import TransportChart from "./layout/TransportChart";
-import BlockchainStatus from "./layout/BlockchainStatus";
 import Footer from "./layout/Footer";
 import { useLanguage } from "./i18n/LanguageContext";
 
@@ -118,7 +117,18 @@ const App = () => {
 
     if (user) fetchShipments();
 
-    return () => axios.interceptors.request.eject(interceptor);
+    // Auto-refresh mỗi 30 giây để cập nhật biểu đồ & dữ liệu theo thời gian thực
+    let refreshInterval;
+    if (user) {
+      refreshInterval = setInterval(() => {
+        fetchShipments();
+      }, 30000);
+    }
+
+    return () => {
+      axios.interceptors.request.eject(interceptor);
+      if (refreshInterval) clearInterval(refreshInterval);
+    };
   }, [user]);
 
   const handleLogout = () => {
@@ -195,12 +205,8 @@ const App = () => {
                       <DashboardStats shipments={shipments} />
 
                       <div className="row g-4 mt-2">
-                        <div className="col-lg-8">
+                        <div className="col-12">
                           <TransportChart shipments={shipments} />
-                        </div>
-
-                        <div className="col-lg-4">
-                          <BlockchainStatus />
                         </div>
                       </div>
                     </>
