@@ -162,8 +162,8 @@ class AnomalyDetectionService {
                 updatedAt: new Date().toISOString()
             };
 
-            // Lưu dạng pretty-print (null, 2) để dễ đọc và kiểm tra (không còn là "1 đường thẳng")
-            fs.writeFileSync(this.MODEL_PATH, JSON.stringify(dataToSave, null, 2));
+            
+            fs.writeFileSync(this.MODEL_PATH, JSON.stringify(dataToSave));
             console.log('[AI Anomaly] 💾 Bộ não AI (Neural + Gaussian) đã được ghi nhớ vào ổ cứng.');
         } catch (err) {
             console.error('[AI Anomaly] Không thể lưu model AI:', err.message);
