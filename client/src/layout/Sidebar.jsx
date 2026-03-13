@@ -14,6 +14,13 @@ import { useLanguage } from "../i18n/LanguageContext";
 const Sidebar = ({ user, activeTab, setActiveTab, onOpenCreateShipment }) => {
   const { t } = useLanguage();
   const isAdmin = user?.role === "Admin";
+  const isManager = user?.role === "Manager";
+  const isStaff = user?.role === "Staff";
+  const isWarehouse = user?.role === "Warehouse";
+
+  const canViewShipments = isAdmin || isManager || isStaff;
+  const canViewInventory = isAdmin || isManager || isWarehouse;
+  const canViewPartners = isAdmin || isManager;
 
   const navBtn = (tabKey, Icon, label) => (
     <button
@@ -53,12 +60,14 @@ const Sidebar = ({ user, activeTab, setActiveTab, onOpenCreateShipment }) => {
       {/* Menu */}
       <div className="nav flex-column gap-2">
         {navBtn("dashboard", LayoutDashboard, t('sidebar.dashboard'))}
-        {navBtn("shipments", Truck, t('sidebar.shipments'))}
+        
+        {canViewShipments && navBtn("shipments", Truck, t('sidebar.shipments'))}
+        {canViewPartners && navBtn("partners", Users, t('sidebar.partners'))}
+        {canViewInventory && navBtn("inventory", Box, t('sidebar.inventory'))}
 
         {isAdmin && (
           <>
-            {navBtn("partners", Users, t('sidebar.partners'))}
-            {navBtn("inventory", Box, t('sidebar.inventory'))}
+            {navBtn("account-approval", Users, "Duyệt tài khoản")}
             {navBtn("audit", Activity, t('sidebar.audit'))}
             {navBtn("ai-security", Brain, t('sidebar.aiSecurity') || 'AI Security')}
           </>
@@ -67,13 +76,15 @@ const Sidebar = ({ user, activeTab, setActiveTab, onOpenCreateShipment }) => {
 
       {/* Bottom actions */}
       <div className="mt-auto pt-3">
-        <button
-          className="btn btn-outline-gold w-100 py-3 d-flex align-items-center justify-content-center gap-2"
-          onClick={onOpenCreateShipment}
-        >
-          <Plus size={20} />
-          <span className="fw-bold">{t('sidebar.shipments')}</span>
-        </button>
+        {canViewShipments && (
+          <button
+            className="btn btn-outline-gold w-100 py-3 d-flex align-items-center justify-content-center gap-2"
+            onClick={onOpenCreateShipment}
+          >
+            <Plus size={20} />
+            <span className="fw-bold">{t('sidebar.shipments')}</span>
+          </button>
+        )}
 
         <button
           className="btn w-100 py-3 mt-2 d-flex align-items-center justify-content-center gap-2 text-dim hover-light border-0"

@@ -9,6 +9,7 @@ import PartnerForm from "./admin/PartnerForm";
 import InventoryManagement from "./admin/InventoryManagement";
 import AuditLogViewer from "./admin/AuditLogViewer";
 import AISecurityMonitor from "./admin/AISecurityMonitor";
+import AccountApproval from "./admin/AccountApproval";
 import Header from "./layout/Header";
 import Sidebar from "./layout/Sidebar";
 import DashboardStats from "./layout/DashboardStats";
@@ -377,7 +378,10 @@ const App = () => {
           {/* 3. Inventory Tab */}
           {activeTab === "inventory" && <InventoryManagement />}
 
-          {/* 4. Audit Logs Tab */}
+          {/* 4. Account Approval Tab */}
+          {activeTab === "account-approval" && <AccountApproval />}
+
+          {/* 5. Audit Logs Tab */}
           {activeTab === "audit" && <AuditLogViewer />}
 
           {/* 5. AI Security Monitor Tab */}

@@ -459,6 +459,19 @@ app.post('/api/auth/login', async (req, res) => {
         try { decryptedRole = decrypt(user.role) || user.role; } catch (e) { }
         try { decryptedUsername = decrypt(user.username) || user.username; } catch (e) { }
 
+        // Block if account is still Pending
+        if (decryptedRole === 'Pending') {
+            try {
+                await anomalyDetector.recordAttempt(pool, {
+                    usernameHash, userId: user.user_id, ipAddress: clientIP, userAgent,
+                    success: false, riskScore: fullAnalysis.riskScore,
+                    riskFactors: [{ type: 'UNAPPROVED_ACCOUNT', score: 20, severity: 'low', message: 'Pending account login attempt' }],
+                    blocked: false
+                });
+            } catch (recErr) {}
+            return res.status(403).json({ error: 'Tài khoản của bạn đang chờ quản lý phê duyệt. Vui lòng liên hệ Admin.', isPending: true });
+        }
+
         // Ghi nhận login thành công
         try {
             await anomalyDetector.recordAttempt(pool, {
@@ -553,7 +566,8 @@ app.post('/api/auth/register', async (req, res) => {
 
         const passHash = await argon2.hash(password);
         const encUsername = encrypt(username);
-        const encRole = encrypt(role || 'Staff');
+        // Force new registrations to 'Pending' state
+        const encRole = encrypt('Pending');
         const encName = encrypt(fullName);
         const encEmail = encrypt(email);
         const encPhone = encrypt(phone || '');
@@ -678,6 +692,48 @@ app.put('/api/auth/me/password', authenticateToken, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// --- ADMIN: User Management ---
+app.get('/api/admin/users/pending', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+    try {
+        const pool = await connectDB();
+        const result = await pool.request().query("SELECT user_id, username, full_name, email, phone, role FROM system_users");
+        
+        const pendingUsers = result.recordset.map(u => {
+            let role = u.role, username = u.username, full_name = u.full_name, email = u.email, phone = u.phone;
+            try { role = decrypt(u.role) || u.role; } catch (e) { }
+            if (role !== 'Pending') return null;
+
+            try { username = decrypt(u.username) || u.username; } catch (e) { }
+            try { full_name = decrypt(u.full_name) || u.full_name; } catch (e) { }
+            try { email = decrypt(u.email) || u.email; } catch (e) { }
+            try { phone = decrypt(u.phone) || u.phone; } catch (e) { }
+            return { user_id: u.user_id, username, full_name, email, phone, role };
+        }).filter(u => u !== null);
+
+        res.json(pendingUsers);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/admin/users/:id/approve', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+    const { id } = req.params;
+    const { role } = req.body; 
+    
+    if (!role || role === 'Pending') return res.status(400).json({ error: 'Vui lòng chọn quyền truy cập hợp lệ' });
+
+    try {
+        const pool = await connectDB();
+        const encRole = encrypt(role);
+        
+        await pool.request()
+            .input('role', sql.NVarChar, encRole)
+            .input('id', sql.UniqueIdentifier, id)
+            .query("UPDATE system_users SET role = @role WHERE user_id = @id");
+        
+        await logAudit(req.user.id, 'APPROVE_USER', { targetUserId: id, newRole: role });
+        res.json({ message: 'Đã phê duyệt và cấp quyền thành công!' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // --- 2FA Setup Routes ---
 app.get('/api/auth/2fa/generate', authenticateToken, async (req, res) => {
     try {
@@ -781,7 +837,7 @@ app.get('/api/items', authenticateToken, async (req, res) => {
 });
 
 // 3. Add Supply Item (Master Data + Auto Stock In)
-app.post('/api/items', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+app.post('/api/items', authenticateToken, authorizeRole(['Admin', 'Manager', 'Warehouse']), async (req, res) => {
     const { itemName, unitCost, category, quantity, warehouseId, binLocation } = req.body;
 
     let transaction;
@@ -839,7 +895,7 @@ app.post('/api/items', authenticateToken, authorizeRole(['Admin']), async (req, 
 });
 
 // 4. Update Item (Master Data)
-app.put('/api/items/:id', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+app.put('/api/items/:id', authenticateToken, authorizeRole(['Admin', 'Manager', 'Warehouse']), async (req, res) => {
     const { itemName, unitCost, category, warehouseId, binLocation, quantity } = req.body;
     const { id } = req.params;
 
@@ -927,7 +983,7 @@ app.put('/api/items/:id', authenticateToken, authorizeRole(['Admin']), async (re
 });
 
 // 5. Delete Item
-app.delete('/api/items/:id', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+app.delete('/api/items/:id', authenticateToken, authorizeRole(['Admin', 'Manager']), async (req, res) => {
     const { id } = req.params;
     try {
         const pool = await connectDB();
@@ -996,7 +1052,7 @@ app.get('/api/warehouses', authenticateToken, async (req, res) => {
 });
 
 // 6.1 Create Warehouse (Updated: No Capacity, has Total Shelves)
-app.post('/api/warehouses', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+app.post('/api/warehouses', authenticateToken, authorizeRole(['Admin', 'Manager', 'Warehouse']), async (req, res) => {
     const { name, location, type, total_shelves } = req.body;
     try {
         const pool = await connectDB();
@@ -1013,7 +1069,7 @@ app.post('/api/warehouses', authenticateToken, authorizeRole(['Admin']), async (
 });
 
 // 6.2 Delete Warehouse
-app.delete('/api/warehouses/:id', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+app.delete('/api/warehouses/:id', authenticateToken, authorizeRole(['Admin', 'Manager']), async (req, res) => {
     const { id } = req.params;
     console.log(`[DELETE_WAREHOUSE] Attempting to delete warehouse: ${id} by user: ${req.user.id}`);
     try {
@@ -1076,7 +1132,7 @@ app.get('/api/warehouses/:id/inventory', authenticateToken, async (req, res) => 
 });
 
 // 8. Add/Update Stock (Secure Encrypted Update)
-app.post('/api/inventory/add', authenticateToken, authorizeRole(['Admin', 'Warehouse']), async (req, res) => {
+app.post('/api/inventory/add', authenticateToken, authorizeRole(['Admin', 'Manager', 'Warehouse']), async (req, res) => {
     const { warehouseId, itemId, quantity, binLocation } = req.body;
     try {
         const pool = await connectDB();
@@ -1131,7 +1187,7 @@ app.post('/api/inventory/add', authenticateToken, authorizeRole(['Admin', 'Wareh
 });
 
 // 8.1 Update Specific Stock Record (Edit Quantity/Bin)
-app.put('/api/inventory/:id', authenticateToken, authorizeRole(['Admin', 'Warehouse']), async (req, res) => {
+app.put('/api/inventory/:id', authenticateToken, authorizeRole(['Admin', 'Manager', 'Warehouse']), async (req, res) => {
     const { id } = req.params;
     const { quantity, binLocation } = req.body;
     try {
@@ -1158,7 +1214,7 @@ app.put('/api/inventory/:id', authenticateToken, authorizeRole(['Admin', 'Wareho
 });
 
 // 8.2 Delete Specific Stock Record
-app.delete('/api/inventory/:id', authenticateToken, authorizeRole(['Admin', 'Warehouse']), async (req, res) => {
+app.delete('/api/inventory/:id', authenticateToken, authorizeRole(['Admin', 'Manager']), async (req, res) => {
     const { id } = req.params;
     try {
         const pool = await connectDB();
@@ -1333,7 +1389,7 @@ app.get('/api/tracking/:trackingNumber', async (req, res) => {
 
 // 13. Create Shipment
 // 13. Create Shipment
-app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Staff']), async (req, res) => {
+app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Manager', 'Staff']), async (req, res) => {
     const { trackingNumber, supplierId, logisticsId, originAddress, destinationAddress, totalValue, items } = req.body;
 
     let transaction;
@@ -1427,7 +1483,7 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Staff']),
 });
 
 // 14. Update Shipment Status
-app.put('/api/shipments/:id/status', authenticateToken, authorizeRole(['Admin', 'Staff']), async (req, res) => {
+app.put('/api/shipments/:id/status', authenticateToken, authorizeRole(['Admin', 'Manager', 'Staff']), async (req, res) => {
     const { status } = req.body;
     try {
         const pool = await connectDB();
@@ -1441,7 +1497,7 @@ app.put('/api/shipments/:id/status', authenticateToken, authorizeRole(['Admin', 
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/shipments/:id', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+app.put('/api/shipments/:id', authenticateToken, authorizeRole(['Admin', 'Manager', 'Staff']), async (req, res) => {
     const { logisticsId, originAddress, destinationAddress, totalValue, items } = req.body;
     let transaction;
     try {
@@ -1616,7 +1672,7 @@ app.put('/api/shipments/:id', authenticateToken, authorizeRole(['Admin']), async
 });
 
 // 16. Delete Shipment (Admin Only)
-app.delete('/api/shipments/:id', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+app.delete('/api/shipments/:id', authenticateToken, authorizeRole(['Admin', 'Manager']), async (req, res) => {
     let transaction;
     try {
         const pool = await connectDB();
@@ -1684,7 +1740,7 @@ app.get('/api/partners', authenticateToken, async (req, res) => {
 });
 
 // 9. Create Partner
-app.post('/api/partners', authenticateToken, authorizeRole(['Admin', 'Staff']), async (req, res) => {
+app.post('/api/partners', authenticateToken, authorizeRole(['Admin', 'Manager']), async (req, res) => {
     const { name, contact, phone, email, type } = req.body;
 
     // Validate phone & email
@@ -1722,7 +1778,7 @@ app.post('/api/partners', authenticateToken, authorizeRole(['Admin', 'Staff']), 
 });
 
 // 10. Update Partner
-app.put('/api/partners/:id', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+app.put('/api/partners/:id', authenticateToken, authorizeRole(['Admin', 'Manager']), async (req, res) => {
     const { id } = req.params;
     const { name, contact, phone, email, type } = req.body;
 
@@ -1783,7 +1839,7 @@ app.put('/api/partners/:id', authenticateToken, authorizeRole(['Admin']), async 
 });
 
 // 11. Delete Partner
-app.delete('/api/partners/:id', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+app.delete('/api/partners/:id', authenticateToken, authorizeRole(['Admin', 'Manager']), async (req, res) => {
     const { id } = req.params;
     try {
         const pool = await connectDB();
