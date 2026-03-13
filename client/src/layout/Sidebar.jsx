@@ -18,7 +18,7 @@ const Sidebar = ({ user, activeTab, setActiveTab, onOpenCreateShipment }) => {
   const isStaff = user?.role === "Staff";
   const isWarehouse = user?.role === "Warehouse";
 
-  const canViewShipments = isAdmin || isManager || isStaff;
+  const canViewShipments = isAdmin || isManager || isStaff || isWarehouse;
   const canViewInventory = isAdmin || isManager || isWarehouse;
   const canViewPartners = isAdmin || isManager;
 
@@ -62,6 +62,7 @@ const Sidebar = ({ user, activeTab, setActiveTab, onOpenCreateShipment }) => {
         {navBtn("dashboard", LayoutDashboard, t('sidebar.dashboard'))}
         
         {canViewShipments && navBtn("shipments", Truck, t('sidebar.shipments'))}
+        {isWarehouse && navBtn("shipment-approval", Truck, "Duyệt vận đơn")}
         {canViewPartners && navBtn("partners", Users, t('sidebar.partners'))}
         {canViewInventory && navBtn("inventory", Box, t('sidebar.inventory'))}
 
@@ -76,7 +77,7 @@ const Sidebar = ({ user, activeTab, setActiveTab, onOpenCreateShipment }) => {
 
       {/* Bottom actions */}
       <div className="mt-auto pt-3">
-        {canViewShipments && (
+        {canViewShipments && !isWarehouse && (
           <button
             className="btn btn-outline-gold w-100 py-3 d-flex align-items-center justify-content-center gap-2"
             onClick={onOpenCreateShipment}

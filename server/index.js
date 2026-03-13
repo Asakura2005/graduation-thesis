@@ -179,6 +179,58 @@ async function connectDB() {
 
         } catch (migErr) { console.error("Migration Error:", migErr.message); }
 
+        // --- AUTO MIGRATION: NOTIFICATIONS TABLE ---
+        try {
+            await pool.request().query(`
+                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'notifications')
+                CREATE TABLE notifications (
+                    notification_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                    user_id UNIQUEIDENTIFIER NULL,
+                    target_role NVARCHAR(MAX) NULL,
+                    title NVARCHAR(MAX) NOT NULL,
+                    message NVARCHAR(MAX) NOT NULL,
+                    type NVARCHAR(100) DEFAULT 'info',
+                    related_id NVARCHAR(MAX) NULL,
+                    is_read BIT DEFAULT 0,
+                    created_at DATETIME DEFAULT GETDATE()
+                )
+            `);
+            console.log("Notifications table ready.");
+        } catch (notifErr) { console.log("Migration Warn (notifications):", notifErr.message); }
+
+        // --- AUTO MIGRATION: SHIPMENTS created_by ---
+        try {
+            const checkCreatedBy = await pool.request().query("SELECT COL_LENGTH('shipments', 'created_by') as col_len");
+            if (checkCreatedBy.recordset[0].col_len === null) {
+                console.log("Migrating shipments: Adding created_by...");
+                await pool.request().query("ALTER TABLE shipments ADD created_by UNIQUEIDENTIFIER NULL");
+            }
+        } catch (e) { console.log("Migration Warn (shipments.created_by):", e.message); }
+
+        // --- AUTO MIGRATION: SHIPMENTS shipment_date DATETIME -> NVARCHAR(MAX) ---
+        try {
+            const checkDateType = await pool.request().query(`
+                SELECT DATA_TYPE 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_NAME = 'shipments' AND COLUMN_NAME = 'shipment_date'
+            `);
+            if (checkDateType.recordset[0] && checkDateType.recordset[0].DATA_TYPE !== 'nvarchar') {
+                console.log("Migrating shipments.shipment_date to NVARCHAR(MAX) for encryption...");
+                // Drop default constraint if exists
+                await pool.request().query(`
+                    DECLARE @constraintName NVARCHAR(200)
+                    SELECT @constraintName = d.name 
+                    FROM sys.default_constraints d
+                    JOIN sys.columns c ON d.parent_column_id = c.column_id AND d.parent_object_id = c.object_id
+                    WHERE c.name = 'shipment_date' AND OBJECT_NAME(d.parent_object_id) = 'shipments'
+                    IF @constraintName IS NOT NULL
+                        EXEC('ALTER TABLE shipments DROP CONSTRAINT ' + @constraintName)
+                `);
+                await pool.request().query("ALTER TABLE shipments ALTER COLUMN shipment_date NVARCHAR(MAX)");
+                console.log("shipment_date migrated successfully.");
+            }
+        } catch (e) { console.log("Migration Warn (shipments.shipment_date):", e.message); }
+
         return pool;
     } catch (err) {
         console.error('Database connection failed:', err.message);
@@ -1403,7 +1455,7 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Manager',
         const encDest = encrypt(destinationAddress);
         const encTotalVal = encrypt(totalValue.toString());
 
-        // 2. Insert Shipment (shipment_date encrypted)
+        // 2. Insert Shipment (shipment_date encrypted) - Status starts as 'Pending Approval'
         const shipRes = await transaction.request()
             .input('track', sql.NVarChar, encTracking)
             .input('log', sql.UniqueIdentifier, logisticsId)
@@ -1411,11 +1463,12 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Manager',
             .input('origin', sql.NVarChar, encOrigin)
             .input('dest', sql.NVarChar, encDest)
             .input('val', sql.NVarChar, encTotalVal)
-            .input('status', sql.NVarChar, encrypt('Pending'))
+            .input('status', sql.NVarChar, encrypt('Pending Approval'))
+            .input('createdBy', sql.UniqueIdentifier, req.user.id)
             .query(`
-                INSERT INTO shipments (shipment_id, tracking_number, logistics_id, shipment_date, origin_address, destination_address, total_value, status)
+                INSERT INTO shipments (shipment_id, tracking_number, logistics_id, shipment_date, origin_address, destination_address, total_value, status, created_by)
                 OUTPUT INSERTED.shipment_id
-                VALUES (NEWID(), @track, @log, @date, @origin, @dest, @val, @status)
+                VALUES (NEWID(), @track, @log, @date, @origin, @dest, @val, @status, @createdBy)
             `);
 
         const shipmentId = shipRes.recordset[0].shipment_id;
@@ -1471,6 +1524,18 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Manager',
         }
 
         await logAudit(req.user.id, 'CREATE_SHIPMENT', { trackingNumber, itemCount: items?.length });
+
+        // Create notification for Warehouse role
+        try {
+            await pool.request()
+                .input('role', sql.NVarChar, 'Warehouse')
+                .input('title', sql.NVarChar, 'Yêu cầu duyệt vận đơn mới')
+                .input('msg', sql.NVarChar, `Vận đơn ${trackingNumber} vừa được tạo bởi ${req.user.username}. Vui lòng xem xét và phê duyệt.`)
+                .input('type', sql.NVarChar, 'shipment_approval')
+                .input('relId', sql.NVarChar, shipmentId)
+                .query("INSERT INTO notifications (target_role, title, message, type, related_id) VALUES (@role, @title, @msg, @type, @relId)");
+        } catch (notifErr) { console.error('Notification error:', notifErr.message); }
+
         res.status(201).json({ message: 'Shipment created successfully', shipmentId });
 
     } catch (err) {
@@ -1483,17 +1548,139 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Manager',
 });
 
 // 14. Update Shipment Status
-app.put('/api/shipments/:id/status', authenticateToken, authorizeRole(['Admin', 'Manager', 'Staff']), async (req, res) => {
+app.put('/api/shipments/:id/status', authenticateToken, authorizeRole(['Admin', 'Manager', 'Staff', 'Warehouse']), async (req, res) => {
     const { status } = req.body;
     try {
         const pool = await connectDB();
+
+        // Validate: Rejected shipments cannot be updated
+        const checkRes = await pool.request().input('id', sql.UniqueIdentifier, req.params.id)
+            .query("SELECT status FROM shipments WHERE shipment_id = @id");
+        if (checkRes.recordset.length === 0) return res.status(404).json({ error: 'Shipment not found' });
+        let currentStatus = checkRes.recordset[0].status;
+        try { currentStatus = decrypt(currentStatus) || currentStatus; } catch (e) { }
+        if (currentStatus === 'Rejected' || currentStatus === 'Cancelled') {
+            return res.status(400).json({ error: 'Không thể cập nhật trạng thái vận đơn đã bị từ chối hoặc hủy.' });
+        }
+
         await pool.request()
             .input('status', sql.NVarChar, encrypt(status))
             .input('id', sql.UniqueIdentifier, req.params.id)
             .query("UPDATE shipments SET status = @status WHERE shipment_id = @id");
 
+        // Create notification for the shipment creator when status changes
+        try {
+            const shipRes = await pool.request().input('id', sql.UniqueIdentifier, req.params.id)
+                .query("SELECT created_by, tracking_number FROM shipments WHERE shipment_id = @id");
+            const ship = shipRes.recordset[0];
+            if (ship && ship.created_by) {
+                let trackNum = ship.tracking_number;
+                try { trackNum = decrypt(ship.tracking_number) || trackNum; } catch (e) { }
+                await pool.request()
+                    .input('userId', sql.UniqueIdentifier, ship.created_by)
+                    .input('title', sql.NVarChar, `Vận đơn ${status}`)
+                    .input('msg', sql.NVarChar, `Vận đơn ${trackNum} đã được cập nhật trạng thái: ${status}`)
+                    .input('type', sql.NVarChar, 'status_update')
+                    .input('relId', sql.NVarChar, req.params.id)
+                    .query("INSERT INTO notifications (user_id, title, message, type, related_id) VALUES (@userId, @title, @msg, @type, @relId)");
+            }
+        } catch (notifErr) { console.error('Notification error:', notifErr.message); }
+
         await logAudit(req.user.id, 'UPDATE_SHIPMENT_STATUS', { shipmentId: req.params.id, status });
         res.json({ message: 'Status updated' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 14.1 Approve/Reject Shipment (Warehouse Manager)
+app.put('/api/shipments/:id/approve', authenticateToken, authorizeRole(['Admin', 'Manager', 'Warehouse']), async (req, res) => {
+    const { action, reason } = req.body; // action: 'approve' or 'reject'
+    try {
+        const pool = await connectDB();
+
+        // Verify shipment is in 'Pending Approval' status
+        const checkRes = await pool.request().input('id', sql.UniqueIdentifier, req.params.id)
+            .query("SELECT status, tracking_number, created_by FROM shipments WHERE shipment_id = @id");
+        if (checkRes.recordset.length === 0) return res.status(404).json({ error: 'Shipment not found' });
+
+        let decodedStatus = checkRes.recordset[0].status;
+        try { decodedStatus = decrypt(decodedStatus) || decodedStatus; } catch (e) { }
+        if (decodedStatus !== 'Pending Approval') {
+            return res.status(400).json({ error: 'Chỉ có thể duyệt/từ chối vận đơn ở trạng thái Chờ duyệt.' });
+        }
+
+        let trackNum = checkRes.recordset[0].tracking_number;
+        try { trackNum = decrypt(trackNum) || trackNum; } catch (e) { }
+        const createdBy = checkRes.recordset[0].created_by;
+
+        const newStatus = action === 'approve' ? 'Approved' : 'Rejected';
+        await pool.request()
+            .input('status', sql.NVarChar, encrypt(newStatus))
+            .input('id', sql.UniqueIdentifier, req.params.id)
+            .query("UPDATE shipments SET status = @status WHERE shipment_id = @id");
+
+        // Notify the creator
+        if (createdBy) {
+            const notifTitle = action === 'approve' ? 'Vận đơn đã được duyệt ✅' : 'Vận đơn bị từ chối ❌';
+            const notifMsg = action === 'approve'
+                ? `Vận đơn ${trackNum} đã được ${req.user.username} phê duyệt thành công.`
+                : `Vận đơn ${trackNum} đã bị ${req.user.username} từ chối. Lý do: ${reason || 'Không có'}`;
+            try {
+                await pool.request()
+                    .input('userId', sql.UniqueIdentifier, createdBy)
+                    .input('title', sql.NVarChar, notifTitle)
+                    .input('msg', sql.NVarChar, notifMsg)
+                    .input('type', sql.NVarChar, action === 'approve' ? 'approved' : 'rejected')
+                    .input('relId', sql.NVarChar, req.params.id)
+                    .query("INSERT INTO notifications (user_id, title, message, type, related_id) VALUES (@userId, @title, @msg, @type, @relId)");
+            } catch (notifErr) { console.error('Notification error:', notifErr.message); }
+        }
+
+        await logAudit(req.user.id, action === 'approve' ? 'APPROVE_SHIPMENT' : 'REJECT_SHIPMENT', {
+            shipmentId: req.params.id, trackingNumber: trackNum, reason: reason || ''
+        });
+        res.json({ message: `Vận đơn đã ${action === 'approve' ? 'được duyệt' : 'bị từ chối'} thành công.` });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 14.2 Confirm Export from Warehouse (Warehouse Manager → In Transit)
+app.put('/api/shipments/:id/export', authenticateToken, authorizeRole(['Admin', 'Manager', 'Warehouse']), async (req, res) => {
+    try {
+        const pool = await connectDB();
+
+        const checkRes = await pool.request().input('id', sql.UniqueIdentifier, req.params.id)
+            .query("SELECT status, tracking_number, created_by FROM shipments WHERE shipment_id = @id");
+        if (checkRes.recordset.length === 0) return res.status(404).json({ error: 'Shipment not found' });
+
+        let decodedStatus = checkRes.recordset[0].status;
+        try { decodedStatus = decrypt(decodedStatus) || decodedStatus; } catch (e) { }
+        if (decodedStatus !== 'Approved') {
+            return res.status(400).json({ error: 'Chỉ có thể xuất kho vận đơn ở trạng thái Đã duyệt.' });
+        }
+
+        let trackNum = checkRes.recordset[0].tracking_number;
+        try { trackNum = decrypt(trackNum) || trackNum; } catch (e) { }
+        const createdBy = checkRes.recordset[0].created_by;
+
+        await pool.request()
+            .input('status', sql.NVarChar, encrypt('In Transit'))
+            .input('id', sql.UniqueIdentifier, req.params.id)
+            .query("UPDATE shipments SET status = @status WHERE shipment_id = @id");
+
+        // Notify creator
+        if (createdBy) {
+            try {
+                await pool.request()
+                    .input('userId', sql.UniqueIdentifier, createdBy)
+                    .input('title', sql.NVarChar, 'Hàng đã xuất kho 🚛')
+                    .input('msg', sql.NVarChar, `Vận đơn ${trackNum} đã được xuất kho và đang vận chuyển.`)
+                    .input('type', sql.NVarChar, 'exported')
+                    .input('relId', sql.NVarChar, req.params.id)
+                    .query("INSERT INTO notifications (user_id, title, message, type, related_id) VALUES (@userId, @title, @msg, @type, @relId)");
+            } catch (notifErr) { console.error('Notification error:', notifErr.message); }
+        }
+
+        await logAudit(req.user.id, 'EXPORT_SHIPMENT', { shipmentId: req.params.id, trackingNumber: trackNum });
+        res.json({ message: 'Vận đơn đã xuất kho thành công. Trạng thái: In Transit' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1503,14 +1690,14 @@ app.put('/api/shipments/:id', authenticateToken, authorizeRole(['Admin', 'Manage
     try {
         const pool = await connectDB();
 
-        // Security check: Only allow if pending
+        // Security check: Only allow if pending approval
         const checkRes = await pool.request().input('id', sql.UniqueIdentifier, req.params.id).query("SELECT * FROM shipments WHERE shipment_id = @id");
         if (checkRes.recordset.length === 0) return res.status(404).json({ error: 'Shipment not found' });
         const oldShipment = checkRes.recordset[0];
         let decodedStatus = oldShipment.status;
         try { decodedStatus = decrypt(decodedStatus) || decodedStatus; } catch (e) { }
-        if (decodedStatus !== 'Pending') {
-            return res.status(400).json({ error: 'Không thể sửa đơn hàng đã xử lý (Không còn ở trạng thái Pending).' });
+        if (decodedStatus !== 'Pending Approval') {
+            return res.status(400).json({ error: 'Không thể sửa đơn hàng đã xử lý (Không còn ở trạng thái Chờ duyệt).' });
         }
 
         // Decrypt old values for change comparison
@@ -1677,13 +1864,13 @@ app.delete('/api/shipments/:id', authenticateToken, authorizeRole(['Admin', 'Man
     try {
         const pool = await connectDB();
 
-        // Security check: Only allow if pending
+        // Security check: Only allow if pending approval
         const checkRes = await pool.request().input('id', sql.UniqueIdentifier, req.params.id).query("SELECT status FROM shipments WHERE shipment_id = @id");
         if (checkRes.recordset.length === 0) return res.status(404).json({ error: 'Shipment not found' });
         let decodedStatus = checkRes.recordset[0].status;
         try { decodedStatus = decrypt(decodedStatus) || decodedStatus; } catch (e) { }
-        if (decodedStatus !== 'Pending') {
-            return res.status(400).json({ error: 'Không thể xóa đơn hàng đã xử lý (Không còn ở trạng thái Pending).' });
+        if (decodedStatus !== 'Pending Approval') {
+            return res.status(400).json({ error: 'Không thể xóa đơn hàng đã xử lý (Không còn ở trạng thái Chờ duyệt).' });
         }
 
         transaction = new sql.Transaction(pool);
@@ -1706,13 +1893,48 @@ app.delete('/api/shipments/:id', authenticateToken, authorizeRole(['Admin', 'Man
     }
 });
 
+// --- NOTIFICATIONS APIs ---
+app.get('/api/notifications', authenticateToken, async (req, res) => {
+    try {
+        const pool = await connectDB();
+        const userRole = req.user.role;
+        const userId = req.user.id;
+
+        // Get notifications for this user (by user_id) or by role (target_role)
+        const result = await pool.request()
+            .input('userId', sql.UniqueIdentifier, userId)
+            .input('role', sql.NVarChar, userRole)
+            .query(`SELECT * FROM notifications 
+                    WHERE user_id = @userId OR target_role = @role 
+                    ORDER BY created_at DESC`);
+
+        res.json(result.recordset);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/notifications/:id/read', authenticateToken, async (req, res) => {
+    try {
+        const pool = await connectDB();
+        await pool.request()
+            .input('id', sql.UniqueIdentifier, req.params.id)
+            .query("UPDATE notifications SET is_read = 1 WHERE notification_id = @id");
+        res.json({ message: 'Marked as read' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/notifications/read-all', authenticateToken, async (req, res) => {
+    try {
+        const pool = await connectDB();
+        await pool.request()
+            .input('userId', sql.UniqueIdentifier, req.user.id)
+            .input('role', sql.NVarChar, req.user.role)
+            .query("UPDATE notifications SET is_read = 1 WHERE user_id = @userId OR target_role = @role");
+        res.json({ message: 'All marked as read' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // --- DASHBOARD APIs ---
 app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
-    // This might be calculated on client from shipments list, or separate API.
-    // App.jsx fetches /api/shipments and passes to DashboardStats.
-    // So distinct API might not be needed if App.jsx purely relies on shipments list.
-    // User said "Dashboard not showing". App.jsx:115: <DashboardStats shipments={shipments} />
-    // So fixing /api/shipments should fix Dashboard!
     res.json({ message: 'Stats from shipments' });
 });
 

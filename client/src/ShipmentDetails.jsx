@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Package, MapPin, Calendar, DollarSign, Truck, CheckCircle, AlertCircle, Clock, Edit, Trash2, Save, X, Download, Search, Activity, User } from 'lucide-react';
+import { ArrowLeft, Package, MapPin, Calendar, DollarSign, Truck, CheckCircle, AlertCircle, Clock, Edit, Trash2, Save, X, XCircle, Download, Search, Activity, User } from 'lucide-react';
 import axios from 'axios';
 import html2pdf from 'html2pdf.js';
 import { QRCodeSVG } from 'qrcode.react';
@@ -101,11 +101,14 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
         setEditData({ ...editData, items: newItems, totalValue: total.toFixed(2) });
     };
 
-    // Fake status flow
-    const statusFlow = ['Pending', 'In Transit', 'Customs Check', 'Delivered'];
+    // Status flow with new approval workflow
+    const statusFlow = ['Pending Approval', 'Approved', 'In Transit', 'Customs Check', 'Delivered'];
 
     const validNextStatus = () => {
+        // Rejected/Cancelled shipments cannot advance
+        if (shipment.status === 'Rejected' || shipment.status === 'Cancelled') return null;
         const currentIndex = statusFlow.indexOf(shipment.status);
+        if (currentIndex === -1) return null; // Unknown status, don't allow advancement
         if (currentIndex < statusFlow.length - 1) return statusFlow[currentIndex + 1];
         return null;
     };
@@ -207,7 +210,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                         </button>
                         {user?.role === 'Admin' && (
                             <>
-                                {shipment.status === 'Pending' ? (
+                                {shipment.status === 'Pending Approval' ? (
                                     <>
                                         {isEditing ? (
                                             <>
@@ -402,44 +405,75 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                             <h6 className="text-gold fw-bold mb-4 d-flex align-items-center gap-2"><Clock size={16} /> TIẾN ĐỘ VẬN CHUYỂN</h6>
 
                             {/* Timeline Visualization */}
-                            <div className="d-flex justify-content-between align-items-center position-relative mb-5 px-4">
-                                {/* Line connector */}
-                                <div className="position-absolute top-50 start-0 w-100 translate-middle-y bg-secondary bg-opacity-25" style={{ height: '4px', zIndex: 0 }}></div>
-
-                                {statusFlow.map((step, index) => {
-                                    const active = statusFlow.indexOf(shipment.status) >= index;
-                                    const isCurrent = shipment.status === step;
-
-                                    // Find timestamp if active
-                                    const statusLog = active ? auditLogs.find(l =>
-                                        l.action === 'UPDATE_SHIPMENT_STATUS' && l.details?.status === step
-                                    ) : null;
-                                    // Special case for 'Pending' - use shipment_date if no log found
-                                    const initialTime = (step === 'Pending' && shipment.shipment_date) ? shipment.shipment_date : null;
-                                    const displayTime = statusLog ? statusLog.timestamp : initialTime;
-
-                                    return (
-                                        <div key={step} className="position-relative z-1 text-center" style={{ width: '80px' }}>
-                                            <div
-                                                className={`rounded-circle d-flex align-items-center justify-content-center mx-auto mb-2 shadow-lg transition-all
-                                                ${active ? 'bg-gold text-dark' : 'bg-dark border border-secondary text-dim'}`}
-                                                style={{ width: '40px', height: '40px' }}
-                                            >
-                                                {active ? <CheckCircle size={20} /> : <div style={{ width: '10px', height: '10px' }} className="rounded-circle bg-secondary opacity-50"></div>}
-                                            </div>
-                                            <div className={`x-small fw-bold ${active ? 'text-white' : 'text-dim'}`}>{step}</div>
-                                            {active && displayTime && (
-                                                <div className="text-dim x-small mt-1" style={{ fontSize: '0.65rem', lineHeight: '1.2' }}>
-                                                    {new Date(displayTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}<br />
-                                                    {new Date(displayTime).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}
-                                                </div>
-                                            )}
-                                            {isCurrent && <div className="badge bg-primary text-white mt-1 shadow-sm" style={{ fontSize: '0.6rem' }}>Hiện tại</div>}
+                            {shipment.status === 'Rejected' ? (
+                                /* REJECTED TIMELINE: Special 2‑step flow */
+                                <div className="d-flex justify-content-between align-items-center position-relative mb-5 px-4">
+                                    <div className="position-absolute top-50 start-0 w-100 translate-middle-y bg-danger bg-opacity-25" style={{ height: '4px', zIndex: 0 }}></div>
+                                    
+                                    {/* Step 1: Pending Approval (completed) */}
+                                    <div className="position-relative z-1 text-center" style={{ width: '120px' }}>
+                                        <div className="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-2 shadow-lg bg-gold text-dark" style={{ width: '40px', height: '40px' }}>
+                                            <CheckCircle size={20} />
                                         </div>
-                                    );
+                                        <div className="x-small fw-bold text-white">Pending Approval</div>
+                                        {shipment.shipment_date && (
+                                            <div className="text-dim x-small mt-1" style={{ fontSize: '0.65rem', lineHeight: '1.2' }}>
+                                                {new Date(shipment.shipment_date).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}<br />
+                                                {new Date(shipment.shipment_date).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}
+                                            </div>
+                                        )}
+                                    </div>
 
-                                })}
-                            </div>
+                                    {/* Step 2: Rejected */}
+                                    <div className="position-relative z-1 text-center" style={{ width: '120px' }}>
+                                        <div className="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-2 shadow-lg bg-danger text-white" style={{ width: '48px', height: '48px', border: '3px solid rgba(255,93,93,0.5)' }}>
+                                            <XCircle size={24} />
+                                        </div>
+                                        <div className="x-small fw-bold text-danger">Từ chối</div>
+                                        <div className="badge bg-danger bg-opacity-25 text-danger mt-1 shadow-sm" style={{ fontSize: '0.6rem' }}>Rejected</div>
+                                    </div>
+                                </div>
+                            ) : (
+                                /* NORMAL TIMELINE: Standard 5-step flow */
+                                <div className="d-flex justify-content-between align-items-center position-relative mb-5 px-4">
+                                    {/* Line connector */}
+                                    <div className="position-absolute top-50 start-0 w-100 translate-middle-y bg-secondary bg-opacity-25" style={{ height: '4px', zIndex: 0 }}></div>
+
+                                    {statusFlow.map((step, index) => {
+                                        const active = statusFlow.indexOf(shipment.status) >= index;
+                                        const isCurrent = shipment.status === step;
+
+                                        // Find timestamp if active
+                                        const statusLog = active ? auditLogs.find(l =>
+                                            l.action === 'UPDATE_SHIPMENT_STATUS' && l.details?.status === step
+                                        ) : null;
+                                        // Special case for 'Pending Approval' - use shipment_date if no log found
+                                        const initialTime = (step === 'Pending Approval' && shipment.shipment_date) ? shipment.shipment_date : null;
+                                        const displayTime = statusLog ? statusLog.timestamp : initialTime;
+
+                                        return (
+                                            <div key={step} className="position-relative z-1 text-center" style={{ width: '80px' }}>
+                                                <div
+                                                    className={`rounded-circle d-flex align-items-center justify-content-center mx-auto mb-2 shadow-lg transition-all
+                                                    ${active ? 'bg-gold text-dark' : 'bg-dark border border-secondary text-dim'}`}
+                                                    style={{ width: '40px', height: '40px' }}
+                                                >
+                                                    {active ? <CheckCircle size={20} /> : <div style={{ width: '10px', height: '10px' }} className="rounded-circle bg-secondary opacity-50"></div>}
+                                                </div>
+                                                <div className={`x-small fw-bold ${active ? 'text-white' : 'text-dim'}`}>{step}</div>
+                                                {active && displayTime && (
+                                                    <div className="text-dim x-small mt-1" style={{ fontSize: '0.65rem', lineHeight: '1.2' }}>
+                                                        {new Date(displayTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}<br />
+                                                        {new Date(displayTime).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}
+                                                    </div>
+                                                )}
+                                                {isCurrent && <div className="badge bg-primary text-white mt-1 shadow-sm" style={{ fontSize: '0.6rem' }}>Hiện tại</div>}
+                                            </div>
+                                        );
+
+                                    })}
+                                </div>
+                            )}
 
                             {/* Action Area */}
                             {validNextStatus() && (
@@ -469,6 +503,17 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                         <CheckCircle size={48} className="mb-2" />
                                         <h5 className="fw-bold">Đơn hàng đã hoàn tất</h5>
                                     </div>
+                                </div>
+                            )}
+
+                            {shipment.status === 'Rejected' && (
+                                <div className="mt-4 p-3 rounded-3 bg-danger bg-opacity-10 border border-danger border-opacity-25">
+                                    <div className="d-flex align-items-center gap-2 text-danger fw-bold mb-1">
+                                        <XCircle size={18} /> Vận đơn đã bị từ chối
+                                    </div>
+                                    <p className="text-dim small mb-0">
+                                        Vận đơn này đã bị Quản lý Kho từ chối và không thể thực hiện vận chuyển.
+                                    </p>
                                 </div>
                             )}
 

@@ -14,8 +14,12 @@ const DashboardStats = ({ shipments = [] }) => {
       0,
     );
 
-    const activeCount = shipments.filter(
-      (s) => s.status !== "Delivered",
+    const pendingApprovalCount = shipments.filter(
+      (s) => s.status === "Pending Approval",
+    ).length;
+
+    const approvedCount = shipments.filter(
+      (s) => s.status === "Approved",
     ).length;
 
     const deliveredCount = shipments.filter(
@@ -28,6 +32,7 @@ const DashboardStats = ({ shipments = [] }) => {
       "Problem",
       "Delayed",
       "Error",
+      "Rejected",
       "Gặp sự cố",
       "Sự cố",
     ]);
@@ -36,7 +41,8 @@ const DashboardStats = ({ shipments = [] }) => {
     ).length;
 
     return {
-      activeCount,
+      pendingApprovalCount,
+      approvedCount,
       totalValue,
       deliveredCount,
       warningCount,
@@ -45,9 +51,9 @@ const DashboardStats = ({ shipments = [] }) => {
 
   const kpiList = [
     {
-      label: t('stats.activeShipments'),
-      val: stats.activeCount,
-      delta: "+12%",
+      label: t('stats.activeShipments') || 'Chờ duyệt',
+      val: stats.pendingApprovalCount,
+      delta: "",
       icon: Boxes,
       color: "#ffb24a",
       extraRight: null,

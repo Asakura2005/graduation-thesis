@@ -16,7 +16,9 @@ import DashboardStats from "./layout/DashboardStats";
 import ProfileSettings from "./layout/ProfileSettings";
 import TrackingPage from "./TrackingPage";
 import TransportChart from "./layout/TransportChart";
+import NotificationPanel from "./layout/NotificationPanel";
 import Footer from "./layout/Footer";
+import ShipmentApproval from "./admin/ShipmentApproval";
 import { useLanguage } from "./i18n/LanguageContext";
 
 const App = () => {
@@ -273,7 +275,9 @@ const App = () => {
                               <tr key={s.shipment_id}>
                                 <td>
                                   <div className="fw-bold text-white">
-                                    {s.tracking_number}
+                                    {user.role === "Warehouse"
+                                      ? (s.tracking_number || "").slice(0, 4) + "••••" + (s.tracking_number || "").slice(-3)
+                                      : s.tracking_number}
                                   </div>
                                   <div className="text-dim x-small">
                                     Date:{" "}
@@ -312,7 +316,13 @@ const App = () => {
                                       ? "bg-success bg-opacity-25 text-success"
                                       : s.status === "In Transit"
                                         ? "bg-warning bg-opacity-25 text-warning"
-                                        : "bg-danger bg-opacity-25 text-danger"
+                                        : s.status === "Approved"
+                                          ? "bg-info bg-opacity-25 text-info"
+                                          : s.status === "Pending Approval"
+                                            ? "bg-secondary bg-opacity-25 text-warning"
+                                            : s.status === "Rejected"
+                                              ? "bg-danger bg-opacity-25 text-danger"
+                                              : "bg-danger bg-opacity-25 text-danger"
                                       }`}
                                   >
                                     {s.status}
@@ -380,6 +390,11 @@ const App = () => {
 
           {/* 4. Account Approval Tab */}
           {activeTab === "account-approval" && <AccountApproval />}
+
+          {/* 4.5 Shipment Approval Tab (Warehouse) */}
+          {activeTab === "shipment-approval" && (
+            <ShipmentApproval user={user} onUpdate={fetchShipments} />
+          )}
 
           {/* 5. Audit Logs Tab */}
           {activeTab === "audit" && <AuditLogViewer />}

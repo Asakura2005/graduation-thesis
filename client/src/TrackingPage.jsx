@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Package, Truck, CheckCircle, Clock, ArrowLeft } from 'lucide-react';
+import { Package, Truck, CheckCircle, Clock, ArrowLeft, XCircle } from 'lucide-react';
 import axios from 'axios';
 
 const TrackingPage = ({ trackingNumber }) => {
@@ -21,7 +21,7 @@ const TrackingPage = ({ trackingNumber }) => {
         fetchShipment();
     }, [trackingNumber]);
 
-    const statusFlow = ['Pending', 'In Transit', 'Customs Check', 'Delivered'];
+    const statusFlow = ['Pending Approval', 'Approved', 'In Transit', 'Customs Check', 'Delivered'];
 
     if (loading) return (
         <div className="d-flex h-100vh w-100 justify-content-center align-items-center bg-black">
@@ -73,28 +73,60 @@ const TrackingPage = ({ trackingNumber }) => {
                     <div className="position-relative mt-4">
                         <h6 className="text-dim text-uppercase fw-bold x-small mb-4">Tiến Độ Giao Hàng</h6>
 
-                        <div className="d-flex justify-content-between position-relative">
-                            <div className="position-absolute top-50 start-0 w-100 bg-secondary" style={{ height: '3px', transform: 'translateY(-50%)', zIndex: 0 }}></div>
+                        {shipment.status === 'Rejected' ? (
+                            /* REJECTED: Special 2-step flow */
+                            <>
+                                <div className="d-flex justify-content-between position-relative">
+                                    <div className="position-absolute top-50 start-0 w-100 bg-danger bg-opacity-50" style={{ height: '3px', transform: 'translateY(-50%)', zIndex: 0 }}></div>
 
-                            <div className="position-absolute top-50 start-0 bg-success transition-all" style={{ height: '3px', transform: 'translateY(-50%)', zIndex: 1, width: `${(currentStepIndex / (statusFlow.length - 1)) * 100}%` }}></div>
-
-                            {statusFlow.map((step, index) => {
-                                const isCompleted = index <= currentStepIndex;
-                                const isCurrent = index === currentStepIndex;
-
-                                return (
-                                    <div key={step} className="position-relative d-flex flex-column align-items-center" style={{ zIndex: 2 }}>
-                                        <div className={`rounded-circle d-flex align-items-center justify-content-center transition-all ${isCompleted ? 'bg-success text-white scale-up' : 'bg-dark text-secondary border border-secondary'} shadow-sm`}
-                                            style={{ width: '36px', height: '36px', borderWidth: isCurrent ? '4px !important' : '1px' }}>
-                                            {isCompleted ? <CheckCircle size={20} /> : <Clock size={16} />}
+                                    {/* Step 1: Pending Approval */}
+                                    <div className="position-relative d-flex flex-column align-items-center" style={{ zIndex: 2 }}>
+                                        <div className="rounded-circle d-flex align-items-center justify-content-center bg-success text-white shadow-sm" style={{ width: '36px', height: '36px' }}>
+                                            <CheckCircle size={20} />
                                         </div>
-                                        <div className={`mt-2 fw-semibold text-center x-small ${isCurrent ? 'text-white' : (isCompleted ? 'text-success' : 'text-dim')}`}>
-                                            {step}
-                                        </div>
+                                        <div className="mt-2 fw-semibold text-center x-small text-success">Pending Approval</div>
                                     </div>
-                                );
-                            })}
-                        </div>
+
+                                    {/* Step 2: Rejected */}
+                                    <div className="position-relative d-flex flex-column align-items-center" style={{ zIndex: 2 }}>
+                                        <div className="rounded-circle d-flex align-items-center justify-content-center bg-danger text-white shadow-lg" style={{ width: '44px', height: '44px', border: '3px solid rgba(255,93,93,0.5)' }}>
+                                            <XCircle size={24} />
+                                        </div>
+                                        <div className="mt-2 fw-semibold text-center x-small text-danger">Từ chối</div>
+                                    </div>
+                                </div>
+
+                                <div className="mt-4 p-3 rounded-3 bg-danger bg-opacity-10 border border-danger border-opacity-25 text-center">
+                                    <XCircle size={20} className="text-danger mb-1" />
+                                    <p className="text-danger fw-bold mb-1">Vận đơn đã bị từ chối</p>
+                                    <p className="text-dim small mb-0">Vận đơn này không được phê duyệt bởi Quản lý Kho.</p>
+                                </div>
+                            </>
+                        ) : (
+                            /* NORMAL: Standard 5-step flow */
+                            <div className="d-flex justify-content-between position-relative">
+                                <div className="position-absolute top-50 start-0 w-100 bg-secondary" style={{ height: '3px', transform: 'translateY(-50%)', zIndex: 0 }}></div>
+
+                                <div className="position-absolute top-50 start-0 bg-success transition-all" style={{ height: '3px', transform: 'translateY(-50%)', zIndex: 1, width: `${(currentStepIndex / (statusFlow.length - 1)) * 100}%` }}></div>
+
+                                {statusFlow.map((step, index) => {
+                                    const isCompleted = index <= currentStepIndex;
+                                    const isCurrent = index === currentStepIndex;
+
+                                    return (
+                                        <div key={step} className="position-relative d-flex flex-column align-items-center" style={{ zIndex: 2 }}>
+                                            <div className={`rounded-circle d-flex align-items-center justify-content-center transition-all ${isCompleted ? 'bg-success text-white scale-up' : 'bg-dark text-secondary border border-secondary'} shadow-sm`}
+                                                style={{ width: '36px', height: '36px', borderWidth: isCurrent ? '4px !important' : '1px' }}>
+                                                {isCompleted ? <CheckCircle size={20} /> : <Clock size={16} />}
+                                            </div>
+                                            <div className={`mt-2 fw-semibold text-center x-small ${isCurrent ? 'text-white' : (isCompleted ? 'text-success' : 'text-dim')}`}>
+                                                {step}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
