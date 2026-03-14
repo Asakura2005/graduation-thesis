@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Lock, User, ShieldCheck, Eye, EyeOff, KeyRound } from 'lucide-react';
 import axios from 'axios';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -12,6 +12,9 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
     const [showPassword, setShowPassword] = useState(false);
     const [rememberSession, setRememberSession] = useState(false);
     const [securityWarnings, setSecurityWarnings] = useState([]);
+    const [captchaToken, setCaptchaToken] = useState('');
+    const recaptchaRef = useRef(null);
+    const recaptchaWidgetId = useRef(null);
 
     // 2FA states
     const [requires2FA, setRequires2FA] = useState(false);
@@ -27,6 +30,44 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
         return () => clearInterval(interval);
     }, []);
 
+    // Render reCAPTCHA widget when grecaptcha is loaded
+    useEffect(() => {
+        const renderCaptcha = () => {
+            if (window.grecaptcha && window.grecaptcha.render && recaptchaRef.current && recaptchaWidgetId.current === null) {
+                try {
+                    recaptchaWidgetId.current = window.grecaptcha.render(recaptchaRef.current, {
+                        sitekey: '6Lc3SIosAAAAADuFj_WQmiV4CNWRcXQ3_e1JkDMq',
+                        callback: (token) => setCaptchaToken(token),
+                        'expired-callback': () => setCaptchaToken(''),
+                        theme: 'dark',
+                    });
+                } catch (e) {
+                    // Widget already rendered
+                }
+            }
+        };
+
+        // Wait for grecaptcha to be ready
+        if (window.grecaptcha && window.grecaptcha.render) {
+            renderCaptcha();
+        } else {
+            const interval = setInterval(() => {
+                if (window.grecaptcha && window.grecaptcha.render) {
+                    renderCaptcha();
+                    clearInterval(interval);
+                }
+            }, 500);
+            return () => clearInterval(interval);
+        }
+    }, [requires2FA]);
+
+    const resetCaptcha = useCallback(() => {
+        setCaptchaToken('');
+        if (window.grecaptcha && recaptchaWidgetId.current !== null) {
+            try { window.grecaptcha.reset(recaptchaWidgetId.current); } catch(e) {}
+        }
+    }, []);
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
@@ -34,9 +75,16 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
         setLoading(true);
 
         try {
+            if (!captchaToken) {
+                setError('Vui lòng xác nhận bạn không phải robot');
+                setLoading(false);
+                return;
+            }
+
             const response = await axios.post('http://localhost:5001/api/auth/login', {
                 username,
-                password
+                password,
+                captchaToken
             });
 
             // Kiểm tra cảnh báo AI trước khi cho phép đăng nhập
@@ -58,6 +106,7 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
             } else {
                 setError(err.response?.data?.error || t('login.error'));
             }
+            resetCaptcha();
         } finally {
             setLoading(false);
         }
@@ -542,6 +591,11 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
                                 <label htmlFor="rememberSession" style={styles.checkboxLabel}>
                                     {t('login.rememberSession')}
                                 </label>
+                            </div>
+
+                            {/* reCAPTCHA */}
+                            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+                                <div ref={recaptchaRef}></div>
                             </div>
 
                             {/* Submit */}

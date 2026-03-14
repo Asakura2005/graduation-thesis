@@ -280,6 +280,16 @@ async function connectDB() {
             }
         } catch (e) { console.log("Migration Warn (login_attempts columns):", e.message); }
 
+        // --- AUTO MIGRATION: LOGIN_ATTEMPTS captcha_verified column ---
+        try {
+            const checkCaptchaCol = await pool.request().query("SELECT COL_LENGTH('login_attempts', 'captcha_verified') as col_len");
+            if (checkCaptchaCol.recordset[0].col_len === null) {
+                console.log("Migrating login_attempts: Adding captcha_verified...");
+                await pool.request().query("ALTER TABLE login_attempts ADD captcha_verified NVARCHAR(MAX) NULL");
+                console.log("login_attempts.captcha_verified added successfully.");
+            }
+        } catch (e) { console.log("Migration Warn (captcha_verified):", e.message); }
+
         // --- AUTO MIGRATION: SYSTEM_USERS banned_until (DATETIME -> NVARCHAR(MAX)) & ban_count (INT -> NVARCHAR(MAX)) ---
         try {
             const banColsToMigrate = ['banned_until', 'ban_count'];
@@ -440,9 +450,64 @@ app.get('/api/audit-logs', authenticateToken, async (req, res) => {
 // 1. Auth & Users (Legacy)
 // 1. Auth & Users (System Users - Secure with Argon2 + AI Anomaly Detection)
 app.post('/api/auth/login', async (req, res) => {
-    const { username, password } = req.body;
+    const { username, password, captchaToken } = req.body;
     const clientIP = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
+
+    // === reCAPTCHA Verification ===
+    if (!captchaToken) {
+        return res.status(400).json({ error: 'Vui lòng xác nhận reCAPTCHA' });
+    }
+
+    try {
+        const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+        if (secretKey && secretKey !== 'YOUR_SECRET_KEY_HERE') {
+            const https = require('https');
+            const verifyResult = await new Promise((resolve, reject) => {
+                const postData = `secret=${encodeURIComponent(secretKey)}&response=${encodeURIComponent(captchaToken)}&remoteip=${encodeURIComponent(clientIP)}`;
+                const options = {
+                    hostname: 'www.google.com',
+                    port: 443,
+                    path: '/recaptcha/api/siteverify',
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Content-Length': Buffer.byteLength(postData)
+                    }
+                };
+                const req = https.request(options, (res) => {
+                    let data = '';
+                    res.on('data', chunk => data += chunk);
+                    res.on('end', () => resolve(JSON.parse(data)));
+                });
+                req.on('error', reject);
+                req.write(postData);
+                req.end();
+            });
+
+            if (!verifyResult.success) {
+                console.log('[reCAPTCHA] Verification failed:', verifyResult);
+                // Ghi log reCAPTCHA fail vào database
+                try {
+                    const pool = await connectDB();
+                    const usernameHash = hashData(username);
+                    await anomalyDetector.recordAttempt(pool, {
+                        usernameHash, userId: null, ipAddress: clientIP, userAgent,
+                        success: false, riskScore: 50,
+                        riskFactors: [{ type: 'CAPTCHA_FAILED', score: 50, severity: 'critical', message: 'reCAPTCHA verification failed - possible bot' }],
+                        blocked: true, captchaVerified: false
+                    });
+                } catch (logErr) { console.error('[reCAPTCHA] Log error:', logErr.message); }
+                return res.status(400).json({ error: 'Xác nhận reCAPTCHA thất bại. Vui lòng thử lại.' });
+            }
+            console.log('[reCAPTCHA] ✅ Verification passed');
+        } else {
+            console.log('[reCAPTCHA] ⚠️ Secret key not configured, skipping server-side verification');
+        }
+    } catch (captchaErr) {
+        console.error('[reCAPTCHA] Error:', captchaErr.message);
+        // Non-blocking: allow login if reCAPTCHA service is down
+    }
 
     try {
         const pool = await connectDB();
@@ -513,7 +578,7 @@ app.post('/api/auth/login', async (req, res) => {
                 await anomalyDetector.recordAttempt(pool, {
                     usernameHash, userId: userId, ipAddress: clientIP, userAgent,
                     success: false, riskScore: preAnalysis.riskScore,
-                    riskFactors: preAnalysis.riskFactors, blocked: true
+                    riskFactors: preAnalysis.riskFactors, blocked: true, captchaVerified: true
                 });
             } catch (recErr) { console.error('[AI Anomaly] Record / Ban error:', recErr.message); }
 
@@ -540,7 +605,7 @@ app.post('/api/auth/login', async (req, res) => {
                 await anomalyDetector.recordAttempt(pool, {
                     usernameHash, userId: null, ipAddress: clientIP, userAgent,
                     success: false, riskScore: preAnalysis.riskScore,
-                    riskFactors: preAnalysis.riskFactors, blocked: false
+                    riskFactors: preAnalysis.riskFactors, blocked: false, captchaVerified: true
                 });
                 // Tạo thông báo cảnh báo cho Admin
                 await pool.request()
@@ -561,7 +626,7 @@ app.post('/api/auth/login', async (req, res) => {
                     usernameHash, userId: user.user_id, ipAddress: clientIP, userAgent,
                     success: false, riskScore: 100,
                     riskFactors: [{ type: 'ACCOUNT_BANNED', score: 100, severity: 'critical', message: 'Account is currently banned' }],
-                    blocked: true
+                    blocked: true, captchaVerified: true
                 }).catch(() => { });
 
                 const timeRemaining = banStatus.isPermanent
@@ -596,7 +661,7 @@ app.post('/api/auth/login', async (req, res) => {
                 await anomalyDetector.recordAttempt(pool, {
                     usernameHash, userId: user.user_id, ipAddress: clientIP, userAgent,
                     success: false, riskScore: preAnalysis.riskScore,
-                    riskFactors: preAnalysis.riskFactors, blocked: false
+                    riskFactors: preAnalysis.riskFactors, blocked: false, captchaVerified: true
                 });
                 // Tạo thông báo cảnh báo cho Admin
                 let decryptedUsernameForNotif = username;
@@ -632,7 +697,7 @@ app.post('/api/auth/login', async (req, res) => {
                     usernameHash, userId: user.user_id, ipAddress: clientIP, userAgent,
                     success: false, riskScore: fullAnalysis.riskScore,
                     riskFactors: [{ type: 'UNAPPROVED_ACCOUNT', score: 20, severity: 'low', message: 'Pending account login attempt' }],
-                    blocked: false
+                    blocked: false, captchaVerified: true
                 });
             } catch (recErr) {}
             return res.status(403).json({ error: 'Tài khoản của bạn đang chờ quản lý phê duyệt. Vui lòng liên hệ Admin.', isPending: true });
@@ -643,7 +708,7 @@ app.post('/api/auth/login', async (req, res) => {
             await anomalyDetector.recordAttempt(pool, {
                 usernameHash, userId: user.user_id, ipAddress: clientIP, userAgent,
                 success: true, riskScore: fullAnalysis.riskScore,
-                riskFactors: fullAnalysis.riskFactors, blocked: false
+                riskFactors: fullAnalysis.riskFactors, blocked: false, captchaVerified: true
             });
         } catch (recErr) { console.error('[AI Anomaly] Record error:', recErr.message); }
 

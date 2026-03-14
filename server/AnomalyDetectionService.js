@@ -739,7 +739,7 @@ class AnomalyDetectionService {
     /**
      * Ghi lại mỗi lần login attempt vào database
      */
-    async recordAttempt(pool, { usernameHash, userId, ipAddress, userAgent, success, riskScore, riskFactors, blocked }) {
+    async recordAttempt(pool, { usernameHash, userId, ipAddress, userAgent, success, riskScore, riskFactors, blocked, captchaVerified }) {
         try {
             await pool.request()
                 .input('userId', sql.UniqueIdentifier, userId || null)
@@ -750,10 +750,11 @@ class AnomalyDetectionService {
                 .input('risk', sql.NVarChar, encrypt((riskScore || 0).toString()))
                 .input('factors', sql.NVarChar, riskFactors ? encrypt(JSON.stringify(riskFactors)) : null)
                 .input('blocked', sql.NVarChar, encrypt(blocked ? '1' : '0'))
+                .input('captchaVerified', sql.NVarChar, captchaVerified !== undefined ? encrypt(captchaVerified ? '1' : '0') : null)
                 .query(`
                     INSERT INTO login_attempts
-                    (attempt_id, username_hash, user_id, ip_address, user_agent, attempt_time, success, risk_score, risk_factors, blocked)
-                    VALUES (NEWID(), @usernameHash, @userId, @ip, @ua, GETDATE(), @success, @risk, @factors, @blocked)
+                    (attempt_id, username_hash, user_id, ip_address, user_agent, attempt_time, success, risk_score, risk_factors, blocked, captcha_verified)
+                    VALUES (NEWID(), @usernameHash, @userId, @ip, @ua, GETDATE(), @success, @risk, @factors, @blocked, @captchaVerified)
                 `);
 
             console.log(`[AI Anomaly] Recorded: success=${success}, risk=${riskScore}, blocked=${blocked}`);
