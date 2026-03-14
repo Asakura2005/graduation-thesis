@@ -804,7 +804,7 @@ class AnomalyDetectionService {
             const maxRiskScore = riskScores.length > 0 ? Math.max(...riskScores) : 0;
             const stats = { totalAttempts, successCount, failCount, blockedCount, avgRiskScore, maxRiskScore };
 
-            const decryptedHighRisk = decryptedAll.filter(r => r.risk_score >= 40).slice(0, 10);
+            const decryptedHighRisk = decryptedAll.filter(r => r.risk_score >= 40 || r.success === 0).slice(0, 20);
 
             const hourlyMap = {};
             decryptedAll.forEach(r => {

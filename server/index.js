@@ -542,6 +542,12 @@ app.post('/api/auth/login', async (req, res) => {
                     success: false, riskScore: preAnalysis.riskScore,
                     riskFactors: preAnalysis.riskFactors, blocked: false
                 });
+                // Tạo thông báo cảnh báo cho Admin
+                await pool.request()
+                    .input('nTitle', sql.NVarChar, '⚠️ Đăng nhập thất bại')
+                    .input('nMsg', sql.NVarChar, `Tài khoản "${username}" không tồn tại nhưng có người cố đăng nhập. Risk Score: ${preAnalysis.riskScore}. IP: ${clientIP}`)
+                    .input('nType', sql.NVarChar, 'security')
+                    .query(`INSERT INTO notifications (target_role, title, message, type) VALUES ('Admin', @nTitle, @nMsg, @nType)`);
             } catch (recErr) { console.error('[AI Anomaly] Record error:', recErr.message); }
             return res.status(401).json({ error: 'User not found' });
         }
@@ -592,6 +598,14 @@ app.post('/api/auth/login', async (req, res) => {
                     success: false, riskScore: preAnalysis.riskScore,
                     riskFactors: preAnalysis.riskFactors, blocked: false
                 });
+                // Tạo thông báo cảnh báo cho Admin
+                let decryptedUsernameForNotif = username;
+                try { decryptedUsernameForNotif = decrypt(user.username) || username; } catch(e) {}
+                await pool.request()
+                    .input('nTitle', sql.NVarChar, '⚠️ Đăng nhập thất bại')
+                    .input('nMsg', sql.NVarChar, `Tài khoản "${decryptedUsernameForNotif}" đăng nhập sai mật khẩu. Risk Score: ${preAnalysis.riskScore}. IP: ${clientIP}`)
+                    .input('nType', sql.NVarChar, 'security')
+                    .query(`INSERT INTO notifications (target_role, title, message, type) VALUES ('Admin', @nTitle, @nMsg, @nType)`);
             } catch (recErr) { console.error('[AI Anomaly] Record error:', recErr.message); }
             return res.status(401).json({ error: 'Invalid credentials' });
         }
@@ -2402,13 +2416,15 @@ app.get('/api/ai/alerts', authenticateToken, authorizeRole(['Admin']), async (re
             let factors = row.risk_factors;
             let uname = row.username;
             let riskVal = 0;
+            let successVal = 0;
             try { ip = decrypt(row.ip_address); } catch (e) { }
             try { ua = decrypt(row.user_agent); } catch (e) { }
             try { factors = JSON.parse(decrypt(row.risk_factors)); } catch (e) { }
             try { uname = decrypt(row.username); } catch (e) { }
             try { riskVal = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { riskVal = row.risk_score || 0; }
-            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname, risk_score: riskVal };
-        }).filter(r => r.risk_score >= 40).slice(0, 30);
+            try { successVal = parseInt(decrypt(row.success)) || 0; } catch (e) { successVal = row.success ? 1 : 0; }
+            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname, risk_score: riskVal, success: successVal };
+        }).filter(r => r.risk_score >= 40 || r.success === 0).slice(0, 50);
 
         res.json(alerts);
     } catch (err) { res.status(500).json({ error: err.message }); }
