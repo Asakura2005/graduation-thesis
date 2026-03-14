@@ -231,6 +231,84 @@ async function connectDB() {
             }
         } catch (e) { console.log("Migration Warn (shipments.shipment_date):", e.message); }
 
+        // --- AUTO MIGRATION: LOGIN_ATTEMPTS columns to NVARCHAR(MAX) ---
+        try {
+            const columnsToMigrate = ['success', 'risk_score', 'risk_factors', 'blocked'];
+            for (const colName of columnsToMigrate) {
+                const checkCol = await pool.request().query(`
+                    SELECT DATA_TYPE, IS_NULLABLE
+                    FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_NAME = 'login_attempts' AND COLUMN_NAME = '${colName}'
+                `);
+                if (checkCol.recordset[0] && checkCol.recordset[0].DATA_TYPE !== 'nvarchar') {
+                    console.log(`Migrating login_attempts.${colName} from ${checkCol.recordset[0].DATA_TYPE} to NVARCHAR(MAX)...`);
+                    // Drop default constraint if exists
+                    await pool.request().query(`
+                        DECLARE @cn NVARCHAR(200)
+                        SELECT @cn = d.name 
+                        FROM sys.default_constraints d
+                        JOIN sys.columns c ON d.parent_column_id = c.column_id AND d.parent_object_id = c.object_id
+                        WHERE c.name = '${colName}' AND OBJECT_NAME(d.parent_object_id) = 'login_attempts'
+                        IF @cn IS NOT NULL
+                            EXEC('ALTER TABLE login_attempts DROP CONSTRAINT ' + @cn)
+                    `);
+                    await pool.request().query(`ALTER TABLE login_attempts ALTER COLUMN [${colName}] NVARCHAR(MAX) NULL`);
+                    console.log(`login_attempts.${colName} migrated successfully.`);
+                }
+            }
+
+            // Also ensure attempt_id has DEFAULT NEWID() if missing
+            const checkDefault = await pool.request().query(`
+                SELECT d.name FROM sys.default_constraints d
+                JOIN sys.columns c ON d.parent_column_id = c.column_id AND d.parent_object_id = c.object_id
+                WHERE c.name = 'attempt_id' AND OBJECT_NAME(d.parent_object_id) = 'login_attempts'
+            `);
+            if (checkDefault.recordset.length === 0) {
+                await pool.request().query("ALTER TABLE login_attempts ADD CONSTRAINT DF_login_attempts_id DEFAULT NEWID() FOR attempt_id");
+                console.log("Added DEFAULT NEWID() to login_attempts.attempt_id");
+            }
+
+            // Ensure attempt_time has DEFAULT GETDATE() if missing
+            const checkTimeDefault = await pool.request().query(`
+                SELECT d.name FROM sys.default_constraints d
+                JOIN sys.columns c ON d.parent_column_id = c.column_id AND d.parent_object_id = c.object_id
+                WHERE c.name = 'attempt_time' AND OBJECT_NAME(d.parent_object_id) = 'login_attempts'
+            `);
+            if (checkTimeDefault.recordset.length === 0) {
+                await pool.request().query("ALTER TABLE login_attempts ADD CONSTRAINT DF_login_attempts_time DEFAULT GETDATE() FOR attempt_time");
+                console.log("Added DEFAULT GETDATE() to login_attempts.attempt_time");
+            }
+        } catch (e) { console.log("Migration Warn (login_attempts columns):", e.message); }
+
+        // --- AUTO MIGRATION: SYSTEM_USERS banned_until (DATETIME -> NVARCHAR(MAX)) & ban_count (INT -> NVARCHAR(MAX)) ---
+        try {
+            const banColsToMigrate = ['banned_until', 'ban_count'];
+            for (const colName of banColsToMigrate) {
+                const checkCol = await pool.request().query(`
+                    SELECT DATA_TYPE
+                    FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_NAME = 'system_users' AND COLUMN_NAME = '${colName}'
+                `);
+                if (checkCol.recordset[0] && checkCol.recordset[0].DATA_TYPE !== 'nvarchar') {
+                    console.log(`Migrating system_users.${colName} from ${checkCol.recordset[0].DATA_TYPE} to NVARCHAR(MAX)...`);
+                    // Clear existing data first (it's old unencrypted data)
+                    await pool.request().query(`UPDATE system_users SET [${colName}] = NULL`);
+                    // Drop default constraint if exists
+                    await pool.request().query(`
+                        DECLARE @cn NVARCHAR(200)
+                        SELECT @cn = d.name 
+                        FROM sys.default_constraints d
+                        JOIN sys.columns c ON d.parent_column_id = c.column_id AND d.parent_object_id = c.object_id
+                        WHERE c.name = '${colName}' AND OBJECT_NAME(d.parent_object_id) = 'system_users'
+                        IF @cn IS NOT NULL
+                            EXEC('ALTER TABLE system_users DROP CONSTRAINT ' + @cn)
+                    `);
+                    await pool.request().query(`ALTER TABLE system_users ALTER COLUMN [${colName}] NVARCHAR(MAX) NULL`);
+                    console.log(`system_users.${colName} migrated successfully.`);
+                }
+            }
+        } catch (e) { console.log("Migration Warn (system_users ban columns):", e.message); }
+
         return pool;
     } catch (err) {
         console.error('Database connection failed:', err.message);
@@ -389,7 +467,28 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         // === 3. XỬ LÝ NẾU BỊ BLOCK BỞI AI (Khóa tài khoản khẩn cấp) ===
+        // Nhưng nếu Admin đã GỠ BAN → cho phép login (downgrade BLOCK → WARN)
         if (preAnalysis.decision === 'BLOCK') {
+            // Kiểm tra: user có đang bị ban thực sự không?
+            let currentlyBanned = false;
+            if (userId) {
+                const banStatus = await anomalyDetector.checkBan(pool, userId);
+                currentlyBanned = banStatus.isBanned;
+            }
+
+            if (!currentlyBanned && userId) {
+                // User KHÔNG bị ban (đã được gỡ ban hoặc chưa từng bị ban)
+                // → Downgrade BLOCK → WARN để cho phép login, nhưng vẫn ghi cảnh báo
+                console.log(`[AI Anomaly] ⚠️ BLOCK downgraded to WARN: User đã được gỡ ban, cho phép login lần này.`);
+                preAnalysis.decision = 'WARN';
+                preAnalysis.riskFactors.push({
+                    type: 'UNBAN_GRACE',
+                    severity: 'info',
+                    message: 'User đã được Admin gỡ ban — cho phép login lần này'
+                });
+                // Ghi nhận attempt (không block) để sau khi login thành công, counter reset
+            } else {
+                // User ĐANG bị ban thật → giữ nguyên BLOCK
             try {
                 // Auto-ban nếu có tài khoản
                 if (userId) {
@@ -431,6 +530,7 @@ app.post('/api/auth/login', async (req, res) => {
                 riskScore: preAnalysis.riskScore,
                 blocked: true
             });
+            } // end else (currentlyBanned)
         }
 
         const user = foundUser;
@@ -442,6 +542,12 @@ app.post('/api/auth/login', async (req, res) => {
                     success: false, riskScore: preAnalysis.riskScore,
                     riskFactors: preAnalysis.riskFactors, blocked: false
                 });
+                // Tạo thông báo cảnh báo cho Admin
+                await pool.request()
+                    .input('nTitle', sql.NVarChar, '⚠️ Đăng nhập thất bại')
+                    .input('nMsg', sql.NVarChar, `Tài khoản "${username}" không tồn tại nhưng có người cố đăng nhập. Risk Score: ${preAnalysis.riskScore}. IP: ${clientIP}`)
+                    .input('nType', sql.NVarChar, 'security')
+                    .query(`INSERT INTO notifications (target_role, title, message, type) VALUES ('Admin', @nTitle, @nMsg, @nType)`);
             } catch (recErr) { console.error('[AI Anomaly] Record error:', recErr.message); }
             return res.status(401).json({ error: 'User not found' });
         }
@@ -492,6 +598,14 @@ app.post('/api/auth/login', async (req, res) => {
                     success: false, riskScore: preAnalysis.riskScore,
                     riskFactors: preAnalysis.riskFactors, blocked: false
                 });
+                // Tạo thông báo cảnh báo cho Admin
+                let decryptedUsernameForNotif = username;
+                try { decryptedUsernameForNotif = decrypt(user.username) || username; } catch(e) {}
+                await pool.request()
+                    .input('nTitle', sql.NVarChar, '⚠️ Đăng nhập thất bại')
+                    .input('nMsg', sql.NVarChar, `Tài khoản "${decryptedUsernameForNotif}" đăng nhập sai mật khẩu. Risk Score: ${preAnalysis.riskScore}. IP: ${clientIP}`)
+                    .input('nType', sql.NVarChar, 'security')
+                    .query(`INSERT INTO notifications (target_role, title, message, type) VALUES ('Admin', @nTitle, @nMsg, @nType)`);
             } catch (recErr) { console.error('[AI Anomaly] Record error:', recErr.message); }
             return res.status(401).json({ error: 'Invalid credentials' });
         }
@@ -2229,10 +2343,10 @@ app.get('/api/ai/banned-users', authenticateToken, authorizeRole(['Admin']), asy
 // POST /api/ai/unban/:userId - Admin gỡ ban cho user
 app.post('/api/ai/unban/:userId', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
     const { userId } = req.params;
-    const { resetCount } = req.body;
+    const { resetCount, isFalsePositive } = req.body;
     try {
         const pool = await connectDB();
-        const result = await anomalyDetector.unbanUser(pool, userId, resetCount || false);
+        const result = await anomalyDetector.unbanUser(pool, userId, resetCount || false, isFalsePositive || false);
 
         if (result.success) {
             await logAudit(req.user.id, 'ADMIN_UNBAN_USER', {
@@ -2302,13 +2416,15 @@ app.get('/api/ai/alerts', authenticateToken, authorizeRole(['Admin']), async (re
             let factors = row.risk_factors;
             let uname = row.username;
             let riskVal = 0;
+            let successVal = 0;
             try { ip = decrypt(row.ip_address); } catch (e) { }
             try { ua = decrypt(row.user_agent); } catch (e) { }
             try { factors = JSON.parse(decrypt(row.risk_factors)); } catch (e) { }
             try { uname = decrypt(row.username); } catch (e) { }
             try { riskVal = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { riskVal = row.risk_score || 0; }
-            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname, risk_score: riskVal };
-        }).filter(r => r.risk_score >= 40).slice(0, 30);
+            try { successVal = parseInt(decrypt(row.success)) || 0; } catch (e) { successVal = row.success ? 1 : 0; }
+            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname, risk_score: riskVal, success: successVal };
+        }).filter(r => r.risk_score >= 40 || r.success === 0).slice(0, 50);
 
         res.json(alerts);
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -2419,7 +2535,7 @@ app.get('/api/ai/all-users', authenticateToken, authorizeRole(['Admin']), async 
                 banReason,
                 banCount: banCount,
                 isBanned: bannedUntil && new Date(bannedUntil) > new Date(),
-                isPermanent: bannedUntil && new Date(bannedUntil).getFullYear() >= 9000,
+                isPermanent: bannedUntil && new Date(bannedUntil).getFullYear() >= 2900,
                 loginAttempts7d: stats.attempts,
                 blockedAttempts7d: stats.blocked,
                 avgRisk7d: stats.riskCount > 0 ? Math.round(stats.riskSum / stats.riskCount) : 0

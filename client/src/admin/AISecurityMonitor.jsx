@@ -612,12 +612,12 @@ const AISecurityMonitor = () => {
           <div className="glass p-4 rounded-4 border border-secondary border-opacity-10 mb-4">
             <h6 className="text-white fw-bold d-flex align-items-center gap-2 mb-3">
               <AlertTriangle size={16} className="text-danger" />
-              Đăng nhập rủi ro cao gần đây
+              Đăng nhập bất thường & thất bại gần đây
               <span
-                className="badge bg-danger bg-opacity-25 text-danger rounded-pill ms-2"
+                className="badge bg-warning bg-opacity-25 text-warning rounded-pill ms-2"
                 style={{ fontSize: "0.65rem" }}
               >
-                Risk ≥ 40
+                Risk ≥ 40 + Thất bại
               </span>
             </h6>
 
@@ -791,19 +791,22 @@ const AISecurityMonitor = () => {
               {alerts.map((alert, i) => {
                 const isExpanded = expandedAlert === i;
                 const isBlocked = alert.blocked;
+                const isFailed = alert.success === 0;
                 const riskColor =
                   alert.risk_score >= 70
                     ? "#ff4757"
                     : alert.risk_score >= 40
                       ? "#ffa502"
-                      : "#2ed573";
+                      : isFailed
+                        ? "#ff6348"
+                        : "#2ed573";
 
                 return (
                   <div
                     key={alert.attempt_id || i}
                     className="rounded-3 overflow-hidden transition-all"
                     style={{
-                      background: `rgba(${alert.risk_score >= 70 ? "255,71,87" : "255,165,2"}, 0.04)`,
+                      background: `rgba(${alert.risk_score >= 70 ? "255,71,87" : alert.risk_score >= 40 ? "255,165,2" : isFailed ? "255,99,72" : "46,213,115"}, 0.04)`,
                       border: `1px solid ${riskColor}22`,
                     }}
                   >
@@ -845,6 +848,14 @@ const AISecurityMonitor = () => {
                               style={{ fontSize: "0.55rem" }}
                             >
                               BLOCKED
+                            </span>
+                          )}
+                          {!isBlocked && isFailed && (
+                            <span
+                              className="badge rounded-pill"
+                              style={{ fontSize: "0.55rem", background: "rgba(255,99,72,0.2)", color: "#ff6348" }}
+                            >
+                              ĐĂNG NHẬP THẤT BẠI
                             </span>
                           )}
                         </div>

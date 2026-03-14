@@ -104,6 +104,11 @@ class AnomalyDetectionService {
         this.AUTO_BAN_THRESHOLD = 70;  // Risk score >= 70 → tự động ban
         this.BLOCK_COUNT_TRIGGER = 3;  // Số lần bị BLOCK trong 1 giờ → tự động ban
 
+        // === IN-MEMORY RATE LIMITER (Chống Credential Stuffing & Password Spray) ===
+        this._ipAttemptMap = new Map(); // ipHash -> { count, firstTime, usernames: Set }
+        this._rateLimitWindow = 5 * 60 * 1000; // Cửa sổ 5 phút
+        setInterval(() => this._cleanupRateLimiter(), 60000); // Dọn dẹp mỗi phút
+
         // === GAUSSIAN ANOMALY AI (Unsupervised) ===
         this.gaussianAI = new MultivariateGaussian();
         this.lastGaussianTrainTime = 0;
@@ -137,12 +142,12 @@ class AnomalyDetectionService {
                 console.log('[AI Anomaly] 🧠 Đã nạp thành công bộ não AI từ file ai_model.json');
             } catch (err) {
                 console.error('[AI Anomaly] Lỗi đọc file model, sẽ tiến hành huấn luyện lại:', err.message);
-                this.net = new synaptic.Architect.Perceptron(5, 6, 1);
+                this.net = new synaptic.Architect.Perceptron(5, 8, 4, 1);
                 this._trainAI();
             }
         } else {
             console.log('[AI Anomaly] ⚠️ Chưa có bộ não AI, bắt đầu huấn luyện từ số 0...');
-            this.net = new synaptic.Architect.Perceptron(5, 6, 1);
+            this.net = new synaptic.Architect.Perceptron(5, 8, 4, 1);
             this._trainAI();
         }
     }
@@ -177,33 +182,43 @@ class AnomalyDetectionService {
 
         // Data format: inputs map to [bruteForce, unusualTime, newIP, newDevice, rapidLogin]
         // Quy tắc: Đầu ra (Output) >= 0.70 là tính chất sẽ bị Khóa tài khoản
+        // Kiến trúc: 5 → 8 → 4 → 1 (2 Hidden Layer, Deeper Network)
         const trainingData = [
-            // --- 🟢 NHÓM: BÌNH THƯỜNG (An toàn) ---
-            { input: [0, 0, 0, 0, 0], output: [0.0] }, // Hoàn hảo
-            { input: [0, 0, 1, 0, 0], output: [0.1] }, // Đổi IP nhưng giữ thiết bị (Chắc đổi wifi)
-            { input: [0.2, 0, 0, 0, 0], output: [0.1] },// Gõ sai pass 1 lần: Bình thường
-            { input: [0.6, 0, 0, 0, 0], output: [0.45] },// Gõ sai 3 lần: Cảnh báo (WARN)
-            { input: [0.8, 0, 0, 0, 0], output: [0.85] },// Gõ sai 5 lần: KHÓA NGAY (BLOCK)
-            { input: [1.0, 0, 0, 0, 0], output: [0.95] },// Gõ sai > 10 lần: KHÓA CỨNG
+            // --- 🟢 NHÓM: BÌNH THƯỜNG (An toàn) - 6 mẫu ---
+            { input: [0, 0, 0, 0, 0], output: [0.0] },       // Hoàn hảo: Login đúng pass, đúng giờ, cùng IP/thiết bị
+            { input: [0, 0, 1, 0, 0], output: [0.1] },       // Đổi IP nhưng giữ thiết bị (Chắc đổi wifi)
+            { input: [0, 0, 0, 1, 0], output: [0.1] },       // Đổi thiết bị nhưng giữ IP (Đổi trình duyệt)
+            { input: [0.11, 0, 0, 0, 0], output: [0.05] },   // Gõ sai pass 1 lần: Bình thường
+            { input: [0.11, 0, 1, 0, 0], output: [0.15] },   // Sai 1 lần + đổi IP: Bình thường
+            { input: [0, 0.5, 0, 0, 0], output: [0.15] },    // Giờ hơi lạ nhưng không có dấu hiệu tấn công
 
-            // --- 🟡 NHÓM: NGHI NGỜ (Cảnh báo Admin, nhưng CÓ THỂ chưa khóa) ---
-            { input: [0, 0, 1, 1, 0], output: [0.4] }, // Mua điện thoại mới và lắp 4G mới (Hoặc có thể là người khác)
-            { input: [0, 1, 1, 1, 0], output: [0.65] }, // Nửa đêm, dùng IP mới, thiết bị mới (Rất đáng ngờ, ngấp nghé khóa)
-            { input: [0.4, 0, 0, 0, 1], output: [0.45] },// Gõ sai 2 lần mà đăng nhập liên tục cực nhanh dồn dập
+            // --- 🟡 NHÓM: NGHI NGỜ (Cảnh báo Admin, nhưng CÓ THỂ chưa khóa) - 7 mẫu ---
+            { input: [0.33, 0, 0, 0, 0], output: [0.25] },   // Gõ sai 3 lần: Warningn nhẹ
+            { input: [0.61, 0, 0, 0, 0], output: [0.55] },   // Gõ sai 5+ lần: Ngấp nghé BLOCK
+            { input: [0, 0, 1, 1, 0], output: [0.4] },       // IP mới + thiết bị mới (Mua ĐT mới, đổi mạng)
+            { input: [0, 1, 1, 1, 0], output: [0.65] },      // Nửa đêm + IP mới + thiết bị mới: Rất đáng ngờ
+            { input: [0.33, 0, 0, 0, 1], output: [0.45] },   // Sai 3 lần + gõ dồn dập nhanh
+            { input: [0.33, 0.5, 1, 0, 0], output: [0.5] },  // Sai 3 lần + giờ lạ + IP mới
+            { input: [0, 1, 0, 1, 1], output: [0.55] },      // Nửa đêm + thiết bị lạ + login nhanh
 
-            // --- 🔴 NHÓM: HÀNH VI TẤN CÔNG (Chắc chắn khóa / Block) ---
-            { input: [1.0, 0, 0, 0, 0], output: [0.95] }, // Brute force CỰC KỲ NHIỀU (Sai > 10 lần) (Chặn cứng)
-            { input: [0.8, 0, 1, 1, 0], output: [0.85] }, // Sai 4-5 lần + IP LẠ + THIẾT BỊ LẠ (Chắc chắn là Hacker đang rà pass)
-            { input: [0.6, 1, 1, 1, 1], output: [0.98] }, // Sai 3 lần + Nửa đêm + IP Lạ + Thiết bị Lạ + Gõ nhanh (100% Hacker Credentials Stuffing)
-            { input: [0.8, 0, 1, 0, 1], output: [0.88] }, // Đổi IP xong Brute Force nhanh máy chủ
-            { input: [0, 0, 1, 1, 1], output: [0.75] }    // Dùng thiết bị mới toanh IP lạ, đăng nhập liên tục nhanh chóng mặt
+            // --- 🔴 NHÓM: HÀNH VI TẤN CÔNG (Chắc chắn khóa / Block) - 10 mẫu ---
+            { input: [0.83, 0, 0, 0, 0], output: [0.85] },   // Sai 7+ lần: BLOCK
+            { input: [1.0, 0, 0, 0, 0], output: [0.95] },    // Sai 10+ lần: BLOCK CỨNG
+            { input: [0.83, 0, 1, 1, 0], output: [0.9] },    // Sai 7+ + IP lạ + thiết bị lạ: Hacker rà pass
+            { input: [0.61, 1, 1, 1, 1], output: [0.98] },   // Sai 5+ + nửa đêm + IP lạ + TB lạ + nhanh: 100% Credential Stuffing
+            { input: [0.83, 0, 1, 0, 1], output: [0.88] },   // Sai 7+ + IP lạ + nhanh: Bot tấn công
+            { input: [0, 0, 1, 1, 1], output: [0.75] },      // IP mới + TB mới + nhanh: Automated attack
+            { input: [1.0, 1, 1, 1, 1], output: [0.99] },    // MAX tất cả: 100% tấn công có tổ chức
+            { input: [0.61, 0, 1, 1, 0], output: [0.8] },    // Sai 5+ + IP lạ + TB lạ
+            { input: [0.33, 1, 1, 1, 1], output: [0.85] },   // Sai ít nhưng mọi yếu tố đều nghi ngờ
+            { input: [0.83, 1, 0, 0, 1], output: [0.9] },    // Sai 7+ + nửa đêm + nhanh: Brute Force ngoài giờ
         ];
 
         const trainer = new synaptic.Trainer(this.net);
         trainer.train(trainingData, {
-            rate: 0.1,
-            iterations: 5000,
-            error: 0.005,
+            rate: 0.08,
+            iterations: 8000,
+            error: 0.003,
             log: 0
         });
 
@@ -254,14 +269,19 @@ class AnomalyDetectionService {
 
         try {
             const result = await pool.request().query(`
-                SELECT TOP 300 risk_factors FROM login_attempts 
-                WHERE success = 1 AND risk_factors IS NOT NULL
+                SELECT TOP 500 risk_factors, success FROM login_attempts 
+                WHERE risk_factors IS NOT NULL
                 ORDER BY attempt_time DESC
             `);
 
             const dataset = [];
             for (const row of result.recordset) {
                 try {
+                    // Filter success=1 in memory (encrypted field)
+                    let s = row.success;
+                    try { s = decrypt(row.success); } catch (e) { }
+                    if (s !== '1' && s !== 1 && s !== true) continue;
+
                     const factorsJSON = JSON.parse(decrypt(row.risk_factors));
                     const aiMemoryContext = factorsJSON.find(f => f.type === 'AI_MEMORY_STATE');
                     if (aiMemoryContext && aiMemoryContext.inputVector) {
@@ -296,17 +316,24 @@ class AnomalyDetectionService {
             // Khởi động Background Training cho AI Thống Kê
             this._trainUnsupervisedAI(pool);
 
+            // === Theo dõi IP cho Rate Limiter ===
+            this._trackIPAttempt(ipAddress, usernameHash);
+
             // === Lấy dữ liệu thô từ quá khứ ===
-            const bScore = await this._checkBruteForce(pool, usernameHash); // 0, 20, 40, 50
+            const bScore = await this._checkBruteForce(pool, usernameHash); // 0, 30, 55, 75, 90
             const tScore = await this._checkUnusualTime(pool, userId); // 0, 15, 20 (Đã nâng cấp cá nhân hóa)
             const ipScore = userId ? await this._checkNewIP(pool, userId, ipAddress) : 0; // 0, 20
             const uaScore = userId ? await this._checkNewUserAgent(pool, userId, userAgent) : 0; // 0, 10
             const rapidScore = userId ? await this._checkRapidLogin(pool, userId) : 0; // 0, 15
 
+            // === NEW: IP-Based Security Rules (In-Memory, không cần DB) ===
+            const ipRateScore = this._checkIPRateLimit(ipAddress);   // 0, 20, 40
+            const sprayScore = this._checkPasswordSpray(ipAddress);  // 0, 25, 50
+
             // === Chuẩn hóa Features (Normalize 0.0 -> 1.0) cho Mạng Neural ===
             // Input map: [bruteForce, unusualTime, newIP, newDevice, rapidLogin]
             const aiInputs = [
-                Math.min(bScore / 50, 1.0),
+                Math.min(bScore / 90, 1.0),
                 Math.min(tScore / 20, 1.0),
                 ipScore > 0 ? 1 : 0,
                 uaScore > 0 ? 1 : 0,
@@ -338,15 +365,16 @@ class AnomalyDetectionService {
                 }
             }
 
-            // Gộp điểm từ 2 AI lại
-            riskScore = Math.min(neuralScore + gaussianPenalty, 100);
+            // Gộp điểm từ 2 AI + IP-Based Rules lại
+            riskScore = Math.min(neuralScore + gaussianPenalty + ipRateScore + sprayScore, 100);
 
             // === CƠ CHẾ ĐIỂM SÀN (Risk Floor) ===
-            // Đảm bảo rủi ro không được thấp hơn điểm Brute Force thực tế
-            // AI có thể học IPs/Time, nhưng không được phép "tha bổng" Brute Force.
-            if (riskScore < bScore) {
-                console.log(`[AI Anomaly] 🛡️ Risk Floor Trigger: AI nghĩ là ${riskScore}, nhưng Brute Force thực tế là ${bScore}. Nâng lên ${bScore}.`);
-                riskScore = bScore;
+            // Đảm bảo rủi ro không được thấp hơn điểm cao nhất từ các Rule
+            // AI có thể học IPs/Time, nhưng không được phép "tha bổng" Brute Force hay Credential Stuffing.
+            const riskFloor = Math.max(bScore, ipRateScore, sprayScore);
+            if (riskScore < riskFloor) {
+                console.log(`[AI Anomaly] 🛡️ Risk Floor Trigger: AI nghĩ là ${riskScore}, nhưng Rule thực tế là ${riskFloor}. Nâng lên ${riskFloor}.`);
+                riskScore = riskFloor;
             }
 
             // Ghi lại chi tiết (Explanations) để lưu vào DB cho Admin đọc hiểu vì sao AI chọn điểm này
@@ -355,6 +383,8 @@ class AnomalyDetectionService {
             if (ipScore > 0) riskFactors.push({ type: 'NEW_IP', severity: 'warning', message: 'Đăng nhập từ địa chỉ IP hoàn toàn mới' });
             if (uaScore > 0) riskFactors.push({ type: 'NEW_DEVICE', severity: 'info', message: 'Đăng nhập từ thiết bị/trình duyệt lạ' });
             if (rapidScore > 0) riskFactors.push({ type: 'RAPID_LOGIN', severity: 'warning', message: 'Tần suất đăng nhập quá nhanh' });
+            if (ipRateScore > 0) riskFactors.push({ type: 'IP_RATE_LIMIT', severity: ipRateScore >= 40 ? 'critical' : 'warning', message: `IP này đã gửi ${this._getIPAttemptCount(ipAddress)} yêu cầu trong 5 phút (Credential Stuffing?)` });
+            if (sprayScore > 0) riskFactors.push({ type: 'PASSWORD_SPRAY', severity: 'critical', message: `Phát hiện thử ${this._getIPUniqueUsernames(ipAddress)} tài khoản khác nhau từ cùng 1 IP (Password Spray!)` });
 
         } catch (err) {
             console.error('[AI Anomaly] Analysis error:', err.message);
@@ -393,18 +423,24 @@ class AnomalyDetectionService {
                     FROM login_attempts
                     WHERE username_hash = @hash
                       AND attempt_time >= DATEADD(MINUTE, -@window, GETDATE())
+                    ORDER BY attempt_time DESC
                 `);
 
+            // Đếm failures ngược từ mới nhất → cũ nhất
+            // DỪNG LẠI khi gặp 1 lần login THÀNH CÔNG (reset counter)
+            // → Sau khi gỡ ban + login đúng, counter sẽ = 0
             let failCount = 0;
             for (const row of result.recordset) {
                 let s = row.success;
                 try { s = decrypt(row.success); } catch (e) { }
+                if (s === '1' || s === 1 || s === true) break; // Gặp success → dừng đếm
                 if (s === '0' || s === 0 || s === false) failCount++;
             }
 
-            if (failCount >= this.MAX_FAILED_ATTEMPTS * 2) return 50;
-            if (failCount >= this.MAX_FAILED_ATTEMPTS) return 40;
-            if (failCount >= 3) return 20;
+            if (failCount >= this.MAX_FAILED_ATTEMPTS * 2) return 90;  // ≥10 lần sai → BLOCK CỨNG
+            if (failCount >= 7) return 75;                              // ≥7 lần sai → BLOCK 
+            if (failCount >= this.MAX_FAILED_ATTEMPTS) return 55;       // ≥5 lần sai → Ngấp nghé BLOCK
+            if (failCount >= 3) return 30;                              // ≥3 lần sai → WARNING
             return 0;
         } catch (err) {
             console.error('[AI Anomaly] Brute force check error:', err.message);
@@ -480,18 +516,25 @@ class AnomalyDetectionService {
             const result = await pool.request()
                 .input('userId', sql.UniqueIdentifier, userId)
                 .query(`
-                    SELECT DISTINCT TOP 100 ip_address
+                    SELECT TOP 100 ip_address, success
                     FROM login_attempts
-                    WHERE user_id = @userId AND success = 1
+                    WHERE user_id = @userId
                     ORDER BY attempt_time DESC
                 `);
 
+            // Filter success=1 in memory (encrypted field)
+            const successRows = result.recordset.filter(r => {
+                let s = r.success;
+                try { s = decrypt(r.success); } catch (e) { }
+                return s === '1' || s === 1 || s === true;
+            });
+
             // Nếu user chưa có lịch sử login → bỏ qua rule này
-            if (result.recordset.length === 0) return 0;
+            if (successRows.length === 0) return 0;
 
             // So sánh hash IP hiện tại với các IP đã biết
             let isKnownIP = false;
-            for (const row of result.recordset) {
+            for (const row of successRows) {
                 try {
                     const decryptedIP = decrypt(row.ip_address);
                     if (hashData(decryptedIP) === currentIPHash) {
@@ -520,17 +563,24 @@ class AnomalyDetectionService {
             const result = await pool.request()
                 .input('userId', sql.UniqueIdentifier, userId)
                 .query(`
-                    SELECT DISTINCT TOP 100 user_agent
+                    SELECT TOP 100 user_agent, success
                     FROM login_attempts
-                    WHERE user_id = @userId AND success = 1
+                    WHERE user_id = @userId
                     ORDER BY attempt_time DESC
                 `);
 
+            // Filter success=1 in memory (encrypted field)
+            const successRows = result.recordset.filter(r => {
+                let s = r.success;
+                try { s = decrypt(r.success); } catch (e) { }
+                return s === '1' || s === 1 || s === true;
+            });
+
             // Nếu user chưa có lịch sử → bỏ qua
-            if (result.recordset.length === 0) return 0;
+            if (successRows.length === 0) return 0;
 
             let isKnownUA = false;
-            for (const row of result.recordset) {
+            for (const row of successRows) {
                 try {
                     const decryptedUA = decrypt(row.user_agent);
                     if (hashData(decryptedUA) === currentUAHash) {
@@ -585,6 +635,104 @@ class AnomalyDetectionService {
     }
 
     // =====================================================
+    //  IP-BASED SECURITY RULES (In-Memory Rate Limiting)
+    // =====================================================
+
+    /**
+     * Theo dõi mỗi lần login attempt từ 1 IP (gọi ở analyzeLogin)
+     */
+    _trackIPAttempt(ipAddress, usernameHash) {
+        const ipHash = hashData(ipAddress);
+        const now = Date.now();
+
+        if (!this._ipAttemptMap.has(ipHash)) {
+            this._ipAttemptMap.set(ipHash, {
+                count: 0,
+                firstTime: now,
+                usernames: new Set()
+            });
+        }
+
+        const entry = this._ipAttemptMap.get(ipHash);
+
+        // Reset nếu window đã hết hạn
+        if (now - entry.firstTime > this._rateLimitWindow) {
+            entry.count = 0;
+            entry.firstTime = now;
+            entry.usernames.clear();
+        }
+
+        entry.count++;
+        entry.usernames.add(usernameHash);
+        return entry;
+    }
+
+    /**
+     * Rule 6: IP Rate Limiting — phát hiện 1 IP gửi quá nhiều request
+     * Chống: Credential Stuffing, Botnet, Automated Attacks
+     */
+    _checkIPRateLimit(ipAddress) {
+        const ipHash = hashData(ipAddress);
+        const entry = this._ipAttemptMap.get(ipHash);
+        if (!entry) return 0;
+
+        const { count } = entry;
+        if (count >= 20) return 40;  // 20+ requests từ 1 IP trong 5 phút → WARNING cao
+        if (count >= 10) return 20;  // 10+ requests → WARNING
+        return 0;
+    }
+
+    /**
+     * Rule 7: Password Spray Detection — phát hiện 1 IP thử nhiều username khác nhau
+     * Chống: Password Spray Attack (thử 1 password phổ biến trên nhiều tài khoản)
+     */
+    _checkPasswordSpray(ipAddress) {
+        const ipHash = hashData(ipAddress);
+        const entry = this._ipAttemptMap.get(ipHash);
+        if (!entry) return 0;
+
+        const uniqueUsernames = entry.usernames.size;
+        if (uniqueUsernames >= 5) return 50;  // 5+ username khác nhau → BLOCK (Chắc chắn tấn công)
+        if (uniqueUsernames >= 3) return 25;  // 3+ username → WARNING (Đáng ngờ)
+        return 0;
+    }
+
+    /**
+     * Helper: Lấy số lượng attempt từ 1 IP (để hiện trong risk factors)
+     */
+    _getIPAttemptCount(ipAddress) {
+        const ipHash = hashData(ipAddress);
+        const entry = this._ipAttemptMap.get(ipHash);
+        return entry ? entry.count : 0;
+    }
+
+    /**
+     * Helper: Lấy số lượng unique usernames từ 1 IP
+     */
+    _getIPUniqueUsernames(ipAddress) {
+        const ipHash = hashData(ipAddress);
+        const entry = this._ipAttemptMap.get(ipHash);
+        return entry ? entry.usernames.size : 0;
+    }
+
+    /**
+     * Dọn dẹp rate limiter — xóa các entry đã hết hạn (chạy mỗi phút)
+     */
+    _cleanupRateLimiter() {
+        const now = Date.now();
+        let cleaned = 0;
+        for (const [key, value] of this._ipAttemptMap) {
+            if (now - value.firstTime > this._rateLimitWindow) {
+                this._ipAttemptMap.delete(key);
+                cleaned++;
+            }
+        }
+        if (cleaned > 0) {
+            console.log(`[AI Anomaly] 🧹 Rate Limiter: Dọn dẹp ${cleaned} IP entries hết hạn.`);
+        }
+    }
+
+    // =====================================================
     //  DATA RECORDING
     // =====================================================
 
@@ -604,13 +752,14 @@ class AnomalyDetectionService {
                 .input('blocked', sql.NVarChar, encrypt(blocked ? '1' : '0'))
                 .query(`
                     INSERT INTO login_attempts
-                    (username_hash, user_id, ip_address, user_agent, success, risk_score, risk_factors, blocked)
-                    VALUES (@usernameHash, @userId, @ip, @ua, @success, @risk, @factors, @blocked)
+                    (attempt_id, username_hash, user_id, ip_address, user_agent, attempt_time, success, risk_score, risk_factors, blocked)
+                    VALUES (NEWID(), @usernameHash, @userId, @ip, @ua, GETDATE(), @success, @risk, @factors, @blocked)
                 `);
 
             console.log(`[AI Anomaly] Recorded: success=${success}, risk=${riskScore}, blocked=${blocked}`);
         } catch (err) {
             console.error('[AI Anomaly] Record attempt error:', err.message);
+            console.error('[AI Anomaly] Record attempt details:', err);
         }
     }
 
@@ -655,7 +804,7 @@ class AnomalyDetectionService {
             const maxRiskScore = riskScores.length > 0 ? Math.max(...riskScores) : 0;
             const stats = { totalAttempts, successCount, failCount, blockedCount, avgRiskScore, maxRiskScore };
 
-            const decryptedHighRisk = decryptedAll.filter(r => r.risk_score >= 40).slice(0, 10);
+            const decryptedHighRisk = decryptedAll.filter(r => r.risk_score >= 40 || r.success === 0).slice(0, 20);
 
             const hourlyMap = {};
             decryptedAll.forEach(r => {
@@ -753,7 +902,9 @@ class AnomalyDetectionService {
                 if (b === '1' || b === 1 || b === true) blockCount++;
             }
 
+            console.log(`[AutoBan] DEBUG: riskScore=${riskScore}, threshold=${this.AUTO_BAN_THRESHOLD}, blockCount=${blockCount}, trigger=${this.BLOCK_COUNT_TRIGGER}`);
             const shouldBan = riskScore >= this.AUTO_BAN_THRESHOLD || blockCount >= this.BLOCK_COUNT_TRIGGER;
+            console.log(`[AutoBan] DEBUG: shouldBan=${shouldBan} (risk>=${this.AUTO_BAN_THRESHOLD}? ${riskScore >= this.AUTO_BAN_THRESHOLD} | blocks>=${this.BLOCK_COUNT_TRIGGER}? ${blockCount >= this.BLOCK_COUNT_TRIGGER})`);
             if (!shouldBan) return null;
 
             const userResult = await pool.request()
@@ -834,9 +985,10 @@ class AnomalyDetectionService {
     /**
      * Admin unban: Gỡ ban thủ công bởi Admin và Gửi Feedback lại cho AI học (Continuous Learning)
      * @param {boolean} resetCount - Nếu true, reset ban_count về 0
-     * @param {boolean} isFalsePositive - [Tùy chọn] Báo cáo đây là AI nhận diện nhầm, cần dạy lại AI
+     * @param {boolean} isFalsePositive - [Tùy chọn] Chỉ set true khi Admin XÁC NHẬN đây là AI nhận diện nhầm
+     *                                    Mặc định false để tránh AI bị "dạy sai" khi gỡ ban cho nhân viên quên pass
      */
-    async unbanUser(pool, userId, resetCount = false, isFalsePositive = true) {
+    async unbanUser(pool, userId, resetCount = false, isFalsePositive = false) {
         try {
             // 1. Lấy thông tin tài khoản bị ban (username_hash và reason)
             const userRes = await pool.request()
@@ -887,20 +1039,12 @@ class AnomalyDetectionService {
                 .input('userId', sql.UniqueIdentifier, userId)
                 .query(query);
 
-            // 4. Xóa bộ nhớ ngắn hạn (xóa login fail attempts - decrypt in-memory to find them)
+            // 4. Giữ nguyên lịch sử login (không xóa) để Admin có thể xem audit trail
+            // AI brute-force check chỉ dùng window 15 phút + dừng lại khi gặp success nên data cũ không ảnh hưởng
+
+            // 5. Clear IP Rate Limiter cho user này (tránh bị cảnh báo ngay sau unban)
             if (hash) {
-                const failAttempts = await pool.request()
-                    .input('hash', sql.NVarChar, hash)
-                    .query(`SELECT attempt_id, success FROM login_attempts WHERE username_hash = @hash`);
-                for (const row of failAttempts.recordset) {
-                    let s = row.success;
-                    try { s = decrypt(row.success); } catch (e) { }
-                    if (s === '0' || s === 0 || s === false) {
-                        await pool.request()
-                            .input('id', sql.UniqueIdentifier, row.attempt_id)
-                            .query(`DELETE FROM login_attempts WHERE attempt_id = @id`);
-                    }
-                }
+                this._ipAttemptMap.delete(hash);
             }
 
             console.log(`[AutoBan] ✅ Admin UNBANNED user: ${userId} | Tích hợp Feedback AI: ${isFalsePositive}`);
