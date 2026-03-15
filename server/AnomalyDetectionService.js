@@ -103,6 +103,7 @@ class AnomalyDetectionService {
         ];
         this.AUTO_BAN_THRESHOLD = 70;  // Risk score >= 70 → tự động ban
         this.BLOCK_COUNT_TRIGGER = 3;  // Số lần bị BLOCK trong 1 giờ → tự động ban
+        this.MAX_FAILED_BEFORE_BAN = 7; // Số lần sai mật khẩu liên tiếp → tự động ban
 
         // === IN-MEMORY RATE LIMITER (Chống Credential Stuffing & Password Spray) ===
         this._ipAttemptMap = new Map(); // ipHash -> { count, firstTime, usernames: Set }
@@ -961,6 +962,78 @@ class AnomalyDetectionService {
             };
         } catch (err) {
             console.error('[AutoBan] Auto-ban error:', err.message);
+            return null;
+        }
+    }
+
+    /**
+     * Tự động ban user khi sai mật khẩu >= MAX_FAILED_BEFORE_BAN lần liên tiếp
+     * Hoạt động ĐỘC LẬP với AI risk score — chỉ dựa trên số lần sai password
+     * @returns {{ banned, bannedUntil, duration, banLevel, isPermanent } | null}
+     */
+    async autobanOnFailedPasswords(pool, { userId, usernameHash, ipAddress }) {
+        if (!this.AUTO_BAN_ENABLED || !userId) return null;
+
+        try {
+            // Đếm số lần login fail liên tiếp (CHỈ reset khi đăng nhập ĐÚNG)
+            const result = await pool.request()
+                .input('hash', sql.NVarChar, usernameHash)
+                .query(`
+                    SELECT success
+                    FROM login_attempts
+                    WHERE username_hash = @hash
+                    ORDER BY attempt_time DESC
+                `);
+
+            let consecutiveFailCount = 0;
+            for (const row of result.recordset) {
+                let s = row.success;
+                try { s = decrypt(row.success); } catch (e) { }
+                if (s === '1' || s === 1 || s === true) break; // Gặp success → dừng đếm
+                if (s === '0' || s === 0 || s === false) consecutiveFailCount++;
+            }
+
+            console.log(`[AutoBan] Password fail count for user: ${consecutiveFailCount}/${this.MAX_FAILED_BEFORE_BAN}`);
+
+            if (consecutiveFailCount < this.MAX_FAILED_BEFORE_BAN) return null;
+
+            // Đã đạt ngưỡng → Ban cố định 15 phút
+            console.log(`[AutoBan] 🚫 User đã sai mật khẩu ${consecutiveFailCount} lần liên tiếp → Khoá tài khoản 15 phút!`);
+
+            const banMinutes = 15;
+            const bannedUntil = new Date(Date.now() + banMinutes * 60 * 1000);
+
+            const reasonData = {
+                type: 'EXCESSIVE_FAILED_PASSWORDS',
+                failCount: consecutiveFailCount,
+                threshold: this.MAX_FAILED_BEFORE_BAN,
+                ip: ipAddress,
+                time: new Date().toISOString(),
+                message: `Sai mật khẩu ${consecutiveFailCount} lần liên tiếp → Khoá 15 phút`
+            };
+
+            await pool.request()
+                .input('userId', sql.UniqueIdentifier, userId)
+                .input('bannedUntil', sql.NVarChar, encrypt(bannedUntil.toISOString()))
+                .input('banReason', sql.NVarChar, encrypt(JSON.stringify(reasonData)))
+                .query(`
+                    UPDATE system_users
+                    SET banned_until = @bannedUntil,
+                        ban_reason = @banReason
+                    WHERE user_id = @userId
+                `);
+
+            console.log(`[AutoBan] 🚫 User BANNED 15 phút | Until: ${bannedUntil.toISOString()}`);
+
+            return {
+                banned: true,
+                bannedUntil: bannedUntil,
+                duration: '15 phút',
+                banLevel: 1,
+                isPermanent: false
+            };
+        } catch (err) {
+            console.error('[AutoBan] autobanOnFailedPasswords error:', err.message);
             return null;
         }
     }

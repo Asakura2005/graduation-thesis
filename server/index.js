@@ -672,6 +672,43 @@ app.post('/api/auth/login', async (req, res) => {
                     .input('nType', sql.NVarChar, 'security')
                     .query(`INSERT INTO notifications (target_role, title, message, type) VALUES ('Admin', @nTitle, @nMsg, @nType)`);
             } catch (recErr) { console.error('[AI Anomaly] Record error:', recErr.message); }
+
+            // === AUTO-BAN: Kiểm tra sai mật khẩu >= 7 lần liên tiếp → tự động ban ===
+            try {
+                const banResult = await anomalyDetector.autobanOnFailedPasswords(pool, {
+                    userId: user.user_id,
+                    usernameHash,
+                    ipAddress: clientIP
+                });
+
+                if (banResult?.banned) {
+                    let decryptedUsernameForBan = username;
+                    try { decryptedUsernameForBan = decrypt(user.username) || username; } catch(e) {}
+
+                    // Ghi audit log
+                    await logAudit(user.user_id, 'ACCOUNT_AUTO_BANNED_FAILED_PASSWORDS', {
+                        username: decryptedUsernameForBan,
+                        duration: banResult.duration,
+                        banLevel: banResult.banLevel
+                    }).catch(() => {});
+
+                    // Gửi notification cho Admin
+                    await pool.request()
+                        .input('nTitle2', sql.NVarChar, '🚫 AI tự động khoá tài khoản')
+                        .input('nMsg2', sql.NVarChar, `Tài khoản "${decryptedUsernameForBan}" đã bị AI tự động khoá do sai mật khẩu ≥ 7 lần liên tiếp. Thời gian khoá: ${banResult.duration}. Ban level: ${banResult.banLevel}. IP: ${clientIP}`)
+                        .input('nType2', sql.NVarChar, 'security')
+                        .query(`INSERT INTO notifications (target_role, title, message, type) VALUES ('Admin', @nTitle2, @nMsg2, @nType2)`);
+
+                    return res.status(403).json({
+                        error: `Tài khoản đã bị AI tự động khoá do sai mật khẩu ${anomalyDetector.MAX_FAILED_BEFORE_BAN} lần liên tiếp. Thời gian khoá: ${banResult.duration === 'PERMANENT' ? 'Vĩnh viễn' : banResult.duration}. Vui lòng liên hệ Admin.`,
+                        banned: true,
+                        bannedUntil: banResult.bannedUntil,
+                        isPermanent: banResult.isPermanent,
+                        banLevel: banResult.banLevel
+                    });
+                }
+            } catch (banErr) { console.error('[AutoBan] Failed passwords check error:', banErr.message); }
+
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 

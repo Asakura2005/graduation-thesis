@@ -103,6 +103,9 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
             // Xử lý trường hợp bị AI block
             if (err.response?.status === 403 && err.response?.data?.blocked) {
                 setError(`🛡️ ${err.response.data.error} (Risk Score: ${err.response.data.riskScore})`);
+            } else if (err.response?.status === 403 && err.response?.data?.banned) {
+                // Xử lý trường hợp bị AI tự động ban (sai mật khẩu 7 lần)
+                setError(`🚫 ${err.response.data.error}`);
             } else {
                 setError(err.response?.data?.error || t('login.error'));
             }
