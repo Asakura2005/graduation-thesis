@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+﻿import React, { useState, useEffect, useCallback } from "react";
 import {
   Shield,
   ShieldAlert,
@@ -80,20 +80,20 @@ const StatCard = ({ icon: Icon, label, value, color, subtext, pulse }) => (
 );
 
 // Risk Level Badge
-const RiskBadge = ({ score }) => {
+const RiskBadge = ({ score, labels }) => {
   let color, label;
   if (score >= 70) {
     color = "#ff4757";
-    label = "CRITICAL";
+    label = labels?.critical || "CRITICAL";
   } else if (score >= 40) {
     color = "#ffa502";
-    label = "WARNING";
+    label = labels?.warning || "WARNING";
   } else if (score >= 20) {
     color = "#2ed573";
-    label = "LOW";
+    label = labels?.low || "LOW";
   } else {
     color = "#7bed9f";
-    label = "SAFE";
+    label = labels?.safe || "SAFE";
   }
 
   return (
@@ -344,10 +344,17 @@ const AISecurityMonitor = () => {
     return (
       <div className="d-flex flex-column align-items-center justify-content-center py-5">
         <div className="spinner-border text-warning mb-3" />
-        <div className="text-dim">Đang khởi động AI Security Monitor...</div>
+        <div className="text-dim">{t('ai.loading')}</div>
       </div>
     );
   }
+
+  const riskLabels = {
+    critical: t('ai.riskCritical'),
+    warning: t('ai.riskWarning'),
+    low: t('ai.riskLow'),
+    safe: t('ai.riskSafe'),
+  };
 
   const stats24h = analytics?.stats || {};
 
@@ -396,8 +403,7 @@ const AISecurityMonitor = () => {
             }}
           >
             <Zap size={12} className="me-1" />
-            Auto-Ban:{" "}
-            {analytics?.config?.autoBanEnabled ? "ACTIVE" : "OFF"}
+            {analytics?.config?.autoBanEnabled ? t('ai.autoBanActive') : t('ai.autoBanOff')}
           </span>
 
           <button
@@ -409,7 +415,7 @@ const AISecurityMonitor = () => {
               size={14}
               className={refreshing ? "spin-animation" : ""}
             />
-            Refresh
+            {t('ai.refresh')}
           </button>
         </div>
       </div>
@@ -574,13 +580,13 @@ const AISecurityMonitor = () => {
                     className="text-warning fw-bold mb-2"
                     style={{ fontSize: "0.7rem" }}
                   >
-                    ⚙️ CẤU HÌNH AI
+                    {t('ai.aiConfig')}
                   </div>
                   <div
                     className="d-flex justify-content-between text-dim mb-1"
                     style={{ fontSize: "0.65rem" }}
                   >
-                    <span>Ngưỡng BLOCK</span>
+                    <span>{t('ai.blockThreshold')}</span>
                     <span className="text-danger fw-bold">
                       ≥ {analytics?.config?.riskThreshold}
                     </span>
@@ -589,7 +595,7 @@ const AISecurityMonitor = () => {
                     className="d-flex justify-content-between text-dim mb-1"
                     style={{ fontSize: "0.65rem" }}
                   >
-                    <span>Ngưỡng WARN</span>
+                    <span>{t('ai.warnThreshold')}</span>
                     <span className="text-warning fw-bold">
                       ≥ {analytics?.config?.warnThreshold}
                     </span>
@@ -598,7 +604,7 @@ const AISecurityMonitor = () => {
                     className="d-flex justify-content-between text-dim"
                     style={{ fontSize: "0.65rem" }}
                   >
-                    <span>Max fail attempts</span>
+                    <span>{t('ai.maxFail')}</span>
                     <span className="text-white fw-bold">
                       {analytics?.config?.maxFailedAttempts}
                     </span>
@@ -612,12 +618,12 @@ const AISecurityMonitor = () => {
           <div className="glass p-4 rounded-4 border border-secondary border-opacity-10 mb-4">
             <h6 className="text-white fw-bold d-flex align-items-center gap-2 mb-3">
               <AlertTriangle size={16} className="text-danger" />
-              Đăng nhập bất thường & thất bại gần đây
+              {t('ai.loginAnomaly')}
               <span
                 className="badge bg-warning bg-opacity-25 text-warning rounded-pill ms-2"
                 style={{ fontSize: "0.65rem" }}
               >
-                Risk ≥ 40 + Thất bại
+                {t('ai.loginAnomalyBadge')}
               </span>
             </h6>
 
@@ -625,11 +631,11 @@ const AISecurityMonitor = () => {
               <table className="table table-hover align-middle mb-0">
                 <thead>
                   <tr>
-                    <th style={{ fontSize: "0.7rem" }}>Thời gian</th>
-                    <th style={{ fontSize: "0.7rem" }}>Username</th>
-                    <th style={{ fontSize: "0.7rem" }}>IP</th>
-                    <th style={{ fontSize: "0.7rem" }}>Risk Score</th>
-                    <th style={{ fontSize: "0.7rem" }}>Yếu tố rủi ro</th>
+                    <th style={{ fontSize: "0.7rem" }}>{t('ai.colTime')}</th>
+                    <th style={{ fontSize: "0.7rem" }}>{t('ai.colUsername')}</th>
+                    <th style={{ fontSize: "0.7rem" }}>{t('ai.colIp')}</th>
+                    <th style={{ fontSize: "0.7rem" }}>{t('ai.colRisk')}</th>
+                    <th style={{ fontSize: "0.7rem" }}>{t('ai.colFactors')}</th>
                     <th style={{ fontSize: "0.7rem" }}>{t('ai.status')}</th>
                   </tr>
                 </thead>
@@ -641,7 +647,7 @@ const AISecurityMonitor = () => {
                         className="text-center py-4 text-dim"
                       >
                         <ShieldCheck size={24} className="mb-2 text-success" />
-                        <div>Chưa phát hiện đăng nhập rủi ro cao</div>
+                        <div>{t('ai.noHighRisk')}</div>
                       </td>
                     </tr>
                   ) : (
@@ -665,7 +671,7 @@ const AISecurityMonitor = () => {
                           </span>
                         </td>
                         <td>
-                          <RiskBadge score={login.risk_score} />
+                          <RiskBadge score={login.risk_score} labels={riskLabels} />
                         </td>
                         <td>
                           <div className="d-flex gap-1 flex-wrap">
@@ -702,17 +708,17 @@ const AISecurityMonitor = () => {
                           {login.blocked ? (
                             <span className="badge bg-danger bg-opacity-25 text-danger rounded-pill" style={{ fontSize: "0.6rem" }}>
                               <Ban size={10} className="me-1" />
-                              BLOCKED
+                              {t('ai.statusBlocked')}
                             </span>
                           ) : login.success ? (
                             <span className="badge bg-success bg-opacity-25 text-success rounded-pill" style={{ fontSize: "0.6rem" }}>
                               <ShieldCheck size={10} className="me-1" />
-                              OK
+                              {t('ai.statusOk')}
                             </span>
                           ) : (
                             <span className="badge bg-warning bg-opacity-25 text-warning rounded-pill" style={{ fontSize: "0.6rem" }}>
                               <AlertTriangle size={10} className="me-1" />
-                              FAILED
+                              {t('ai.statusFailed')}
                             </span>
                           )}
                         </td>
@@ -729,7 +735,7 @@ const AISecurityMonitor = () => {
             <div className="glass p-4 rounded-4 border border-secondary border-opacity-10">
               <h6 className="text-white fw-bold d-flex align-items-center gap-2 mb-3">
                 <Globe size={16} className="text-danger" />
-                Top IP bị chặn nhiều nhất (7 ngày)
+                {t('ai.topBlockedIPs')}
               </h6>
               <div className="row g-2">
                 {analytics.topBlockedIPs.map((ip, i) => (
@@ -749,7 +755,7 @@ const AISecurityMonitor = () => {
                         className="badge bg-danger bg-opacity-25 text-danger"
                         style={{ fontSize: "0.6rem" }}
                       >
-                        {ip.blockCount} lần
+                        {ip.blockCount} {t('ai.times')}
                       </span>
                     </div>
                   </div>
@@ -767,12 +773,12 @@ const AISecurityMonitor = () => {
         <div className="glass p-4 rounded-4 border border-secondary border-opacity-10">
           <h6 className="text-white fw-bold d-flex align-items-center gap-2 mb-3">
             <AlertTriangle size={18} className="text-danger" />
-            Cảnh báo AI (24h gần nhất)
+            {t('ai.alertsTitle')}
             <span
               className="badge bg-danger bg-opacity-25 text-danger ms-2"
               style={{ fontSize: "0.65rem" }}
             >
-              {alerts.length} cảnh báo
+              {alerts.length} {t('ai.alertsCount')}
             </span>
           </h6>
 
@@ -780,10 +786,10 @@ const AISecurityMonitor = () => {
             <div className="text-center py-5">
               <ShieldCheck size={48} className="text-success mb-3" />
               <div className="text-success fw-bold">
-                Hệ thống an toàn
+                {t('ai.systemSafe')}
               </div>
               <div className="text-dim small">
-                Không phát hiện hoạt động bất thường trong 24h qua
+                {t('ai.noAnomaly')}
               </div>
             </div>
           ) : (
@@ -841,13 +847,13 @@ const AISecurityMonitor = () => {
                           <span className="text-white fw-semibold small">
                             {alert.username || "Unknown"}
                           </span>
-                          <RiskBadge score={alert.risk_score} />
+                          <RiskBadge score={alert.risk_score} labels={riskLabels} />
                           {isBlocked && (
                             <span
                               className="badge bg-danger text-white rounded-pill"
                               style={{ fontSize: "0.55rem" }}
                             >
-                              BLOCKED
+                              {t('ai.statusBlocked')}
                             </span>
                           )}
                           {!isBlocked && isFailed && (
@@ -1077,7 +1083,7 @@ const AISecurityMonitor = () => {
                       )}
                     </td>
                     <td>
-                      <RiskBadge score={user.avgRisk7d} />
+                      <RiskBadge score={user.avgRisk7d} labels={riskLabels} />
                     </td>
                     <td className="text-white small fw-semibold">
                       {user.loginAttempts7d}
@@ -1163,7 +1169,7 @@ const AISecurityMonitor = () => {
           >
             <div className="d-flex align-items-center gap-2 mb-3">
               <Ban size={24} className="text-danger" />
-              <h5 className="mb-0 text-white fw-bold">Ban tài khoản</h5>
+              <h5 className="mb-0 text-white fw-bold">{t('ai.banUserTitle')}</h5>
             </div>
 
             <div
@@ -1173,7 +1179,7 @@ const AISecurityMonitor = () => {
                 border: "1px solid rgba(255,71,87,0.2)",
               }}
             >
-              <div className="text-dim small mb-1">User sẽ bị ban:</div>
+              <div className="text-dim small mb-1">{t('ai.banUserTarget')}</div>
               <div className="text-white fw-bold">
                 {showBanModal.username}
               </div>
@@ -1181,7 +1187,7 @@ const AISecurityMonitor = () => {
 
             <div className="mb-3">
               <label className="form-label text-dim small fw-bold">
-                Thời gian ban
+                {t('ai.banDuration')}
               </label>
               <BanDurationSelect
                 value={banDuration}
@@ -1191,12 +1197,12 @@ const AISecurityMonitor = () => {
 
             <div className="mb-3">
               <label className="form-label text-dim small fw-bold">
-                Lý do ban
+                {t('ai.banReason')}
               </label>
               <textarea
                 className="form-control bg-dark text-light border-secondary"
                 rows={2}
-                placeholder="Nhập lý do ban (tùy chọn)..."
+                placeholder={t('ai.banReasonPl')}
                 value={banReason}
                 onChange={(e) => setBanReason(e.target.value)}
               />
@@ -1219,7 +1225,7 @@ const AISecurityMonitor = () => {
                 ) : (
                   <>
                     <Ban size={16} />
-                    Xác nhận Ban
+                    {t('ai.banConfirm')}
                   </>
                 )}
               </button>

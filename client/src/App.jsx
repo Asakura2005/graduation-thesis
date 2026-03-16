@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import { Package, ArrowRight, Search, RefreshCcw } from "lucide-react";
 import axios from "axios";
 import LoginPage from "./security/LoginPage";
@@ -307,7 +307,7 @@ const App = () => {
                                       : s.tracking_number}
                                   </div>
                                   <div className="text-dim x-small">
-                                    Date:{" "}
+                                    {t('dashboard.date')}:{" "}
                                     {new Date(
                                       s.shipment_date,
                                     ).toLocaleDateString()}
