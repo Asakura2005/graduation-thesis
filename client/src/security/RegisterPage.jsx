@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import axios from 'axios';
 import { UserPlus, User, Lock, Mail, Phone, ShieldCheck, Eye, EyeOff, CheckCircle, AlertCircle, KeyRound } from 'lucide-react';
 
 const RegisterPage = ({ onBackToLogin }) => {
+    const { t } = useLanguage();
     const [formData, setFormData] = useState({
         username: '',
         password: '',
@@ -26,10 +28,10 @@ const RegisterPage = ({ onBackToLogin }) => {
     }, []);
 
     const pwRules = [
-        { label: 'Ít nhất 8 ký tự', test: pw => pw.length >= 8 },
-        { label: 'Có ít nhất 1 chữ hoa (A-Z)', test: pw => /[A-Z]/.test(pw) },
-        { label: 'Có ít nhất 1 chữ số (0-9)', test: pw => /[0-9]/.test(pw) },
-        { label: 'Có ít nhất 1 ký tự đặc biệt (!@#$...)', test: pw => /[^A-Za-z0-9]/.test(pw) },
+        { label: t('password.rule1'), test: pw => pw.length >= 8 },
+        { label: t('password.rule2'), test: pw => /[A-Z]/.test(pw) },
+        { label: t('password.rule3'), test: pw => /[0-9]/.test(pw) },
+        { label: t('password.rule4'), test: pw => /[^A-Za-z0-9]/.test(pw) },
     ];
     const pwValid = (pw) => pwRules.every(r => r.test(pw));
 
@@ -421,9 +423,9 @@ const RegisterPage = ({ onBackToLogin }) => {
 
             {/* Form Card */}
             <div style={{ ...s.formCard, animation: 'fadeInUp 0.5s ease' }}>
-                <div style={s.formTitle}>Tạo tài khoản mới</div>
+                <div style={s.formTitle}>{t('register.title')}</div>
                 <div style={s.formSubtitle}>
-                    Đăng ký để truy cập hệ thống quản lý chuỗi cung ứng bảo mật.
+                    {t('register.subtitle')}
                 </div>
 
                 {error && (
@@ -441,7 +443,7 @@ const RegisterPage = ({ onBackToLogin }) => {
 
                 <form onSubmit={handleRegister}>
                     {/* Full Name */}
-                    <label style={s.label}>Họ và tên</label>
+                    <label style={s.label}>{t('register.fullname')}</label>
                     <div className="reg-input-group" style={s.inputGroup}>
                         <User size={18} style={s.inputIcon} />
                         <input
@@ -457,7 +459,7 @@ const RegisterPage = ({ onBackToLogin }) => {
                     {/* Email & Phone - 2 columns */}
                     <div style={s.twoColRow}>
                         <div>
-                            <label style={s.label}>Email</label>
+                            <label style={s.label}>{t('register.email')}</label>
                             <div className="reg-input-group" style={s.inputGroup}>
                                 <Mail size={18} style={s.inputIcon} />
                                 <input
@@ -471,7 +473,7 @@ const RegisterPage = ({ onBackToLogin }) => {
                             </div>
                         </div>
                         <div>
-                            <label style={s.label}>Số điện thoại</label>
+                            <label style={s.label}>{t('register.phone')}</label>
                             <div className="reg-input-group" style={s.inputGroup}>
                                 <Phone size={18} style={s.inputIcon} />
                                 <input
@@ -486,7 +488,7 @@ const RegisterPage = ({ onBackToLogin }) => {
                     </div>
 
                     {/* Username */}
-                    <label style={s.label}>Tên đăng nhập</label>
+                    <label style={s.label}>{t('register.username')}</label>
                     <div className="reg-input-group" style={s.inputGroup}>
                         <ShieldCheck size={18} style={s.inputIcon} />
                         <input
@@ -500,7 +502,7 @@ const RegisterPage = ({ onBackToLogin }) => {
                     </div>
 
                     {/* Password */}
-                    <label style={s.label}>Mật mã truy cập</label>
+                    <label style={s.label}>{t('register.password')}</label>
                     <div className="reg-input-group" style={s.inputGroup}>
                         <KeyRound size={18} style={s.inputIcon} />
                         <input
@@ -526,7 +528,7 @@ const RegisterPage = ({ onBackToLogin }) => {
                     {formData.password && (
                         <>
                             <div style={s.strengthRow}>
-                                <span style={s.strengthLabel}>Độ mạnh mật khẩu</span>
+                                <span style={s.strengthLabel}>{t('register.strength')}</span>
                                 <span style={{ ...s.strengthValue, color: strength.color }}>{strength.label}</span>
                             </div>
                             <div style={s.strengthBar}>
@@ -538,7 +540,7 @@ const RegisterPage = ({ onBackToLogin }) => {
                     {/* Password rules checklist */}
                     {formData.password && (
                         <div style={s.rulesBox}>
-                            <div style={s.rulesTitle}>Yêu cầu mật khẩu</div>
+                            <div style={s.rulesTitle}>{t('register.reqTitle')}</div>
                             {pwRules.map(rule => {
                                 const pass = rule.test(formData.password);
                                 return (
@@ -554,7 +556,7 @@ const RegisterPage = ({ onBackToLogin }) => {
                     )}
 
                     {/* Confirm Password */}
-                    <label style={s.label}>Xác nhận mật mã</label>
+                    <label style={s.label}>{t('register.confirmTitle')}</label>
                     <div className="reg-input-group" style={s.inputGroup}>
                         <Lock size={18} style={s.inputIcon} />
                         <input
@@ -582,12 +584,12 @@ const RegisterPage = ({ onBackToLogin }) => {
                             {formData.password === formData.confirmPassword ? (
                                 <>
                                     <CheckCircle size={13} style={{ color: '#00e5a0' }} />
-                                    <span style={{ color: '#00e5a0' }}>Mật khẩu khớp</span>
+                                    <span style={{ color: '#00e5a0' }}>{t('register.match')}</span>
                                 </>
                             ) : (
                                 <>
                                     <AlertCircle size={13} style={{ color: '#f87171' }} />
-                                    <span style={{ color: '#f87171' }}>Mật khẩu không khớp</span>
+                                    <span style={{ color: '#f87171' }}>{t('register.noMatch')}</span>
                                 </>
                             )}
                         </div>
@@ -604,7 +606,7 @@ const RegisterPage = ({ onBackToLogin }) => {
                             <div style={s.spinner} />
                         ) : (
                             <>
-                                ĐĂNG KÝ TÀI KHOẢN
+                                {t('register.submit')}
                                 <ShieldCheck size={18} />
                             </>
                         )}
@@ -613,9 +615,9 @@ const RegisterPage = ({ onBackToLogin }) => {
 
                 {/* Back to login */}
                 <div style={s.backLink}>
-                    Đã có tài khoản?
+                    {t('register.hasAccount')}
                     <span className="reg-back-link" style={s.backAnchor} onClick={onBackToLogin}>
-                        Đăng nhập ngay
+                        {t('register.loginNow')}
                     </span>
                 </div>
             </div>

@@ -1,19 +1,21 @@
 import React, { useState, useEffect } from "react";
+import { useLanguage } from "../i18n/LanguageContext";
 import axios from "axios";
 import { Activity, User, Clock, Search, Terminal, Package } from "lucide-react";
 
-const AuditLogViewer = () => {
+const AuditLogViewer = () => { 
+  const { t } = useLanguage();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("ALL");
 
   const CATEGORIES = [
-    { id: "ALL", label: "Tất cả", icon: Activity },
-    { id: "AUTH", label: "Xác thực", icon: User },
-    { id: "SHIPMENT", label: "Vận đơn", icon: Clock },
-    { id: "WAREHOUSE", label: "Lịch sử Kho", icon: Package },
-    { id: "PARTNER", label: "Đối tác", icon: Terminal },
+    { id: "ALL", label: t('audit.filterAll'), icon: Activity },
+    { id: "AUTH", label: t('audit.filterAuth'), icon: User },
+    { id: "SHIPMENT", label: t('audit.filterShipment'), icon: Clock },
+    { id: "WAREHOUSE", label: t('audit.filterWarehouse'), icon: Package },
+    { id: "PARTNER", label: t('audit.filterPartner'), icon: Terminal },
   ];
 
   useEffect(() => {
@@ -97,9 +99,7 @@ const AuditLogViewer = () => {
     <div className="glass p-4 fade-in-up h-100 d-flex flex-column">
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h5 className="mb-0 fw-bold d-flex align-items-center gap-2 text-gold">
-          <Activity size={20} />
-          NHẬT KÝ HOẠT ĐỘNG
-        </h5>
+          <Activity size={20} />{t('audit.title')}</h5>
         <div className="input-group w-auto">
           <span className="input-group-text bg-transparent border-end-0 border-secondary">
             <Search size={16} />
@@ -107,7 +107,7 @@ const AuditLogViewer = () => {
           <input
             type="text"
             className="form-control border-start-0 border-secondary bg-transparent text-white"
-            placeholder="Tìm kiếm nhật ký..."
+            placeholder={t('audit.search')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -149,12 +149,10 @@ const AuditLogViewer = () => {
             }}
           >
             <tr>
-              <th className="py-3 ps-3">THỜI GIAN</th>
-              <th className="py-3">NGƯỜI DÙNG</th>
-              <th className="py-3">HÀNH ĐỘNG</th>
-              <th className="py-3 pe-3" style={{ width: "40%" }}>
-                CHI TIẾT
-              </th>
+              <th className="py-3 ps-3">{t('audit.time')}</th>
+              <th className="py-3">{t('audit.user')}</th>
+              <th className="py-3">{t('audit.action')}</th>
+              <th className="py-3 pe-3" style={{ width: "40%" }}>{t('audit.details')}</th>
             </tr>
           </thead>
           <tbody>
@@ -167,7 +165,7 @@ const AuditLogViewer = () => {
             ) : filteredLogs.length === 0 ? (
               <tr>
                 <td colSpan="4" className="text-center py-5">
-                  Không tìm thấy nhật ký phù hợp.
+                  {t('audit.emptyList')}
                 </td>
               </tr>
             ) : (

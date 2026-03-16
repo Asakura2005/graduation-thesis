@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { UserCheck, UserX, Shield, CheckCircle2 } from "lucide-react";
+import { useLanguage } from "../i18n/LanguageContext";
 
 const AccountApproval = () => {
+  const { t } = useLanguage();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -15,11 +17,10 @@ const AccountApproval = () => {
     setError("");
     try {
       const response = await axios.get("http://localhost:5001/api/admin/users/pending");
-      // Add a local selectedRole state for UI
       const initUsers = response.data.map((u) => ({ ...u, selectedRole: "Staff" }));
       setUsers(initUsers);
     } catch (err) {
-      setError(err.response?.data?.error || "Lỗi khi tải danh sách chờ duyệt");
+      setError(err.response?.data?.error || t('admin.approve.loadError'));
     } finally {
       setLoading(false);
     }
@@ -41,10 +42,10 @@ const AccountApproval = () => {
     setSuccess("");
     try {
       const response = await axios.put(`http://localhost:5001/api/admin/users/${userId}/approve`, { role });
-      setSuccess(response.data.message || "Tài khoản đã được duyệt thành công!");
+      setSuccess(response.data.message || t('admin.approve.approveSuccess'));
       fetchPendingUsers();
     } catch (err) {
-      setError(err.response?.data?.error || "Lỗi khi phê duyệt tài khoản");
+      setError(err.response?.data?.error || t('admin.approve.approveError'));
       setLoading(false);
     }
   };
@@ -54,10 +55,10 @@ const AccountApproval = () => {
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h4 className="text-white fw-bold mb-0 d-flex align-items-center gap-2">
           <UserCheck className="text-gold" />
-          Phê duyệt tài khoản
+          {t('admin.approve.title')}
         </h4>
         <button className="btn btn-outline-gold btn-sm" onClick={fetchPendingUsers}>
-          Làm mới
+          {t('admin.approve.refresh')}
         </button>
       </div>
 
@@ -76,24 +77,24 @@ const AccountApproval = () => {
         {loading ? (
           <div className="text-center py-5">
             <div className="spinner-border text-gold mb-3"></div>
-            <p className="text-dim">Đang tải danh sách chờ duyệt...</p>
+            <p className="text-dim">{t('admin.approve.loadingUsers')}</p>
           </div>
         ) : users.length === 0 ? (
           <div className="text-center py-5 opacity-50">
             <CheckCircle2 size={64} className="text-success mb-3 opacity-50 mx-auto" />
-            <h5 className="text-white">Không có tài khoản nào chờ duyệt</h5>
-            <p className="text-dim mb-0">Tất cả nhân viên đăng ký mới đã được xử lý.</p>
+            <h5 className="text-white">{t('admin.approve.noWaiters')}</h5>
+            <p className="text-dim mb-0">{t('admin.approve.allProcessed')}</p>
           </div>
         ) : (
           <div className="table-responsive">
             <table className="table table-hover align-middle mb-0 border-0">
               <thead>
                 <tr>
-                  <th className="text-dim fw-semibold pb-3">HỌ TÊN / USERNAME</th>
-                  <th className="text-dim fw-semibold pb-3">LIÊN HỆ</th>
-                  <th className="text-dim fw-semibold pb-3 text-center">TRẠNG THÁI</th>
-                  <th className="text-dim fw-semibold pb-3">CẤP QUYỀN</th>
-                  <th className="text-dim fw-semibold pb-3 text-end">HÀNH ĐỘNG</th>
+                  <th className="text-dim fw-semibold pb-3">{t('admin.approve.colName')}</th>
+                  <th className="text-dim fw-semibold pb-3">{t('admin.approve.colContact')}</th>
+                  <th className="text-dim fw-semibold pb-3 text-center">{t('admin.approve.colStatus')}</th>
+                  <th className="text-dim fw-semibold pb-3">{t('admin.approve.colRole')}</th>
+                  <th className="text-dim fw-semibold pb-3 text-end">{t('admin.approve.colAction')}</th>
                 </tr>
               </thead>
               <tbody className="border-top-0">
@@ -107,11 +108,11 @@ const AccountApproval = () => {
                     </td>
                     <td className="py-3">
                       <div className="text-white small mb-1">{u.email}</div>
-                      <div className="text-dim small">{u.phone || "Không có SĐT"}</div>
+                      <div className="text-dim small">{u.phone || t('admin.approve.noPhone')}</div>
                     </td>
                     <td className="py-3 text-center">
                       <span className="badge bg-warning bg-opacity-25 text-warning px-3 py-2 rounded-pill">
-                        Chờ duyệt
+                        {t('admin.approve.statusWait')}
                       </span>
                     </td>
                     <td className="py-3" style={{ width: "200px" }}>
@@ -122,7 +123,7 @@ const AccountApproval = () => {
                       >
                         {roles.map((r) => (
                           <option key={r} value={r}>
-                            {r}
+                            {t(`roles.${r.toLowerCase()}`)}
                           </option>
                         ))}
                       </select>
@@ -133,7 +134,7 @@ const AccountApproval = () => {
                         onClick={() => handleApprove(u.user_id, u.selectedRole)}
                       >
                         <Shield size={16} />
-                        Duyệt & Cấp quyền
+                        {t('admin.approve.btnApprove')}
                       </button>
                     </td>
                   </tr>

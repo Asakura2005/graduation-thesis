@@ -377,7 +377,7 @@ const AISecurityMonitor = () => {
             </span>
           </h4>
           <p className="text-dim mb-0 small">
-            Hệ thống phát hiện bất thường & quản lý ban tài khoản tự động
+            {t('ai.subtitle')}
           </p>
         </div>
 
@@ -417,9 +417,9 @@ const AISecurityMonitor = () => {
       {/* Sub Navigation Tabs */}
       <div className="d-flex gap-2 mb-4 flex-wrap">
         {[
-          { key: "overview", icon: BarChart3, label: "Tổng Quan" },
-          { key: "alerts", icon: AlertTriangle, label: "Cảnh Báo" },
-          { key: "users", icon: Users, label: "Quản Lý Users" },
+          { key: "overview", icon: BarChart3, label: t('ai.overview') },
+          { key: "alerts", icon: AlertTriangle, label: t('ai.alerts') },
+          { key: "users", icon: Users, label: t('ai.users') },
         ].map(({ key, icon: Icon, label }) => (
           <button
             key={key}
@@ -458,7 +458,7 @@ const AISecurityMonitor = () => {
             <div className="col-lg-3 col-md-6">
               <StatCard
                 icon={Activity}
-                label="Tổng đăng nhập (24h)"
+                label={t('ai.totalLogins')}
                 value={stats24h.totalAttempts || 0}
                 color="45,135,255"
                 subtext={`${stats24h.successCount || 0} thành công`}
@@ -467,7 +467,7 @@ const AISecurityMonitor = () => {
             <div className="col-lg-3 col-md-6">
               <StatCard
                 icon={ShieldX}
-                label="Bị chặn (24h)"
+                label={t('ai.blocked')}
                 value={stats24h.blockedCount || 0}
                 color="255,71,87"
                 pulse={stats24h.blockedCount > 0}
@@ -477,7 +477,7 @@ const AISecurityMonitor = () => {
             <div className="col-lg-3 col-md-6">
               <StatCard
                 icon={Ban}
-                label="Users đang bị ban"
+                label={t('ai.bannedUsers')}
                 value={analytics?.bannedUsersCount || 0}
                 color="255,165,2"
                 pulse={analytics?.bannedUsersCount > 0}
@@ -486,7 +486,7 @@ const AISecurityMonitor = () => {
             <div className="col-lg-3 col-md-6">
               <StatCard
                 icon={TrendingUp}
-                label="Risk Score TB"
+                label={t('ai.avgRisk')}
                 value={Math.round(stats24h.avgRiskScore || 0)}
                 color="46,213,115"
                 subtext={`Max: ${stats24h.maxRiskScore || 0}`}
@@ -501,7 +501,7 @@ const AISecurityMonitor = () => {
               <div className="glass p-4 rounded-4 border border-secondary border-opacity-10 h-100">
                 <h6 className="text-white fw-bold d-flex align-items-center gap-2 mb-3">
                   <Clock size={16} className="text-warning" />
-                  Hoạt động đăng nhập theo giờ (24h)
+                  {t('ai.hourlyChart')}
                 </h6>
                 <HourlyChart data={analytics?.hourlyStats || []} />
                 <div className="d-flex gap-3 mt-3">
@@ -556,7 +556,7 @@ const AISecurityMonitor = () => {
               <div className="glass p-4 rounded-4 border border-secondary border-opacity-10 h-100">
                 <h6 className="text-white fw-bold d-flex align-items-center gap-2 mb-3">
                   <ShieldAlert size={16} className="text-warning" />
-                  Phân bố Risk Score (7 ngày)
+                  {t('ai.riskDist')}
                 </h6>
                 <RiskDistributionBar
                   data={analytics?.riskDistribution || []}
@@ -630,7 +630,7 @@ const AISecurityMonitor = () => {
                     <th style={{ fontSize: "0.7rem" }}>IP</th>
                     <th style={{ fontSize: "0.7rem" }}>Risk Score</th>
                     <th style={{ fontSize: "0.7rem" }}>Yếu tố rủi ro</th>
-                    <th style={{ fontSize: "0.7rem" }}>Trạng thái</th>
+                    <th style={{ fontSize: "0.7rem" }}>{t('ai.status')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -980,22 +980,22 @@ const AISecurityMonitor = () => {
         <div className="glass p-4 rounded-4 border border-secondary border-opacity-10">
           <h6 className="text-white fw-bold d-flex align-items-center gap-2 mb-3">
             <Users size={18} className="text-warning" />
-            Quản lý tài khoản & Trạng thái ban
+            {t('ai.userStatusTitle')}
           </h6>
 
           <div className="table-responsive">
             <table className="table table-hover align-middle mb-0">
               <thead>
                 <tr>
-                  <th style={{ fontSize: "0.7rem" }}>User</th>
-                  <th style={{ fontSize: "0.7rem" }}>Vai trò</th>
+                  <th style={{ fontSize: "0.7rem" }}>{t('ai.user')}</th>
+                  <th style={{ fontSize: "0.7rem" }}>{t('ai.role')}</th>
                   <th style={{ fontSize: "0.7rem" }}>Trạng thái</th>
-                  <th style={{ fontSize: "0.7rem" }}>Risk TB (7d)</th>
-                  <th style={{ fontSize: "0.7rem" }}>Login (7d)</th>
-                  <th style={{ fontSize: "0.7rem" }}>Blocked (7d)</th>
-                  <th style={{ fontSize: "0.7rem" }}>Số lần ban</th>
+                  <th style={{ fontSize: "0.7rem" }}>{t('ai.risk7d')}</th>
+                  <th style={{ fontSize: "0.7rem" }}>{t('ai.login7d')}</th>
+                  <th style={{ fontSize: "0.7rem" }}>{t('ai.blocked7d')}</th>
+                  <th style={{ fontSize: "0.7rem" }}>{t('ai.banCount')}</th>
                   <th style={{ fontSize: "0.7rem" }} className="text-end">
-                    Hành động
+                    {t('ai.action')}
                   </th>
                 </tr>
               </thead>
@@ -1054,7 +1054,7 @@ const AISecurityMonitor = () => {
                             style={{ fontSize: "0.6rem" }}
                           >
                             <Lock size={10} className="me-1" />
-                            {user.isPermanent ? "BAN VĨNH VIỄN" : "ĐANG BỊ BAN"}
+                            {user.isPermanent ? t('ai.permanentBan') : t('ai.banned')}
                           </span>
                           {!user.isPermanent && user.bannedUntil && (
                             <div
@@ -1073,9 +1073,7 @@ const AISecurityMonitor = () => {
                           className="badge bg-success bg-opacity-25 text-success rounded-pill"
                           style={{ fontSize: "0.6rem" }}
                         >
-                          <ShieldCheck size={10} className="me-1" />
-                          HOẠT ĐỘNG
-                        </span>
+                          <ShieldCheck size={10} className="me-1" />{t('ai.active')}</span>
                       )}
                     </td>
                     <td>
@@ -1114,7 +1112,7 @@ const AISecurityMonitor = () => {
                             ) : (
                               <>
                                 <Unlock size={12} />
-                                Gỡ ban
+                                {t('ai.unbanBtn')}
                               </>
                             )}
                           </button>
@@ -1132,9 +1130,7 @@ const AISecurityMonitor = () => {
                                 : ""
                             }
                           >
-                            <Ban size={12} />
-                            Ban
-                          </button>
+                            <Ban size={12} />{t('ai.banBtn')}</button>
                         )}
                       </div>
                     </td>

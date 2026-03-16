@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useLanguage } from "../i18n/LanguageContext";
 import axios from "axios";
 import {
   Users,
@@ -31,7 +32,8 @@ const COUNTRY_CODES = [
   { code: '+33', label: 'FR +33' },
 ];
 
-const PartnerForm = ({ onClose }) => {
+const PartnerForm = ({ onClose }) => { 
+  const { t } = useLanguage();
   // State cho Form
   const [formData, setFormData] = useState({
     name: "",
@@ -229,9 +231,7 @@ const PartnerForm = ({ onClose }) => {
       >
         <div className="d-flex justify-content-between align-items-center mb-4">
           <h5 className="mb-0 fw-bold d-flex align-items-center gap-2 text-gold">
-            <Users size={20} />
-            DANH SÁCH ĐỐI TÁC
-          </h5>
+            <Users size={20} />{t('partners.listTitle')}</h5>
           <div className="input-group w-auto">
             <span className="input-group-text bg-transparent border-end-0 border-secondary">
               <Search size={16} />
@@ -239,7 +239,7 @@ const PartnerForm = ({ onClose }) => {
             <input
               type="text"
               className="form-control border-start-0 border-secondary bg-transparent text-white"
-              placeholder="Tìm kiếm đối tác..."
+              placeholder={t('partners.searchPlaceholder')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -250,11 +250,11 @@ const PartnerForm = ({ onClose }) => {
           <table className="table table-hover align-middle mb-0 border-0">
             <thead>
               <tr>
-                <th>Tên Công Ty</th>
-                <th>Người Liên Hệ</th>
-                <th>Liên Lạc</th>
-                <th>Loại</th>
-                <th className="text-end">Hành động</th>
+                <th>{t('partners.companyName')}</th>
+                <th>{t('partners.contactPerson')}</th>
+                <th>{t('partners.contact')}</th>
+                <th>{t('partners.type')}</th>
+                <th className="text-end">{t('partners.action')}</th>
               </tr>
             </thead>
             <tbody>
@@ -267,7 +267,7 @@ const PartnerForm = ({ onClose }) => {
               ) : filteredPartners.length === 0 ? (
                 <tr>
                   <td colSpan="5" className="text-center py-5">
-                    Chưa có đối tác nào phù hợp.
+                    {t('partners.emptyList')}
                   </td>
                 </tr>
               ) : (
@@ -332,7 +332,7 @@ const PartnerForm = ({ onClose }) => {
         <div className="d-flex justify-content-between align-items-center mb-4">
           <h5 className="mb-0 fw-bold text-gold d-flex align-items-center gap-2">
             {editingId ? <Edit size={20} /> : <Plus size={20} />}
-            {editingId ? "CẬP NHẬT" : "THÊM MỚI"}
+            {editingId ? t('partners.update') : t('partners.addNew')}
           </h5>
           {editingId && (
             <button
@@ -484,7 +484,7 @@ const PartnerForm = ({ onClose }) => {
                 <>
                   <Save size={18} />
                   <span>
-                    {editingId ? "CẬP NHẬT THÔNG TIN" : "LƯU ĐỐI TÁC"}
+                    {editingId ? t('partners.updateInfo') : t('partners.savePartner')}
                   </span>
                 </>
               )}

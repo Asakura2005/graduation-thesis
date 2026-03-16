@@ -26,6 +26,9 @@ const ProfileSettings = ({ user }) => {
     const [disablePassword, setDisablePassword] = useState('');
     const [twoFaLoading, setTwoFaLoading] = useState(false);
 
+    // Admin Settings
+    const [captchaEnabled, setCaptchaEnabled] = useState(true);
+
     const [toast, setToast] = useState(null);
 
     const showToast = (type, msg) => {
@@ -46,7 +49,16 @@ const ProfileSettings = ({ user }) => {
                 setProfileLoading(false);
             }
         };
+
+        const fetchSettings = async () => {
+            try {
+                const res = await axios.get('http://localhost:5001/api/settings/captcha');
+                setCaptchaEnabled(res.data.captchaEnabled);
+            } catch (err) {}
+        };
+
         fetchProfile();
+        fetchSettings();
     }, []);
 
     const handleProfileSave = async (e) => {
@@ -140,6 +152,20 @@ const ProfileSettings = ({ user }) => {
         } catch (e) {
             showToast('error', e.response?.data?.error || 'Mật khẩu sai');
         } finally { setTwoFaLoading(false); }
+    };
+
+    const handleToggleCaptcha = async () => {
+        try {
+            const newStatus = !captchaEnabled;
+            await axios.post('http://localhost:5001/api/settings/captcha', {
+                captchaEnabled: newStatus
+            }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+            
+            setCaptchaEnabled(newStatus);
+            showToast('success', `Đã ${newStatus ? 'Bật' : 'Tắt'} xác thực reCAPTCHA`);
+        } catch (e) {
+            showToast('error', e.response?.data?.error || 'Lỗi khi thay đổi cài đặt CAPTCHA');
+        }
     };
 
     const getRoleBadge = (role) => {
@@ -598,6 +624,24 @@ const ProfileSettings = ({ user }) => {
                                     ))}
                                 </div>
                             </div>
+
+                            {/* Admin settings */}
+                            {profile.role === 'Admin' && (
+                                <div className="p-4 rounded-3" style={cardStyle}>
+                                    <h6 className="text-gold fw-bold mb-3 d-flex align-items-center gap-2">
+                                        <Settings size={16} /> Cài đặt Quản trị (Admin)
+                                    </h6>
+                                    <div className="d-flex align-items-center justify-content-between py-2 border-bottom border-light border-opacity-5">
+                                        <div>
+                                            <span className="text-white small fw-semibold">Xác thực reCAPTCHA khi đăng nhập</span>
+                                            <div className="text-dim x-small">Yêu cầu người dùng xác nhận reCAPTCHA để chống bot</div>
+                                        </div>
+                                        <div className="form-check form-switch" style={{ fontSize: '1.25rem' }}>
+                                            <input className="form-check-input" type="checkbox" role="switch" checked={captchaEnabled} onChange={handleToggleCaptcha} style={{ cursor: 'pointer', accentColor: '#D4AF37' }} />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="p-4 rounded-3" style={cardStyle}>
                                 <h6 className="text-gold fw-bold mb-3 d-flex align-items-center gap-2">

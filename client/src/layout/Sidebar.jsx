@@ -62,13 +62,13 @@ const Sidebar = ({ user, activeTab, setActiveTab, onOpenCreateShipment }) => {
         {navBtn("dashboard", LayoutDashboard, t('sidebar.dashboard'))}
         
         {canViewShipments && navBtn("shipments", Truck, t('sidebar.shipments'))}
-        {isWarehouse && navBtn("shipment-approval", Truck, "Duyệt vận đơn")}
+        {isWarehouse && navBtn("shipment-approval", Truck, t('sidebar.shipmentApproval'))}
         {canViewPartners && navBtn("partners", Users, t('sidebar.partners'))}
         {canViewInventory && navBtn("inventory", Box, t('sidebar.inventory'))}
 
         {isAdmin && (
           <>
-            {navBtn("account-approval", Users, "Duyệt tài khoản")}
+            {navBtn("account-approval", Users, t('sidebar.accountApproval'))}
             {navBtn("audit", Activity, t('sidebar.audit'))}
             {navBtn("ai-security", Brain, t('sidebar.aiSecurity') || 'AI Security')}
           </>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useLanguage } from "../i18n/LanguageContext";
 import axios from "axios";
 import {
   Package,
@@ -20,7 +21,8 @@ import {
 } from "lucide-react";
 
 // --- SUB-COMPONENT: MASTER DATA (Danh mục hàng hóa + Nhập kho) ---
-const MasterData = () => {
+const MasterData = () => { 
+  const { t } = useLanguage();
   const [formData, setFormData] = useState({
     itemName: "",
     unitCost: "",
@@ -239,11 +241,10 @@ const MasterData = () => {
         </div>
         <div className="d-flex justify-content-between mb-3">
           <h6 className="fw-bold text-gold">
-            <Database size={18} /> DANH MỤC HÀNG HÓA (MASTER DATA)
-          </h6>
+            <Database size={18} />{t('inventory.masterDataTitle')}</h6>
           <input
             className="form-control w-auto bg-transparent text-white border-secondary"
-            placeholder="Tìm kiếm..."
+            placeholder={t('inventory.search')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -252,11 +253,11 @@ const MasterData = () => {
           <table className="table table-hover align-middle mb-0 text-white">
             <thead>
               <tr>
-                <th>Tên</th>
-                <th>Loại</th>
-                <th>NCC</th>
-                <th>Tổng Tồn</th>
-                <th>Giá vốn</th>
+                <th>{t('inventory.name')}</th>
+                <th>{t('inventory.category')}</th>
+                <th>{t('inventory.supplier')}</th>
+                <th>{t('inventory.totalStock')}</th>
+                <th>{t('inventory.unitCost')}</th>
                 <th className="text-end">#</th>
               </tr>
             </thead>
@@ -264,7 +265,7 @@ const MasterData = () => {
               {filteredItems.length === 0 ? (
                 <tr>
                   <td colSpan="6" className="text-center py-3 text-dim">
-                    Chưa có hàng hóa nào.
+                    {t('inventory.emptyList')}
                   </td>
                 </tr>
               ) : (
@@ -329,19 +330,17 @@ const MasterData = () => {
       </div>
       <div className="glass p-4 d-flex flex-column" style={{ flex: 3 }}>
         <h6 className="fw-bold text-gold mb-3">
-          {editingId ? "CẬP NHẬT THÔNG TIN" : "THÊM MỚI & NHẬP KHO"}
+          {editingId ? t('inventory.updateInfo') : t('inventory.addNewImport')}
         </h6>
         <form
           onSubmit={handleSubmit}
           className="d-flex flex-column gap-3 overflow-auto custom-scrollbar pe-2"
         >
           <div>
-            <label className="form-label text-dim x-small text-uppercase fw-bold">
-              Tên sản phẩm
-            </label>
+            <label className="form-label text-dim x-small text-uppercase fw-bold">{t('inventory.productName')}</label>
             <input
               className="form-control bg-transparent text-white border-secondary"
-              placeholder="Ví dụ: iPhone 15 Pro"
+              placeholder={t('inventory.productExample')}
               value={formData.itemName}
               onChange={(e) =>
                 setFormData({ ...formData, itemName: e.target.value })
@@ -350,9 +349,7 @@ const MasterData = () => {
             />
           </div>
           <div>
-            <label className="form-label text-dim x-small text-uppercase fw-bold">
-              Nhà cung cấp (Supplier)
-            </label>
+            <label className="form-label text-dim x-small text-uppercase fw-bold">{t('inventory.supplierLabel')}</label>
             <select
               className="form-select bg-dark text-white border-secondary"
               value={formData.supplierId || ""}
@@ -361,7 +358,7 @@ const MasterData = () => {
               }
               required
             >
-              <option value="">-- Chọn Nhà cung cấp --</option>
+              <option value="">{t('inventory.selectSupplier')}</option>
               {partners
                 .filter((p) => p.type === "Supplier")
                 .map((p) => (
@@ -373,9 +370,7 @@ const MasterData = () => {
           </div>
           <div className="row g-2">
             <div className="col-6">
-              <label className="form-label text-dim x-small text-uppercase fw-bold">
-                Giá vốn ($)
-              </label>
+              <label className="form-label text-dim x-small text-uppercase fw-bold">{t('inventory.unitCost')}</label>
               <input
                 type="number"
                 className="form-control bg-transparent text-white border-secondary"
@@ -389,9 +384,7 @@ const MasterData = () => {
               />
             </div>
             <div className="col-6">
-              <label className="form-label text-dim x-small text-uppercase fw-bold">
-                Số lượng
-              </label>
+              <label className="form-label text-dim x-small text-uppercase fw-bold">{t('inventory.quantity')}</label>
               <input
                 type="number"
                 className="form-control bg-transparent text-white border-secondary"
@@ -406,9 +399,7 @@ const MasterData = () => {
             </div>
           </div>
           <div>
-            <label className="form-label text-dim x-small text-uppercase fw-bold">
-              Danh mục
-            </label>
+            <label className="form-label text-dim x-small text-uppercase fw-bold">{t('inventory.categoryLabel')}</label>
             <select
               className="form-select bg-dark text-white border-secondary"
               value={formData.category}
@@ -427,9 +418,7 @@ const MasterData = () => {
           {/* Existing Stock Display */}
           {editingId && (
             <div className="mb-3">
-              <h6 className="text-dim x-small fw-bold border-bottom border-secondary border-opacity-25 pb-1 mb-2">
-                TỔN KHO HIỆN TẠI
-              </h6>
+              <h6 className="text-dim x-small fw-bold border-bottom border-secondary border-opacity-25 pb-1 mb-2">{t('inventory.currentStock')}</h6>
               <div
                 className="bg-black bg-opacity-20 rounded p-2 custom-scrollbar"
                 style={{ maxHeight: "100px", overflowY: "auto" }}
@@ -528,8 +517,8 @@ const MasterData = () => {
             <h6 className="text-info x-small fw-bold mb-2">
               <MapPin size={14} />{" "}
               {editingId
-                ? "NHẬP THÊM HÀNG (TÙY CHỌN)"
-                : "NHẬP VÀO KHO (TÙY CHỌN)"}
+                ? t('inventory.importMoreOption')
+                : t('inventory.importNewOption')}
             </h6>
             <div className="mb-2">
               <select
@@ -543,7 +532,7 @@ const MasterData = () => {
                   })
                 }
               >
-                <option value="">-- Chọn kho lưu trữ --</option>
+                <option value="">{t('inventory.chooseWarehouse')}</option>
                 {warehouses.map((w) => (
                   <option key={w.warehouse_id} value={w.warehouse_id}>
                     {w.name}
@@ -553,7 +542,7 @@ const MasterData = () => {
             </div>
             {formData.warehouseId && (
               <div>
-                <label className="text-dim x-small">Chọn Kệ Hàng:</label>
+                <label className="text-dim x-small">{t('inventory.chooseShelf')}</label>
                 <select
                   className="form-select bg-dark text-white text-x-small border-secondary"
                   value={formData.binLocation}
@@ -581,7 +570,7 @@ const MasterData = () => {
                 <span className="spinner-border spinner-border-sm"></span>
               ) : (
                 <>
-                  <Save size={16} /> LƯU & NHẬP KHO
+                  <Save size={16} /> {t('inventory.saveImport')}
                 </>
               )}
             </button>
@@ -684,7 +673,8 @@ const WarehouseDetail = ({ warehouse, onBack }) => {
 };
 
 // --- MAIN COMPONENT: INVENTORY DASHBOARD ---
-const InventoryManagement = () => {
+const InventoryManagement = () => { 
+  const { t } = useLanguage();
   const [viewMode, setViewMode] = useState("DASHBOARD"); // DASHBOARD, MASTER_DATA
   const [warehouses, setWarehouses] = useState([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState(null);
@@ -756,15 +746,11 @@ const InventoryManagement = () => {
         <button
           onClick={() => setViewMode("DASHBOARD")}
           className={`btn border-0 fw-bold px-0 pb-2 rounded-0 ${viewMode === "DASHBOARD" ? "text-gold border-bottom border-gold border-2" : "text-dim"}`}
-        >
-          TỔNG QUAN KHO (WMS)
-        </button>
+        >{t('inventory.overview')}</button>
         <button
           onClick={() => setViewMode("MASTER_DATA")}
           className={`btn border-0 fw-bold px-0 pb-2 rounded-0 ${viewMode === "MASTER_DATA" ? "text-gold border-bottom border-gold border-2" : "text-dim"}`}
-        >
-          DANH MỤC HÀNG HÓA
-        </button>
+        >{t('inventory.masterData')}</button>
       </div>
 
       {/* Content Area */}

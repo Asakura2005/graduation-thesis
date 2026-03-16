@@ -20,9 +20,10 @@ import NotificationPanel from "./layout/NotificationPanel";
 import Footer from "./layout/Footer";
 import ShipmentApproval from "./admin/ShipmentApproval";
 import { useLanguage } from "./i18n/LanguageContext";
+import { backendTranslations_en } from "./i18n/translations";
 
 const App = () => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   // 1. Intercept for public Tracking Page BEFORE Auth
   const currentPath = window.location.pathname;
   if (currentPath.startsWith("/tracking/")) {
@@ -109,13 +110,38 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    const interceptor = axios.interceptors.request.use(
+    const reqInterceptor = axios.interceptors.request.use(
       (config) => {
         const token = localStorage.getItem("token");
         if (token) config.headers.Authorization = `Bearer ${token}`;
         return config;
       },
       (error) => Promise.reject(error),
+    );
+
+    const resInterceptor = axios.interceptors.response.use(
+      (response) => {
+        if (language === 'en' && response.data) {
+          if (response.data.message && backendTranslations_en[response.data.message]) {
+            response.data.message = backendTranslations_en[response.data.message];
+          }
+          if (response.data.error && backendTranslations_en[response.data.error]) {
+            response.data.error = backendTranslations_en[response.data.error];
+          }
+        }
+        return response;
+      },
+      (error) => {
+        if (language === 'en' && error.response && error.response.data) {
+          if (error.response.data.error && backendTranslations_en[error.response.data.error]) {
+            error.response.data.error = backendTranslations_en[error.response.data.error];
+          }
+          if (error.response.data.message && backendTranslations_en[error.response.data.message]) {
+            error.response.data.message = backendTranslations_en[error.response.data.message];
+          }
+        }
+        return Promise.reject(error);
+      }
     );
 
     if (user) fetchShipments();
@@ -129,10 +155,11 @@ const App = () => {
     }
 
     return () => {
-      axios.interceptors.request.eject(interceptor);
+      axios.interceptors.request.eject(reqInterceptor);
+      axios.interceptors.response.eject(resInterceptor);
       if (refreshInterval) clearInterval(refreshInterval);
     };
-  }, [user]);
+  }, [user, language]);
 
   const handleLogout = () => {
     localStorage.removeItem("token");

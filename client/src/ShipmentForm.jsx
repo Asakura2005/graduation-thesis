@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { useLanguage } from './i18n/LanguageContext';
 import { X, Truck, MapPin, DollarSign, Hash, Save, Package, Box } from 'lucide-react';
 import axios from 'axios';
 
-const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
+const ShipmentForm = ({ onSidebarClose, onSuccess }) => { 
+    const { t } = useLanguage();
     const [partners, setPartners] = useState([]);
     const [supplyItems, setSupplyItems] = useState([]);
 
@@ -101,7 +103,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
 
         const stock = stockList.find(s => s.stock_id === selectedStockId);
         if (parseInt(formData.shipmentQuantity) > stock.quantity) {
-            return alert(`Số lượng xuất (${formData.shipmentQuantity}) vượt quá tồn kho (${stock.quantity}) tại ${stock.warehouse_name}!`);
+            return alert(`{t('shipments.exportQuantity')} (${formData.shipmentQuantity}) vượt quá tồn kho (${stock.quantity}) tại ${stock.warehouse_name}!`);
         }
 
         setLoading(true);
@@ -140,8 +142,8 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                             <Truck size={24} />
                         </div>
                         <div>
-                            <h5 className="text-white fw-bold mb-0">TẠO VẬN ĐƠN MỚI</h5>
-                            <small className="text-dim">Nhập thông tin chi tiết lô hàng cần vận chuyển</small>
+                            <h5 className="text-white fw-bold mb-0">{t('shipments.createNew')}</h5>
+                            <small className="text-dim">{t('shipments.enterDetails')}</small>
                         </div>
                     </div>
                     <button className="btn btn-link text-dim p-0 hover-light" onClick={onSidebarClose}>
@@ -154,7 +156,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                     <div className="row g-4">
                         {/* Column 1 */}
                         <div className="col-md-6">
-                            <h6 className="text-gold text-uppercase x-small fw-bold mb-3 border-bottom border-secondary border-opacity-10 pb-2">Thông tin Đối tác & Sản phẩm</h6>
+                            <h6 className="text-gold text-uppercase x-small fw-bold mb-3 border-bottom border-secondary border-opacity-10 pb-2">{t('shipments.partnerProductInfo')}</h6>
 
                             {/* Supplier Field Removed as per request */}
                             {/* 
@@ -170,11 +172,11 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                             */}
 
                             <div className="mb-3">
-                                <label className="form-label text-white small fw-semibold">Sản phẩm (Product)</label>
+                                <label className="form-label text-white small fw-semibold">{t('shipments.productLabel')}</label>
                                 <div className="input-group">
                                     <span className="input-group-text bg-dark border-secondary text-dim"><Package size={18} /></span>
                                     <select className="form-select bg-dark text-white border-secondary focus-ring-gold" value={selectedItemId} onChange={handleProductChange} required>
-                                        <option value="">-- Chọn hàng hóa --</option>
+                                        <option value="">{t('shipments.selectProduct')}</option>
                                         {supplyItems.map(i => (
                                             <option key={i.item_id} value={i.item_id}>{i.item_name} (Tổng tồn: {i.quantity_in_stock})</option>
                                         ))}
@@ -184,9 +186,9 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
 
                             {selectedItemId && (
                                 <div className="mb-3 animate-fade-in">
-                                    <label className="form-label text-white small fw-semibold">Chọn Kho xuất (Source Stock)</label>
+                                    <label className="form-label text-white small fw-semibold">{t('shipments.sourceStock')}</label>
                                     <select className="form-select bg-dark text-success border-success focus-ring-success fw-semibold" value={selectedStockId} onChange={handleStockChange} required>
-                                        <option value="">-- Chọn lô hàng trong kho --</option>
+                                        <option value="">{t('shipments.selectSourceStock')}</option>
                                         {stockList.map(s => (
                                             <option key={s.stock_id} value={s.stock_id}>
                                                 {s.warehouse_name} - {s.bin_location} (Tồn: {s.quantity})
@@ -197,9 +199,9 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                             )}
 
                             <div className="mb-3">
-                                <label className="form-label text-white small fw-semibold">Đơn vị vận chuyển (Logistics)</label>
+                                <label className="form-label text-white small fw-semibold">{t('shipments.logisticsLabel')}</label>
                                 <select className="form-select bg-dark text-white border-secondary focus-ring-gold py-2" name="logisticsId" onChange={handleChange} required>
-                                    <option value="">-- Chọn đơn vị vận chuyển --</option>
+                                    <option value="">{t('shipments.selectLogistics')}</option>
                                     {partners.filter(p => p.type === 'Logistics').map(p => (
                                         <option key={p.partner_id} value={p.partner_id}>{p.partner_name}</option>
                                     ))}
@@ -210,10 +212,10 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
 
                         {/* Column 2 */}
                         <div className="col-md-6">
-                            <h6 className="text-gold text-uppercase x-small fw-bold mb-3 border-bottom border-secondary border-opacity-10 pb-2">Lộ trình & Số lượng</h6>
+                            <h6 className="text-gold text-uppercase x-small fw-bold mb-3 border-bottom border-secondary border-opacity-10 pb-2">{t('shipments.routeQuantity')}</h6>
 
                             <div className="mb-3">
-                                <label className="form-label text-white small fw-semibold">Mã vận đơn (Auto)</label>
+                                <label className="form-label text-white small fw-semibold">{t('shipments.trackingCodeAuto')}</label>
                                 <div className="input-group">
                                     <span className="input-group-text bg-dark border-secondary text-dim"><Hash size={18} /></span>
                                     <input type="text" className="form-control bg-dark border-secondary text-gold fw-bold font-monospace" name="trackingNumber" value={formData.trackingNumber} readOnly />
@@ -221,25 +223,25 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                             </div>
 
                             <div className="mb-3">
-                                <label className="form-label text-white small fw-semibold">Kho hàng gửi (Origin - Auto)</label>
+                                <label className="form-label text-white small fw-semibold">{t('shipments.originAuto')}</label>
                                 <div className="input-group">
                                     <span className="input-group-text bg-dark border-secondary text-dim"><MapPin size={18} /></span>
-                                    <input type="text" className="form-control bg-dark text-white border-secondary text-dim" name="originAddress" value={formData.originAddress} readOnly placeholder="Tự động điền khi chọn kho..." />
+                                    <input type="text" className="form-control bg-dark text-white border-secondary text-dim" name="originAddress" value={formData.originAddress} readOnly placeholder={t('shipments.autoFillOrigin')} />
                                 </div>
                             </div>
 
                             <div className="mb-3">
-                                <label className="form-label text-white small fw-semibold">Kho hàng nhận (Destination)</label>
+                                <label className="form-label text-white small fw-semibold">{t('shipments.destinationLabel')}</label>
                                 <div className="input-group">
                                     <span className="input-group-text bg-dark border-secondary text-dim"><MapPin size={18} /></span>
-                                    <input type="text" className="form-control bg-dark text-white border-secondary" name="destinationAddress" placeholder="Ví dụ: Kho TP.HCM..." onChange={handleChange} required />
+                                    <input type="text" className="form-control bg-dark text-white border-secondary" name="destinationAddress" placeholder={t('shipments.destinationExample')} onChange={handleChange} required />
                                 </div>
                             </div>
 
                             <div className="row">
                                 <div className="col-6">
                                     <div className="mb-3">
-                                        <label className="form-label text-white small fw-semibold">Số lượng xuất</label>
+                                        <label className="form-label text-white small fw-semibold">{t('shipments.exportQuantity')}</label>
                                         <div className="input-group">
                                             <span className="input-group-text bg-dark border-secondary text-dim"><Box size={18} /></span>
                                             <input type="number" className="form-control bg-dark text-white border-secondary fw-bold" name="shipmentQuantity" value={formData.shipmentQuantity} onChange={handleChange} placeholder="0" required min="1" />
@@ -248,7 +250,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                                 </div>
                                 <div className="col-6">
                                     <div className="mb-3">
-                                        <label className="form-label text-white small fw-semibold">Tổng giá trị ($)</label>
+                                        <label className="form-label text-white small fw-semibold">{t('shipments.totalValueUSD')}</label>
                                         <div className="input-group">
                                             <span className="input-group-text bg-dark border-secondary text-success"><DollarSign size={18} /></span>
                                             <input type="text" className="form-control bg-dark text-white border-secondary fw-bold" name="totalValue" value={formData.totalValue} readOnly placeholder="Auto (+20%)" />
@@ -265,12 +267,12 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                 <div className="p-4 bg-black bg-opacity-20 border-top border-secondary border-opacity-10 d-flex justify-content-between align-items-center">
                     <p className="small text-dim mb-0 d-flex align-items-center gap-2">
                         <Save size={14} />
-                        Dữ liệu được mã hóa chuẩn <strong>AES-256-GCM</strong>
+                        Data encrypted with standard / Mã hóa chuẩn <strong>AES-256-GCM</strong>
                     </p>
                     <div className="d-flex gap-2">
-                        <button className="btn btn-outline-secondary text-white hover-light px-4" onClick={onSidebarClose}>Hủy bỏ</button>
+                        <button className="btn btn-outline-secondary text-white hover-light px-4" onClick={onSidebarClose}>{t('common.cancel')}</button>
                         <button className="btn btn-gold bg-gradient px-4 shadow fw-bold d-flex align-items-center gap-2" onClick={handleSubmit} disabled={loading}>
-                            {loading ? <span className="spinner-border spinner-border-sm"></span> : 'Tạo Vận Đơn'}
+                            {loading ? <span className="spinner-border spinner-border-sm"></span> : t('shipments.createBtn')}
                         </button>
                     </div>
                 </div>

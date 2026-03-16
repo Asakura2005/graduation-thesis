@@ -449,19 +449,53 @@ app.get('/api/audit-logs', authenticateToken, async (req, res) => {
 
 // 1. Auth & Users (Legacy)
 // 1. Auth & Users (System Users - Secure with Argon2 + AI Anomaly Detection)
+app.get('/api/settings/captcha', (req, res) => {
+    try {
+        const fs = require('fs');
+        const data = fs.readFileSync('./settings.json', 'utf8');
+        res.json(JSON.parse(data));
+    } catch (e) {
+        res.json({ captchaEnabled: true });
+    }
+});
+
+app.post('/api/settings/captcha', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+    try {
+        const { captchaEnabled } = req.body;
+        const fs = require('fs');
+        fs.writeFileSync('./settings.json', JSON.stringify({ captchaEnabled }));
+        await logAudit(req.user.id, 'SETTING_UPDATE', { setting: 'captcha', status: captchaEnabled });
+        res.json({ success: true, captchaEnabled });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.post('/api/auth/login', async (req, res) => {
-    const { username, password, captchaToken } = req.body;
+    let { username, password, captchaToken } = req.body;
+    
+    username = (username || '').trim();
+    password = (password || '').trim();
+
     const clientIP = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
 
+    // === CHECK SETTINGS ===
+    let captchaEnabled = true;
+    try {
+        const fs = require('fs');
+        const data = fs.readFileSync('./settings.json', 'utf8');
+        captchaEnabled = JSON.parse(data).captchaEnabled;
+    } catch (e) {}
+
     // === reCAPTCHA Verification ===
-    if (!captchaToken) {
+    if (captchaEnabled && !captchaToken) {
         return res.status(400).json({ error: 'Vui lòng xác nhận reCAPTCHA' });
     }
 
     try {
         const secretKey = process.env.RECAPTCHA_SECRET_KEY;
-        if (secretKey && secretKey !== 'YOUR_SECRET_KEY_HERE') {
+        if (captchaEnabled && secretKey && secretKey !== 'YOUR_SECRET_KEY_HERE') {
             const https = require('https');
             const verifyResult = await new Promise((resolve, reject) => {
                 const postData = `secret=${encodeURIComponent(secretKey)}&response=${encodeURIComponent(captchaToken)}&remoteip=${encodeURIComponent(clientIP)}`;
@@ -810,7 +844,14 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
 });
 
 app.post('/api/auth/register', async (req, res) => {
-    const { username, password, fullName, email, phone, role } = req.body;
+    let { username, password, fullName, email, phone, role } = req.body;
+
+    // Trim inputs to prevent accidental trailing spaces
+    username = (username || '').trim();
+    password = (password || '').trim();
+    fullName = (fullName || '').trim();
+    email = (email || '').trim();
+    phone = (phone || '').trim();
 
     // Password complexity validation
     const passwordRegex = /^(?=.*[A-Z])(?=.*[!@#$&*.,?<>^%\-_\=+~]).{8,}$/;

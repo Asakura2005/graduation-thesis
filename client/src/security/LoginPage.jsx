@@ -4,7 +4,7 @@ import axios from 'axios';
 import { useLanguage } from '../i18n/LanguageContext';
 
 const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -13,6 +13,7 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
     const [rememberSession, setRememberSession] = useState(false);
     const [securityWarnings, setSecurityWarnings] = useState([]);
     const [captchaToken, setCaptchaToken] = useState('');
+    const [captchaEnabled, setCaptchaEnabled] = useState(true);
     const recaptchaRef = useRef(null);
     const recaptchaWidgetId = useRef(null);
 
@@ -24,6 +25,16 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
     // System status animation
     const [latency, setLatency] = useState(14);
     useEffect(() => {
+        const fetchSettings = async () => {
+            try {
+                const res = await axios.get('http://localhost:5001/api/settings/captcha');
+                setCaptchaEnabled(res.data.captchaEnabled);
+            } catch (err) {
+                console.error("Failed to load settings:", err);
+            }
+        };
+        fetchSettings();
+
         const interval = setInterval(() => {
             setLatency(Math.floor(Math.random() * 12) + 8);
         }, 3000);
@@ -32,6 +43,8 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
 
     // Render reCAPTCHA widget when grecaptcha is loaded
     useEffect(() => {
+        if (!captchaEnabled) return;
+
         const renderCaptcha = () => {
             if (window.grecaptcha && window.grecaptcha.render && recaptchaRef.current && recaptchaWidgetId.current === null) {
                 try {
@@ -59,7 +72,7 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
             }, 500);
             return () => clearInterval(interval);
         }
-    }, [requires2FA]);
+    }, [requires2FA, captchaEnabled]);
 
     const resetCaptcha = useCallback(() => {
         setCaptchaToken('');
@@ -75,8 +88,8 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
         setLoading(true);
 
         try {
-            if (!captchaToken) {
-                setError('Vui lòng xác nhận bạn không phải robot');
+            if (captchaEnabled && !captchaToken) {
+                setError(language === 'en' ? 'Please confirm you are not a robot' : 'Vui lòng xác nhận bạn không phải robot');
                 setLoading(false);
                 return;
             }
@@ -129,7 +142,7 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
             localStorage.setItem('token', response.data.token);
             onLoginSuccess(response.data);
         } catch (err) {
-            setError(err.response?.data?.error || 'Mã xác thực không hợp lệ');
+            setError(err.response?.data?.error || (language === 'en' ? 'Invalid verification code' : 'Mã xác thực không hợp lệ'));
         } finally {
             setLoading(false);
         }
@@ -597,9 +610,11 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
                             </div>
 
                             {/* reCAPTCHA */}
-                            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
-                                <div ref={recaptchaRef}></div>
-                            </div>
+                            {captchaEnabled && (
+                                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+                                    <div ref={recaptchaRef}></div>
+                                </div>
+                            )}
 
                             {/* Submit */}
                             <button
