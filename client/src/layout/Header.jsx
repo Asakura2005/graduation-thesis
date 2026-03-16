@@ -13,11 +13,6 @@ const Header = ({ user, handleLogout, setActiveTab }) => {
     >
       {/* LEFT */}
       <div className="d-flex align-items-center gap-3">
-      </div>
-
-      {/* RIGHT */}
-      <div className="d-flex align-items-center gap-4">
-        {/* SEARCH */}
         <div className="position-relative d-none d-md-block">
           <Search
             size={18}
@@ -44,6 +39,12 @@ const Header = ({ user, handleLogout, setActiveTab }) => {
             }}
           />
         </div>
+      </div>
+
+      {/* RIGHT */}
+      <div className="d-flex align-items-center gap-4">
+        {/* SEARCH */}
+
 
         {/* ICONS */}
         <div className="d-flex gap-2">
