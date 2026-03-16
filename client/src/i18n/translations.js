@@ -321,7 +321,7 @@ export const translations = {
         },
         // === SIDEBAR ===
         sidebar: {
-            dashboard: 'Dashboard',
+            dashboard: 'Bảng Điều Khiển',
             shipments: 'Vận Đơn',
             shipmentApproval: 'Duyệt Vận Đơn',
             partners: 'Đối Tác',
