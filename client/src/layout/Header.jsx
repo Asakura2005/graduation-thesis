@@ -13,7 +13,6 @@ const Header = ({ user, handleLogout, setActiveTab }) => {
     >
       {/* LEFT */}
       <div className="d-flex align-items-center gap-3">
-        <h4 className="mb-0 fw-bold text-white">{t('sidebar.dashboard')}</h4>
       </div>
 
       {/* RIGHT */}
