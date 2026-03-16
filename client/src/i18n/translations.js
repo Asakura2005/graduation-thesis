@@ -280,6 +280,11 @@ export const translations = {
             account: 'Tài khoản',
             roleLabel: 'Vai trò',
             loginTime: 'Đăng nhập lúc',
+            adminTitle: 'Cài đặt Quản trị (Admin)',
+            captchaLabel: 'Xác thực reCAPTCHA khi đăng nhập',
+            captchaDesc: 'Yêu cầu người dùng xác nhận reCAPTCHA để chống bot',
+            captchaOn: 'Đã Bật xác thực reCAPTCHA',
+            captchaOff: 'Đã Tắt xác thực reCAPTCHA',
         },
         language: {
             title: 'Cài đặt ngôn ngữ',
@@ -680,6 +685,11 @@ export const translations = {
             account: 'Account',
             roleLabel: 'Role',
             loginTime: 'Logged in at',
+            adminTitle: 'Admin Settings',
+            captchaLabel: 'reCAPTCHA verification on login',
+            captchaDesc: 'Require users to verify reCAPTCHA to prevent bots',
+            captchaOn: 'Turned on reCAPTCHA verification',
+            captchaOff: 'Turned off reCAPTCHA verification',
         },
         language: {
             title: 'Language Settings',

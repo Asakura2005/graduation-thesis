@@ -162,7 +162,7 @@ const ProfileSettings = ({ user }) => {
             }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
             
             setCaptchaEnabled(newStatus);
-            showToast('success', `Đã ${newStatus ? 'Bật' : 'Tắt'} xác thực reCAPTCHA`);
+            showToast('success', newStatus ? t('security.captchaOn') : t('security.captchaOff'));
         } catch (e) {
             showToast('error', e.response?.data?.error || 'Lỗi khi thay đổi cài đặt CAPTCHA');
         }
@@ -629,12 +629,12 @@ const ProfileSettings = ({ user }) => {
                             {profile.role === 'Admin' && (
                                 <div className="p-4 rounded-3" style={cardStyle}>
                                     <h6 className="text-gold fw-bold mb-3 d-flex align-items-center gap-2">
-                                        <Settings size={16} /> Cài đặt Quản trị (Admin)
+                                        <Settings size={16} /> {t('security.adminTitle')}
                                     </h6>
                                     <div className="d-flex align-items-center justify-content-between py-2 border-bottom border-light border-opacity-5">
                                         <div>
-                                            <span className="text-white small fw-semibold">Xác thực reCAPTCHA khi đăng nhập</span>
-                                            <div className="text-dim x-small">Yêu cầu người dùng xác nhận reCAPTCHA để chống bot</div>
+                                            <span className="text-white small fw-semibold">{t('security.captchaLabel')}</span>
+                                            <div className="text-dim x-small">{t('security.captchaDesc')}</div>
                                         </div>
                                         <div className="form-check form-switch" style={{ fontSize: '1.25rem' }}>
                                             <input className="form-check-input" type="checkbox" role="switch" checked={captchaEnabled} onChange={handleToggleCaptcha} style={{ cursor: 'pointer', accentColor: '#D4AF37' }} />
