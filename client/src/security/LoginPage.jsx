@@ -97,7 +97,8 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
             const response = await axios.post('http://localhost:5001/api/auth/login', {
                 username,
                 password,
-                captchaToken
+                captchaToken,
+                rememberSession
             });
 
             // Kiểm tra cảnh báo AI trước khi cho phép đăng nhập
@@ -109,7 +110,12 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
                 setRequires2FA(true);
                 setTempToken(response.data.tempToken);
             } else {
-                localStorage.setItem('token', response.data.token);
+                if (rememberSession) {
+                    localStorage.setItem('token', response.data.token);
+                } else {
+                    sessionStorage.setItem('token', response.data.token);
+                    localStorage.removeItem('token');
+                }
                 onLoginSuccess(response.data);
             }
         } catch (err) {
@@ -139,7 +145,12 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
                 token: otp
             });
 
-            localStorage.setItem('token', response.data.token);
+            if (rememberSession) {
+                localStorage.setItem('token', response.data.token);
+            } else {
+                sessionStorage.setItem('token', response.data.token);
+                localStorage.removeItem('token');
+            }
             onLoginSuccess(response.data);
         } catch (err) {
             setError(err.response?.data?.error || (language === 'en' ? 'Invalid verification code' : 'Mã xác thực không hợp lệ'));

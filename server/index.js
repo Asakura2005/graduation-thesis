@@ -472,7 +472,7 @@ app.post('/api/settings/captcha', authenticateToken, authorizeRole(['Admin']), a
 });
 
 app.post('/api/auth/login', async (req, res) => {
-    let { username, password, captchaToken } = req.body;
+    let { username, password, captchaToken, rememberSession } = req.body;
     
     username = (username || '').trim();
     password = (password || '').trim();
@@ -785,11 +785,13 @@ app.post('/api/auth/login', async (req, res) => {
 
         // 2FA Check
         if (user.is_two_fa_enabled) {
-            const tempToken = jwt.sign({ id: user.user_id, role: decryptedRole, username: decryptedUsername, pending2FA: true }, process.env.JWT_SECRET || 'secret', { expiresIn: '5m' });
+            const tempToken = jwt.sign({ id: user.user_id, role: decryptedRole, username: decryptedUsername, pending2FA: true, rememberSession: !!rememberSession }, process.env.JWT_SECRET || 'secret', { expiresIn: '5m' });
             return res.json({ requires2FA: true, tempToken, riskScore: fullAnalysis.riskScore });
         }
 
-        const token = jwt.sign({ id: user.user_id, role: decryptedRole, username: decryptedUsername }, process.env.JWT_SECRET || 'secret');
+        // Thời hạn token: 30 ngày nếu "Duy trì phiên", 30 phút nếu không
+        const tokenExpiry = rememberSession ? '30d' : '30m';
+        const token = jwt.sign({ id: user.user_id, role: decryptedRole, username: decryptedUsername }, process.env.JWT_SECRET || 'secret', { expiresIn: tokenExpiry });
 
         await logAudit(user.user_id, 'USER_LOGIN', {
             username: decryptedUsername,
@@ -836,7 +838,9 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
 
         if (!isValid) return res.status(401).json({ error: 'Mã xác thực không hợp lệ. Hãy kiểm tra lại Google Authenticator.' });
 
-        const finalToken = jwt.sign({ id: decoded.id, role: decoded.role, username: decoded.username }, process.env.JWT_SECRET || 'secret');
+        // Lấy rememberSession từ tempToken (đã được nhúng trước đó khi login)
+        const tokenExpiry2FA = decoded.rememberSession ? '30d' : '30m';
+        const finalToken = jwt.sign({ id: decoded.id, role: decoded.role, username: decoded.username }, process.env.JWT_SECRET || 'secret', { expiresIn: tokenExpiry2FA });
         await logAudit(decoded.id, 'USER_LOGIN_2FA', { username: decoded.username });
 
         res.json({ token: finalToken, role: decoded.role, username: decoded.username });
