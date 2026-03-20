@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import axios from 'axios';
 import { UserPlus, User, Lock, Mail, Phone, ShieldCheck, Eye, EyeOff, CheckCircle, AlertCircle, KeyRound } from 'lucide-react';
@@ -18,13 +18,63 @@ const RegisterPage = ({ onBackToLogin }) => {
     const [showPw, setShowPw] = useState({ password: false, confirm: false });
     const [loading, setLoading] = useState(false);
 
+    // reCAPTCHA states
+    const [captchaToken, setCaptchaToken] = useState('');
+    const [captchaEnabled, setCaptchaEnabled] = useState(true);
+    const recaptchaRef = useRef(null);
+    const recaptchaWidgetId = useRef(null);
+
     // System status animation
     const [latency, setLatency] = useState(14);
     useEffect(() => {
+        // Lấy trạng thái captcha từ server
+        const fetchSettings = async () => {
+            try {
+                const res = await axios.get('http://localhost:5001/api/settings/captcha');
+                setCaptchaEnabled(res.data.captchaEnabled);
+            } catch (err) { /* giữ mặc định là true */ }
+        };
+        fetchSettings();
+
         const interval = setInterval(() => {
             setLatency(Math.floor(Math.random() * 12) + 8);
         }, 3000);
         return () => clearInterval(interval);
+    }, []);
+
+    // Render reCAPTCHA widget khi captcha được bật
+    useEffect(() => {
+        if (!captchaEnabled) return;
+        const renderCaptcha = () => {
+            if (window.grecaptcha && window.grecaptcha.render && recaptchaRef.current && recaptchaWidgetId.current === null) {
+                try {
+                    recaptchaWidgetId.current = window.grecaptcha.render(recaptchaRef.current, {
+                        sitekey: '6Lc3SIosAAAAADuFj_WQmiV4CNWRcXQ3_e1JkDMq',
+                        callback: (token) => setCaptchaToken(token),
+                        'expired-callback': () => setCaptchaToken(''),
+                        theme: 'dark',
+                    });
+                } catch (e) { /* widget đã render */ }
+            }
+        };
+        if (window.grecaptcha && window.grecaptcha.render) {
+            renderCaptcha();
+        } else {
+            const interval = setInterval(() => {
+                if (window.grecaptcha && window.grecaptcha.render) {
+                    renderCaptcha();
+                    clearInterval(interval);
+                }
+            }, 500);
+            return () => clearInterval(interval);
+        }
+    }, [captchaEnabled]);
+
+    const resetCaptcha = useCallback(() => {
+        setCaptchaToken('');
+        if (window.grecaptcha && recaptchaWidgetId.current !== null) {
+            try { window.grecaptcha.reset(recaptchaWidgetId.current); } catch(e) {}
+        }
     }, []);
 
     const pwRules = [
@@ -69,15 +119,24 @@ const RegisterPage = ({ onBackToLogin }) => {
             return setError('Mật khẩu phải chứa ít nhất 8 ký tự, 1 chữ hoa, 1 chữ số và 1 ký tự đặc biệt');
         }
 
+        // Kiểm tra reCAPTCHA
+        if (captchaEnabled && !captchaToken) {
+            return setError('Vui lòng xác nhận bạn không phải robot 🤖');
+        }
+
         setLoading(true);
         try {
-            const res = await axios.post('http://localhost:5001/api/auth/register', formData);
+            const res = await axios.post('http://localhost:5001/api/auth/register', {
+                ...formData,
+                captchaToken  // gửi captchaToken lên server
+            });
             setSuccess(res.data.message || 'Đăng ký thành công! Đang chuyển về trang đăng nhập...');
             setTimeout(() => {
                 onBackToLogin();
             }, 2000);
         } catch (err) {
             setError(err.response?.data?.error || 'Đăng ký thất bại');
+            resetCaptcha(); // reset captcha khi có lỗi
         } finally {
             setLoading(false);
         }
@@ -595,12 +654,19 @@ const RegisterPage = ({ onBackToLogin }) => {
                         </div>
                     )}
 
+                    {/* reCAPTCHA Widget */}
+                    {captchaEnabled && (
+                        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px', marginTop: '4px' }}>
+                            <div ref={recaptchaRef}></div>
+                        </div>
+                    )}
+
                     {/* Submit */}
                     <button
                         type="submit"
                         className="reg-submit"
                         style={s.submitBtn}
-                        disabled={loading}
+                        disabled={loading || (captchaEnabled && !captchaToken)}
                     >
                         {loading ? (
                             <div style={s.spinner} />

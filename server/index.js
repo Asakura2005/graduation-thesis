@@ -848,7 +848,7 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
 });
 
 app.post('/api/auth/register', async (req, res) => {
-    let { username, password, fullName, email, phone, role } = req.body;
+    let { username, password, fullName, email, phone, role, captchaToken } = req.body;
 
     // Trim inputs to prevent accidental trailing spaces
     username = (username || '').trim();
@@ -856,6 +856,51 @@ app.post('/api/auth/register', async (req, res) => {
     fullName = (fullName || '').trim();
     email = (email || '').trim();
     phone = (phone || '').trim();
+
+    // === Kiểm tra cài đặt CAPTCHA ===
+    let captchaEnabled = true;
+    try {
+        const fs = require('fs');
+        const data = fs.readFileSync('./settings.json', 'utf8');
+        captchaEnabled = JSON.parse(data).captchaEnabled;
+    } catch (e) {}
+
+    // === Verify reCAPTCHA nếu được bật ===
+    if (captchaEnabled) {
+        if (!captchaToken) {
+            return res.status(400).json({ error: 'Vui lòng xác nhận bạn không phải robot' });
+        }
+        try {
+            const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+            if (secretKey && secretKey !== 'YOUR_SECRET_KEY_HERE') {
+                const https = require('https');
+                const clientIP = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+                const verifyResult = await new Promise((resolve, reject) => {
+                    const postData = `secret=${encodeURIComponent(secretKey)}&response=${encodeURIComponent(captchaToken)}&remoteip=${encodeURIComponent(clientIP)}`;
+                    const options = {
+                        hostname: 'www.google.com', port: 443,
+                        path: '/recaptcha/api/siteverify', method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(postData) }
+                    };
+                    const req2 = https.request(options, (r2) => {
+                        let data = '';
+                        r2.on('data', chunk => data += chunk);
+                        r2.on('end', () => resolve(JSON.parse(data)));
+                    });
+                    req2.on('error', reject);
+                    req2.write(postData);
+                    req2.end();
+                });
+                if (!verifyResult.success) {
+                    return res.status(400).json({ error: 'Xác nhận reCAPTCHA thất bại. Vui lòng thử lại.' });
+                }
+                console.log('[reCAPTCHA Register] ✅ Verification passed');
+            }
+        } catch (captchaErr) {
+            console.error('[reCAPTCHA Register] Error:', captchaErr.message);
+            // Non-blocking: cho phép đăng ký nếu reCAPTCHA service bị lỗi
+        }
+    }
 
     // Password complexity validation
     const passwordRegex = /^(?=.*[A-Z])(?=.*[!@#$&*.,?<>^%\-_\=+~]).{8,}$/;
@@ -902,6 +947,7 @@ app.post('/api/auth/register', async (req, res) => {
         res.status(201).json({ message: 'User registered' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 
 app.get('/api/auth/me', authenticateToken, (req, res) => {
     // req.user contains the decoded JWT loaded by authenticateToken

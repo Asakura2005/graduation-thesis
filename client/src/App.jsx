@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Package, ArrowRight, Search, RefreshCcw } from "lucide-react";
 import axios from "axios";
 import LoginPage from "./security/LoginPage";
@@ -87,7 +87,8 @@ const App = () => {
   // Auto Login Check
   useEffect(() => {
     const verifySession = async () => {
-      const token = localStorage.getItem("token");
+      // Kiểm tra cả localStorage (remember) và sessionStorage (không remember)
+      const token = localStorage.getItem("token") || sessionStorage.getItem("token");
       if (!token) {
         setInitialCheck(false);
         return;
@@ -112,7 +113,8 @@ const App = () => {
   useEffect(() => {
     const reqInterceptor = axios.interceptors.request.use(
       (config) => {
-        const token = localStorage.getItem("token");
+        // Đọc token từ localStorage (remember session) hoặc sessionStorage (không remember)
+        const token = localStorage.getItem("token") || sessionStorage.getItem("token");
         if (token) config.headers.Authorization = `Bearer ${token}`;
         return config;
       },
@@ -163,6 +165,7 @@ const App = () => {
 
   const handleLogout = () => {
     localStorage.removeItem("token");
+    sessionStorage.removeItem("token");
     setUser(null);
   };
 
