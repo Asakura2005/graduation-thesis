@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const os = require('os');
 const cors = require('cors');
 const sql = require('mssql');
 const jwt = require('jsonwebtoken');
@@ -14,6 +15,32 @@ const anomalyDetector = require('./AnomalyDetectionService');
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Helper: Resolve loopback IP (::1, 127.0.0.1) to real LAN IP
+function getLocalIP() {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+                return iface.address;
+            }
+        }
+    }
+    return '127.0.0.1';
+}
+
+function resolveClientIP(req) {
+    let ip = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || 'unknown';
+    // Take first IP if comma-separated
+    if (ip.includes(',')) ip = ip.split(',')[0].trim();
+    // Remove IPv6 prefix
+    if (ip.startsWith('::ffff:')) ip = ip.substring(7);
+    // Replace loopback with real LAN IP
+    if (ip === '::1' || ip === '127.0.0.1' || ip === 'unknown') {
+        ip = getLocalIP();
+    }
+    return ip;
+}
 
 // Database Config
 const dbConfig = {
@@ -477,7 +504,7 @@ app.post('/api/auth/login', async (req, res) => {
     username = (username || '').trim();
     password = (password || '').trim();
 
-    const clientIP = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+    const clientIP = resolveClientIP(req);
     const userAgent = req.headers['user-agent'] || 'unknown';
 
     // === CHECK SETTINGS ===
@@ -874,7 +901,7 @@ app.post('/api/auth/register', async (req, res) => {
             const secretKey = process.env.RECAPTCHA_SECRET_KEY;
             if (secretKey && secretKey !== 'YOUR_SECRET_KEY_HERE') {
                 const https = require('https');
-                const clientIP = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+                const clientIP = resolveClientIP(req);
                 const verifyResult = await new Promise((resolve, reject) => {
                     const postData = `secret=${encodeURIComponent(secretKey)}&response=${encodeURIComponent(captchaToken)}&remoteip=${encodeURIComponent(clientIP)}`;
                     const options = {
