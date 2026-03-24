@@ -1,5 +1,5 @@
 import React from "react";
-import { LogOut, Bell, Settings, User, Search, Grid } from "lucide-react";
+import { LogOut, Settings, User, Search } from "lucide-react";
 import { useLanguage } from "../i18n/LanguageContext";
 import NotificationPanel from "./NotificationPanel";
 
@@ -50,13 +50,7 @@ const Header = ({ user, handleLogout, setActiveTab }) => {
         <div className="d-flex gap-2">
           <NotificationPanel user={user} />
 
-          <button className="btn btn-link text-dim p-2 hover-light rounded-circle">
-            <Grid size={20} />
-          </button>
 
-          <button className="btn btn-link text-dim p-2 hover-light rounded-circle">
-            <Settings size={20} />
-          </button>
         </div>
 
         <div className="border-start border-secondary border-opacity-25 h-50 mx-2"></div>

@@ -243,6 +243,9 @@ const RegisterPage = ({ onBackToLogin }) => {
             height: '48px',
             marginBottom: '16px',
             transition: 'border-color 0.3s, box-shadow 0.3s',
+            boxSizing: 'border-box',
+            width: '100%',
+            overflow: 'hidden',
         },
         inputIcon: {
             color: '#4a6a8a',
@@ -439,6 +442,11 @@ const RegisterPage = ({ onBackToLogin }) => {
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
             gap: '12px',
+            minWidth: 0,
+        },
+        twoColItem: {
+            minWidth: 0,
+            overflow: 'hidden',
         },
     };
 
@@ -517,7 +525,7 @@ const RegisterPage = ({ onBackToLogin }) => {
 
                     {/* Email & Phone - 2 columns */}
                     <div style={s.twoColRow}>
-                        <div>
+                        <div style={s.twoColItem}>
                             <label style={s.label}>{t('register.email')}</label>
                             <div className="reg-input-group" style={s.inputGroup}>
                                 <Mail size={18} style={s.inputIcon} />
@@ -531,7 +539,7 @@ const RegisterPage = ({ onBackToLogin }) => {
                                 />
                             </div>
                         </div>
-                        <div>
+                        <div style={s.twoColItem}>
                             <label style={s.label}>{t('register.phone')}</label>
                             <div className="reg-input-group" style={s.inputGroup}>
                                 <Phone size={18} style={s.inputIcon} />

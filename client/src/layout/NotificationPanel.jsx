@@ -91,22 +91,85 @@ const NotificationPanel = ({ user }) => {
 
   return (
     <div className="position-relative" ref={panelRef}>
+      <style>{`
+        @keyframes bell-ring {
+          0%,100% { transform: rotate(0deg); }
+          10%      { transform: rotate(14deg); }
+          20%      { transform: rotate(-12deg); }
+          30%      { transform: rotate(10deg); }
+          40%      { transform: rotate(-8deg); }
+          50%      { transform: rotate(6deg); }
+          60%      { transform: rotate(-4deg); }
+          70%      { transform: rotate(2deg); }
+        }
+        @keyframes badge-pulse {
+          0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+          50%      { box-shadow: 0 0 0 5px rgba(239,68,68,0); }
+        }
+        @keyframes glow-pulse {
+          0%,100% { box-shadow: 0 0 0 0 rgba(0,229,160,0.0), 0 4px 15px rgba(0,229,160,0.15); }
+          50%      { box-shadow: 0 0 0 6px rgba(0,229,160,0.08), 0 4px 20px rgba(0,229,160,0.3); }
+        }
+        .bell-btn {
+          width: 44px;
+          height: 44px;
+          border-radius: 14px !important;
+          background: linear-gradient(135deg, rgba(0,229,160,0.12) 0%, rgba(0,180,130,0.06) 100%) !important;
+          border: 1px solid rgba(0,229,160,0.2) !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          transition: all 0.3s ease !important;
+          position: relative !important;
+          padding: 0 !important;
+        }
+        .bell-btn:hover {
+          background: linear-gradient(135deg, rgba(0,229,160,0.22) 0%, rgba(0,180,130,0.12) 100%) !important;
+          border-color: rgba(0,229,160,0.45) !important;
+          box-shadow: 0 0 18px rgba(0,229,160,0.2), 0 4px 12px rgba(0,0,0,0.3) !important;
+          transform: translateY(-1px) !important;
+        }
+        .bell-btn .bell-icon {
+          color: #00e5a0;
+          filter: drop-shadow(0 0 6px rgba(0,229,160,0.5));
+          transition: color 0.2s;
+        }
+        .bell-btn.has-unread {
+          animation: glow-pulse 2.5s ease-in-out infinite;
+        }
+        .bell-btn.has-unread .bell-icon {
+          animation: bell-ring 2.5s ease-in-out infinite;
+          transform-origin: top center;
+        }
+        .bell-badge {
+          position: absolute !important;
+          top: -5px !important;
+          right: -5px !important;
+          min-width: 20px !important;
+          height: 20px !important;
+          padding: 0 5px !important;
+          font-size: 0.6rem !important;
+          font-weight: 700 !important;
+          border-radius: 10px !important;
+          background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+          color: #fff !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          border: 2px solid rgba(10,14,26,0.9) !important;
+          animation: badge-pulse 2s ease-in-out infinite !important;
+          z-index: 10 !important;
+        }
+      `}</style>
+
       <button
-        className="btn btn-link text-dim p-2 hover-light rounded-circle position-relative"
+        className={`bell-btn${unreadCount > 0 ? " has-unread" : ""}`}
         onClick={() => setShowPanel(!showPanel)}
+        title="Thông báo"
       >
-        <Bell size={20} />
+        <Bell size={22} className="bell-icon" />
         {unreadCount > 0 && (
-          <span
-            className="position-absolute badge rounded-pill bg-danger shadow"
-            style={{
-              top: "2px",
-              right: "2px",
-              fontSize: "0.6rem",
-              minWidth: "18px",
-              padding: "3px 5px",
-            }}
-          >
+          <span className="bell-badge">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
