@@ -12,9 +12,14 @@ const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const anomalyDetector = require('./AnomalyDetectionService');
 
+const path = require('path');
+
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Serve React frontend (built files)
+app.use(express.static(path.join(__dirname, '..', 'client', 'dist')));
 
 // Helper: Resolve loopback IP (::1, 127.0.0.1) to real LAN IP
 function getLocalIP() {
@@ -2836,7 +2841,12 @@ try {
         }
     });
 
-    const HTTPS_PORT = parseInt(PORT) + 1; // 5002
+// Catch-all: serve React frontend for any non-API route (SPA support)
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'client', 'dist', 'index.html'));
+});
+
+const HTTPS_PORT = parseInt(PORT) + 1; // 5002
     httpsServer.listen(HTTPS_PORT, () => {
         console.log(`[SECURITY] HTTPS Server Cấu hình TLS Session Resumption đang chạy tại port ${HTTPS_PORT}`);
     });

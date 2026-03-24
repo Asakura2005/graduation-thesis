@@ -45,7 +45,19 @@ const App = () => {
   const indexOfLast = currentPage * shipmentsPerPage;
   const indexOfFirst = indexOfLast - shipmentsPerPage;
 
-  const currentShipments = shipments.slice(indexOfFirst, indexOfLast);
+  // Sắp xếp theo ngày giảm dần (mới nhất trước), Invalid Date đẩy xuống cuối
+  const sortedShipments = [...shipments].sort((a, b) => {
+    const dateA = new Date(a.shipment_date);
+    const dateB = new Date(b.shipment_date);
+    const validA = !isNaN(dateA.getTime());
+    const validB = !isNaN(dateB.getTime());
+    if (!validA && !validB) return 0;
+    if (!validA) return 1;
+    if (!validB) return -1;
+    return dateB - dateA;
+  });
+
+  const currentShipments = sortedShipments.slice(indexOfFirst, indexOfLast);
 
   // New state for details view
   const [selectedShipment, setSelectedShipment] = useState(null);
@@ -379,8 +391,8 @@ const App = () => {
                   <div className="d-flex justify-content-between align-items-center mt-3 small text-dim">
                     <span>
                       {t('dashboard.showing')} {indexOfFirst + 1} –{" "}
-                      {Math.min(indexOfLast, shipments.length)} /{" "}
-                      {shipments.length}
+                      {Math.min(indexOfLast, sortedShipments.length)} /{" "}
+                      {sortedShipments.length}
                     </span>
 
                     <div className="d-flex gap-2">
@@ -396,11 +408,11 @@ const App = () => {
                       </button>
 
                       <button
-                        className={`btn btn-sm ${indexOfLast >= shipments.length
+                        className={`btn btn-sm ${indexOfLast >= sortedShipments.length
                           ? "btn-outline-secondary"
                           : "btn-warning text-dark"
                           }`}
-                        disabled={indexOfLast >= shipments.length}
+                        disabled={indexOfLast >= sortedShipments.length}
                         onClick={() => setCurrentPage(currentPage + 1)}
                       >
                         {t('dashboard.nextPage')}
