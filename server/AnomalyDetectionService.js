@@ -103,7 +103,7 @@ class AnomalyDetectionService {
         ];
         this.AUTO_BAN_THRESHOLD = 70;  // Risk score >= 70 → tự động ban
         this.BLOCK_COUNT_TRIGGER = 3;  // Số lần bị BLOCK trong 1 giờ → tự động ban
-        this.MAX_FAILED_BEFORE_BAN = 7; // Số lần sai mật khẩu liên tiếp → tự động ban
+        this.MAX_FAILED_BEFORE_BAN = 3; // Số lần sai mật khẩu liên tiếp → tự động ban
 
         // === IN-MEMORY RATE LIMITER (Chống Credential Stuffing & Password Spray) ===
         this._ipAttemptMap = new Map(); // ipHash -> { count, firstTime, usernames: Set }

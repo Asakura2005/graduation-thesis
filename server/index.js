@@ -707,7 +707,7 @@ app.post('/api/auth/login', async (req, res) => {
                     .query(`INSERT INTO notifications (target_role, title, message, type) VALUES ('Admin', @nTitle, @nMsg, @nType)`);
             } catch (recErr) { console.error('[AI Anomaly] Record error:', recErr.message); }
 
-            // === AUTO-BAN: Kiểm tra sai mật khẩu >= 7 lần liên tiếp → tự động ban ===
+            // === AUTO-BAN: Kiểm tra sai mật khẩu >= 3 lần liên tiếp → tự động ban ===
             try {
                 const banResult = await anomalyDetector.autobanOnFailedPasswords(pool, {
                     userId: user.user_id,
@@ -729,7 +729,7 @@ app.post('/api/auth/login', async (req, res) => {
                     // Gửi notification cho Admin
                     await pool.request()
                         .input('nTitle2', sql.NVarChar, '🚫 AI tự động khoá tài khoản')
-                        .input('nMsg2', sql.NVarChar, `Tài khoản "${decryptedUsernameForBan}" đã bị AI tự động khoá do sai mật khẩu ≥ 7 lần liên tiếp. Thời gian khoá: ${banResult.duration}. Ban level: ${banResult.banLevel}. IP: ${clientIP}`)
+                        .input('nMsg2', sql.NVarChar, `Tài khoản "${decryptedUsernameForBan}" đã bị AI tự động khoá do sai mật khẩu ≥ ${anomalyDetector.MAX_FAILED_BEFORE_BAN} lần liên tiếp. Thời gian khoá: ${banResult.duration}. Ban level: ${banResult.banLevel}. IP: ${clientIP}`)
                         .input('nType2', sql.NVarChar, 'security')
                         .query(`INSERT INTO notifications (target_role, title, message, type) VALUES ('Admin', @nTitle2, @nMsg2, @nType2)`);
 
