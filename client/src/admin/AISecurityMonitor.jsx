@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Shield,
   ShieldAlert,
@@ -27,7 +27,7 @@ import {
 import axios from "axios";
 import { useLanguage } from "../i18n/LanguageContext";
 
-const API = "http://localhost:5001";
+const API = "";
 
 // =====================================================
 //  SUB-COMPONENTS
@@ -106,7 +106,7 @@ const RiskBadge = ({ score, labels }) => {
         fontSize: "0.65rem",
       }}
     >
-      {score} — {label}
+      {score} � {label}
     </span>
   );
 };
@@ -227,12 +227,12 @@ const BanDurationSelect = ({ value, onChange }) => (
     onChange={(e) => onChange(parseInt(e.target.value))}
     style={{ width: 180 }}
   >
-    <option value={15}>15 phút</option>
-    <option value={60}>1 giờ</option>
-    <option value={360}>6 giờ</option>
-    <option value={1440}>24 giờ</option>
-    <option value={10080}>7 ngày</option>
-    <option value={-1}>Vĩnh viễn</option>
+    <option value={15}>15 ph�t</option>
+    <option value={60}>1 gi?</option>
+    <option value={360}>6 gi?</option>
+    <option value={1440}>24 gi?</option>
+    <option value={10080}>7 ng�y</option>
+    <option value={-1}>Vinh vi?n</option>
   </select>
 );
 
@@ -272,7 +272,7 @@ const AISecurityMonitor = () => {
       setAllUsers(usersRes.data);
     } catch (err) {
       console.error("AI Security Monitor fetch error:", err);
-      showNotification("error", "Không thể tải dữ liệu AI Security");
+      showNotification("error", "Kh�ng th? t?i d? li?u AI Security");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -294,7 +294,7 @@ const AISecurityMonitor = () => {
   // Actions
   const handleUnban = async (userId, username) => {
     if (
-      !window.confirm(`Bạn có chắc muốn gỡ ban cho user "${username}"?`)
+      !window.confirm(`B?n c� ch?c mu?n g? ban cho user "${username}"?`)
     )
       return;
     setActionLoading(userId);
@@ -307,11 +307,11 @@ const AISecurityMonitor = () => {
       );
       showNotification(
         "success",
-        `✅ Đã gỡ ban cho ${username} thành công!`,
+        `? �� g? ban cho ${username} th�nh c�ng!`,
       );
       fetchData();
     } catch (err) {
-      showNotification("error", `Lỗi gỡ ban: ${err.message}`);
+      showNotification("error", `L?i g? ban: ${err.message}`);
     } finally {
       setActionLoading(null);
     }
@@ -328,13 +328,13 @@ const AISecurityMonitor = () => {
       );
       showNotification(
         "success",
-        `🚫 Đã ban user thành công! (${banDuration === -1 ? "Vĩnh viễn" : `${banDuration} phút`})`,
+        `?? �� ban user th�nh c�ng! (${banDuration === -1 ? "Vinh vi?n" : `${banDuration} ph�t`})`,
       );
       setShowBanModal(null);
       setBanReason("");
       fetchData();
     } catch (err) {
-      showNotification("error", `Lỗi ban user: ${err.message}`);
+      showNotification("error", `L?i ban user: ${err.message}`);
     } finally {
       setActionLoading(null);
     }
@@ -467,7 +467,7 @@ const AISecurityMonitor = () => {
                 label={t('ai.totalLogins')}
                 value={stats24h.totalAttempts || 0}
                 color="45,135,255"
-                subtext={`${stats24h.successCount || 0} thành công`}
+                subtext={`${stats24h.successCount || 0} th�nh c�ng`}
               />
             </div>
             <div className="col-lg-3 col-md-6">
@@ -477,7 +477,7 @@ const AISecurityMonitor = () => {
                 value={stats24h.blockedCount || 0}
                 color="255,71,87"
                 pulse={stats24h.blockedCount > 0}
-                subtext={`${stats24h.failCount || 0} thất bại`}
+                subtext={`${stats24h.failCount || 0} th?t b?i`}
               />
             </div>
             <div className="col-lg-3 col-md-6">
@@ -523,7 +523,7 @@ const AISecurityMonitor = () => {
                         background: "#2ed573",
                       }}
                     />{" "}
-                    Bình thường
+                    B�nh thu?ng
                   </span>
                   <span
                     className="d-flex align-items-center gap-1 text-dim"
@@ -537,7 +537,7 @@ const AISecurityMonitor = () => {
                         background: "#ffa502",
                       }}
                     />{" "}
-                    Đáng ngờ
+                    ��ng ng?
                   </span>
                   <span
                     className="d-flex align-items-center gap-1 text-dim"
@@ -551,7 +551,7 @@ const AISecurityMonitor = () => {
                         background: "#ff4757",
                       }}
                     />{" "}
-                    Bị chặn
+                    B? ch?n
                   </span>
                 </div>
               </div>
@@ -588,7 +588,7 @@ const AISecurityMonitor = () => {
                   >
                     <span>{t('ai.blockThreshold')}</span>
                     <span className="text-danger fw-bold">
-                      ≥ {analytics?.config?.riskThreshold}
+                      = {analytics?.config?.riskThreshold}
                     </span>
                   </div>
                   <div
@@ -597,7 +597,7 @@ const AISecurityMonitor = () => {
                   >
                     <span>{t('ai.warnThreshold')}</span>
                     <span className="text-warning fw-bold">
-                      ≥ {analytics?.config?.warnThreshold}
+                      = {analytics?.config?.warnThreshold}
                     </span>
                   </div>
                   <div
@@ -861,7 +861,7 @@ const AISecurityMonitor = () => {
                               className="badge rounded-pill"
                               style={{ fontSize: "0.55rem", background: "rgba(255,99,72,0.2)", color: "#ff6348" }}
                             >
-                              ĐĂNG NHẬP THẤT BẠI
+                              �ANG NH?P TH?T B?I
                             </span>
                           )}
                         </div>
@@ -869,7 +869,7 @@ const AISecurityMonitor = () => {
                           {new Date(alert.attempt_time).toLocaleString(
                             "vi-VN",
                           )}{" "}
-                          · IP: {alert.ip_address}
+                          � IP: {alert.ip_address}
                         </div>
                       </div>
 
@@ -995,7 +995,7 @@ const AISecurityMonitor = () => {
                 <tr>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.user')}</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.role')}</th>
-                  <th style={{ fontSize: "0.7rem" }}>Trạng thái</th>
+                  <th style={{ fontSize: "0.7rem" }}>Tr?ng th�i</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.risk7d')}</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.login7d')}</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.blocked7d')}</th>
@@ -1067,7 +1067,7 @@ const AISecurityMonitor = () => {
                               className="text-dim"
                               style={{ fontSize: "0.55rem" }}
                             >
-                              Đến:{" "}
+                              �?n:{" "}
                               {new Date(
                                 user.bannedUntil,
                               ).toLocaleString("vi-VN")}
@@ -1132,7 +1132,7 @@ const AISecurityMonitor = () => {
                             style={{ fontSize: "0.65rem" }}
                             title={
                               user.role === "Admin"
-                                ? "Không thể ban Admin"
+                                ? "Kh�ng th? ban Admin"
                                 : ""
                             }
                           >
@@ -1213,7 +1213,7 @@ const AISecurityMonitor = () => {
                 className="btn btn-outline-secondary flex-grow-1"
                 onClick={() => setShowBanModal(null)}
               >
-                Hủy
+                H?y
               </button>
               <button
                 className="btn btn-danger flex-grow-1 d-flex align-items-center justify-content-center gap-2"

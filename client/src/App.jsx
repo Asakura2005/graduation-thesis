@@ -79,7 +79,7 @@ const App = () => {
   const fetchShipments = async () => {
     setLoading(true);
     try {
-      const response = await axios.get("http://localhost:5001/api/shipments");
+      const response = await axios.get("/api/shipments");
       setShipments(response.data);
 
       // Nếu đang xem chi tiết, update lại thông tin lô hàng đang xem
@@ -108,7 +108,7 @@ const App = () => {
 
       try {
         // If there's a token, try to fetch user info to auto-reconnect
-        const response = await axios.get("http://localhost:5001/api/auth/me", {
+        const response = await axios.get("/api/auth/me", {
           headers: { Authorization: `Bearer ${token}` },
         });
         setUser(response.data);

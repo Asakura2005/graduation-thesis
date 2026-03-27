@@ -71,7 +71,7 @@ const MasterData = () => {
     if (!window.confirm("Bạn có chắc chắn muốn xóa bản ghi tồn kho này?"))
       return;
     try {
-      await axios.delete(`http://localhost:5001/api/inventory/${stockId}`);
+      await axios.delete(`/api/inventory/${stockId}`);
       setExistingStock((prev) => prev.filter((s) => s.stock_id !== stockId));
       fetchItems();
     } catch (err) {
@@ -95,7 +95,7 @@ const MasterData = () => {
   const saveStock = async (stockId) => {
     try {
       await axios.put(
-        `http://localhost:5001/api/inventory/${stockId}`,
+        `/api/inventory/${stockId}`,
         editStockData,
       );
       setExistingStock((prev) =>
@@ -121,7 +121,7 @@ const MasterData = () => {
   useEffect(() => {
     if (editingId) {
       axios
-        .get(`http://localhost:5001/api/items/${editingId}/inventory`)
+        .get(`/api/items/${editingId}/inventory`)
         .then((res) => setExistingStock(res.data))
         .catch((err) => console.error(err));
     } else {
@@ -131,7 +131,7 @@ const MasterData = () => {
 
   const fetchItems = async () => {
     try {
-      const res = await axios.get("http://localhost:5001/api/items");
+      const res = await axios.get("/api/items");
       setItems(res.data);
     } catch (err) {
       console.error(err);
@@ -139,7 +139,7 @@ const MasterData = () => {
   };
   const fetchWarehouses = async () => {
     try {
-      const res = await axios.get("http://localhost:5001/api/warehouses");
+      const res = await axios.get("/api/warehouses");
       setWarehouses(res.data);
     } catch (err) {
       console.error(err);
@@ -147,7 +147,7 @@ const MasterData = () => {
   };
   const fetchPartners = async () => {
     try {
-      const res = await axios.get("http://localhost:5001/api/partners");
+      const res = await axios.get("/api/partners");
       setPartners(res.data);
     } catch (e) {
       console.error(e);
@@ -160,12 +160,12 @@ const MasterData = () => {
     try {
       if (editingId) {
         await axios.put(
-          `http://localhost:5001/api/items/${editingId}`,
+          `/api/items/${editingId}`,
           formData,
         );
       } else {
         // Create Item + Auto Stock In
-        await axios.post("http://localhost:5001/api/items", formData);
+        await axios.post("/api/items", formData);
       }
       setEditingId(null);
       setFormData({
@@ -188,7 +188,7 @@ const MasterData = () => {
   const handleDelete = async (id) => {
     if (!confirm("Bạn có chắc chắn muốn xóa sản phẩm này?")) return;
     try {
-      await axios.delete(`http://localhost:5001/api/items/${id}`);
+      await axios.delete(`/api/items/${id}`);
       fetchItems();
     } catch (e) {
       alert(e.response?.data?.error);
@@ -591,7 +591,7 @@ const WarehouseDetail = ({ warehouse, onBack }) => {
       setLoading(true);
       try {
         const res = await axios.get(
-          `http://localhost:5001/api/warehouses/${warehouse.warehouse_id}/inventory`,
+          `/api/warehouses/${warehouse.warehouse_id}/inventory`,
         );
         setInventory(res.data);
       } catch (err) {
@@ -693,7 +693,7 @@ const InventoryManagement = () => {
   }, []);
   const fetchWarehouses = async () => {
     try {
-      const res = await axios.get("http://localhost:5001/api/warehouses");
+      const res = await axios.get("/api/warehouses");
       setWarehouses(res.data);
     } catch (e) {
       console.error(e);
@@ -703,7 +703,7 @@ const InventoryManagement = () => {
   const handleCreateWarehouse = async (e) => {
     e.preventDefault();
     try {
-      await axios.post("http://localhost:5001/api/warehouses", newWh);
+      await axios.post("/api/warehouses", newWh);
       setShowCreateModal(false);
       setNewWh({
         name: "",
@@ -722,7 +722,7 @@ const InventoryManagement = () => {
     e.stopPropagation(); // Prevent opening details
     if (!window.confirm(`Bạn có chắc chắn muốn xóa kho "${name}"?`)) return;
     try {
-      await axios.delete(`http://localhost:5001/api/warehouses/${id}`);
+      await axios.delete(`/api/warehouses/${id}`);
       fetchWarehouses();
       alert("Xóa kho thành công!");
     } catch (err) {

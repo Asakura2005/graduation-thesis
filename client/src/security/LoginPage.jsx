@@ -27,7 +27,7 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
     useEffect(() => {
         const fetchSettings = async () => {
             try {
-                const res = await axios.get('http://localhost:5001/api/settings/captcha');
+                const res = await axios.get('/api/settings/captcha');
                 setCaptchaEnabled(res.data.captchaEnabled);
             } catch (err) {
                 console.error("Failed to load settings:", err);
@@ -94,7 +94,7 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
                 return;
             }
 
-            const response = await axios.post('http://localhost:5001/api/auth/login', {
+            const response = await axios.post('/api/auth/login', {
                 username,
                 password,
                 captchaToken,
@@ -140,7 +140,7 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
         setLoading(true);
 
         try {
-            const response = await axios.post('http://localhost:5001/api/auth/verify-2fa', {
+            const response = await axios.post('/api/auth/verify-2fa', {
                 tempToken,
                 token: otp
             });

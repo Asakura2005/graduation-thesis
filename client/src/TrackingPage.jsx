@@ -10,7 +10,7 @@ const TrackingPage = ({ trackingNumber }) => {
     useEffect(() => {
         const fetchShipment = async () => {
             try {
-                const res = await axios.get(`http://localhost:5001/api/tracking/${trackingNumber}`);
+                const res = await axios.get(`/api/tracking/${trackingNumber}`);
                 setShipment(res.data);
             } catch (err) {
                 setError('Không tìm thấy thông tin vận đơn hoặc có lỗi xảy ra.');

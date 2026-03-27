@@ -16,7 +16,7 @@ const AccountApproval = () => {
     setLoading(true);
     setError("");
     try {
-      const response = await axios.get("http://localhost:5001/api/admin/users/pending");
+      const response = await axios.get("/api/admin/users/pending");
       const initUsers = response.data.map((u) => ({ ...u, selectedRole: "Staff" }));
       setUsers(initUsers);
     } catch (err) {
@@ -41,7 +41,7 @@ const AccountApproval = () => {
     setError("");
     setSuccess("");
     try {
-      const response = await axios.put(`http://localhost:5001/api/admin/users/${userId}/approve`, { role });
+      const response = await axios.put(`/api/admin/users/${userId}/approve`, { role });
       setSuccess(response.data.message || t('admin.approve.approveSuccess'));
       fetchPendingUsers();
     } catch (err) {

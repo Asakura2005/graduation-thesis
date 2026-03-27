@@ -33,8 +33,8 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
         const fetchData = async () => {
             try {
                 const [pRes, iRes] = await Promise.all([
-                    axios.get('http://localhost:5001/api/partners'),
-                    axios.get('http://localhost:5001/api/items')
+                    axios.get('/api/partners'),
+                    axios.get('/api/items')
                 ]);
                 setPartners(pRes.data);
                 setSupplyItems(iRes.data);
@@ -56,7 +56,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
             setSelectedItem(item);
             // Fetch Stock
             try {
-                const res = await axios.get(`http://localhost:5001/api/items/${itemId}/inventory`);
+                const res = await axios.get(`/api/items/${itemId}/inventory`);
                 setStockList(res.data);
             } catch (e) { console.error(e); }
         } else {
@@ -108,7 +108,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
 
         setLoading(true);
         try {
-            await axios.post('http://localhost:5001/api/shipments', {
+            await axios.post('/api/shipments', {
                 trackingNumber: formData.trackingNumber,
                 logisticsId: formData.logisticsId,
                 originAddress: formData.originAddress, // Auto-filled from Warehouse Name

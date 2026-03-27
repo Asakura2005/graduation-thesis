@@ -30,7 +30,7 @@ const RegisterPage = ({ onBackToLogin }) => {
         // Lấy trạng thái captcha từ server
         const fetchSettings = async () => {
             try {
-                const res = await axios.get('http://localhost:5001/api/settings/captcha');
+                const res = await axios.get('/api/settings/captcha');
                 setCaptchaEnabled(res.data.captchaEnabled);
             } catch (err) { /* giữ mặc định là true */ }
         };
@@ -126,7 +126,7 @@ const RegisterPage = ({ onBackToLogin }) => {
 
         setLoading(true);
         try {
-            const res = await axios.post('http://localhost:5001/api/auth/register', {
+            const res = await axios.post('/api/auth/register', {
                 ...formData,
                 captchaToken  // gửi captchaToken lên server
             });

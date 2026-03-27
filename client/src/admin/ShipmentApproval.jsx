@@ -26,7 +26,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
   const fetchShipments = async () => {
     setLoading(true);
     try {
-      const res = await axios.get("http://localhost:5001/api/shipments");
+      const res = await axios.get("/api/shipments");
       setShipments(res.data);
     } catch (err) {
       console.error(err);
@@ -43,7 +43,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
     setActionLoading(shipmentId);
     try {
       await axios.put(
-        `http://localhost:5001/api/shipments/${shipmentId}/approve`,
+        `/api/shipments/${shipmentId}/approve`,
         { action: "approve" }
       );
       alert("✅ Đã duyệt vận đơn thành công!");
@@ -60,7 +60,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
     setActionLoading(shipmentId);
     try {
       await axios.put(
-        `http://localhost:5001/api/shipments/${shipmentId}/approve`,
+        `/api/shipments/${shipmentId}/approve`,
         { action: "reject", reason: rejectReason }
       );
       alert("❌ Đã từ chối vận đơn.");
@@ -85,7 +85,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
     setActionLoading(shipmentId);
     try {
       await axios.put(
-        `http://localhost:5001/api/shipments/${shipmentId}/export`
+        `/api/shipments/${shipmentId}/export`
       );
       alert("🚛 Đã xuất kho thành công! Trạng thái: In Transit");
       fetchShipments();

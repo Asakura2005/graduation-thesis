@@ -12,7 +12,7 @@ const NotificationPanel = ({ user }) => {
 
   const fetchNotifications = async () => {
     try {
-      const res = await axios.get("http://localhost:5001/api/notifications");
+      const res = await axios.get("/api/notifications");
       setNotifications(res.data);
     } catch (err) {
       console.error("Error fetching notifications:", err);
@@ -38,7 +38,7 @@ const NotificationPanel = ({ user }) => {
 
   const markAsRead = async (id) => {
     try {
-      await axios.put(`http://localhost:5001/api/notifications/${id}/read`);
+      await axios.put(`/api/notifications/${id}/read`);
       setNotifications((prev) =>
         prev.map((n) =>
           n.notification_id === id ? { ...n, is_read: true } : n
@@ -51,7 +51,7 @@ const NotificationPanel = ({ user }) => {
 
   const markAllRead = async () => {
     try {
-      await axios.put("http://localhost:5001/api/notifications/read-all");
+      await axios.put("/api/notifications/read-all");
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
     } catch (err) {
       console.error(err);

@@ -31,12 +31,12 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
             try {
                 const token = localStorage.getItem('token');
                 const [itemsRes, partnersRes, supplyItemsRes, logsRes] = await Promise.all([
-                    axios.get(`http://localhost:5001/api/shipments/${shipment.shipment_id}/items`, {
+                    axios.get(`/api/shipments/${shipment.shipment_id}/items`, {
                         headers: { Authorization: `Bearer ${token}` }
                     }),
-                    axios.get('http://localhost:5001/api/partners', { headers: { Authorization: `Bearer ${token}` } }),
-                    axios.get('http://localhost:5001/api/items', { headers: { Authorization: `Bearer ${token}` } }),
-                    axios.get('http://localhost:5001/api/audit-logs', { headers: { Authorization: `Bearer ${token}` } })
+                    axios.get('/api/partners', { headers: { Authorization: `Bearer ${token}` } }),
+                    axios.get('/api/items', { headers: { Authorization: `Bearer ${token}` } }),
+                    axios.get('/api/audit-logs', { headers: { Authorization: `Bearer ${token}` } })
                 ]);
                 setItems(itemsRes.data);
                 setPartners(partnersRes.data);
@@ -86,7 +86,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
             newItems[index].unitValue = (parseFloat(prod?.unit_cost) * 1.2) || 0;
             // Fetch stock for this item
             try {
-                const res = await axios.get(`http://localhost:5001/api/items/${value}/inventory`);
+                const res = await axios.get(`/api/items/${value}/inventory`);
                 setStockList(res.data);
             } catch (e) { }
         }
@@ -132,7 +132,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-            await axios.delete(`http://localhost:5001/api/shipments/${shipment.shipment_id}`, {
+            await axios.delete(`/api/shipments/${shipment.shipment_id}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             alert('Đã xóa vận đơn thành công!');
@@ -148,7 +148,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-            await axios.put(`http://localhost:5001/api/shipments/${shipment.shipment_id}`, editData, {
+            await axios.put(`/api/shipments/${shipment.shipment_id}`, editData, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             alert('Đã cập nhật thông tin vận đơn!');
@@ -170,7 +170,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                 headers: { Authorization: `Bearer ${token}` }
             };
 
-            await axios.put(`http://localhost:5001/api/shipments/${shipment.shipment_id}/status`, { status: newStatus }, config);
+            await axios.put(`/api/shipments/${shipment.shipment_id}/status`, { status: newStatus }, config);
 
             alert("Cập nhật trạng thái thành công!");
             onUpdate(); // Reload lại dữ liệu
@@ -339,7 +339,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                                             value={item.stockId}
                                                             onFocus={() => {
                                                                 // Refresh stock list for current item
-                                                                axios.get(`http://localhost:5001/api/items/${item.itemId}/inventory`).then(res => setStockList(res.data));
+                                                                axios.get(`/api/items/${item.itemId}/inventory`).then(res => setStockList(res.data));
                                                             }}
                                                             onChange={(e) => handleItemChange(idx, 'stockId', e.target.value)}
                                                         >

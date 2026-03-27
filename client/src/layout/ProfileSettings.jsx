@@ -39,7 +39,7 @@ const ProfileSettings = ({ user }) => {
     useEffect(() => {
         const fetchProfile = async () => {
             try {
-                const res = await axios.get('http://localhost:5001/api/auth/me/profile', {
+                const res = await axios.get('/api/auth/me/profile', {
                     headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                 });
                 setProfile(res.data);
@@ -52,7 +52,7 @@ const ProfileSettings = ({ user }) => {
 
         const fetchSettings = async () => {
             try {
-                const res = await axios.get('http://localhost:5001/api/settings/captcha');
+                const res = await axios.get('/api/settings/captcha');
                 setCaptchaEnabled(res.data.captchaEnabled);
             } catch (err) {}
         };
@@ -67,7 +67,7 @@ const ProfileSettings = ({ user }) => {
         if (!confirmPassword) return showToast('error', t('profile.errorPassword'));
         setProfileSaving(true);
         try {
-            await axios.put('http://localhost:5001/api/auth/me/profile', {
+            await axios.put('/api/auth/me/profile', {
                 fullName: profile.full_name,
                 email: profile.email,
                 phone: profile.phone,
@@ -95,7 +95,7 @@ const ProfileSettings = ({ user }) => {
         if (pwForm.newPassword !== pwForm.confirmPassword) return showToast('error', t('password.errorNoMatch'));
         setPwSaving(true);
         try {
-            await axios.put('http://localhost:5001/api/auth/me/password', {
+            await axios.put('/api/auth/me/password', {
                 currentPassword: pwForm.currentPassword,
                 newPassword: pwForm.newPassword
             }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
@@ -110,7 +110,7 @@ const ProfileSettings = ({ user }) => {
     const handleGenerate2FA = async () => {
         setTwoFaLoading(true);
         try {
-            const res = await axios.get('http://localhost:5001/api/auth/2fa/generate', {
+            const res = await axios.get('/api/auth/2fa/generate', {
                 headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             setTwoFaSetup(res.data);
@@ -124,7 +124,7 @@ const ProfileSettings = ({ user }) => {
         if (!twoFaCode || twoFaCode.length < 6) return;
         setTwoFaLoading(true);
         try {
-            await axios.post('http://localhost:5001/api/auth/2fa/verify-setup', {
+            await axios.post('/api/auth/2fa/verify-setup', {
                 token: twoFaCode,
                 secret: twoFaSetup.secret
             }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
@@ -142,7 +142,7 @@ const ProfileSettings = ({ user }) => {
         if (!disablePassword) return showToast('error', t('profile.errorPassword'));
         setTwoFaLoading(true);
         try {
-            await axios.post('http://localhost:5001/api/auth/2fa/disable', {
+            await axios.post('/api/auth/2fa/disable', {
                 password: disablePassword
             }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
@@ -157,7 +157,7 @@ const ProfileSettings = ({ user }) => {
     const handleToggleCaptcha = async () => {
         try {
             const newStatus = !captchaEnabled;
-            await axios.post('http://localhost:5001/api/settings/captcha', {
+            await axios.post('/api/settings/captcha', {
                 captchaEnabled: newStatus
             }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
             

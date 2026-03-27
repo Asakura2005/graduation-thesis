@@ -81,7 +81,7 @@ const PartnerForm = ({ onClose }) => {
   const fetchPartners = async () => {
     setLoadingList(true);
     try {
-      const response = await axios.get("http://localhost:5001/api/partners");
+      const response = await axios.get("/api/partners");
       setPartners(response.data);
     } catch (err) {
       console.error("Lỗi lấy danh sách đối tác:", err);
@@ -116,12 +116,12 @@ const PartnerForm = ({ onClose }) => {
       if (editingId) {
         // UPDATE Logic
         await axios.put(
-          `http://localhost:5001/api/partners/${editingId}`,
+          `/api/partners/${editingId}`,
           submitData,
         );
       } else {
         // CREATE Logic
-        await axios.post("http://localhost:5001/api/partners", submitData);
+        await axios.post("/api/partners", submitData);
       }
 
       // Reset form và reload list
@@ -140,7 +140,7 @@ const PartnerForm = ({ onClose }) => {
   const handleDelete = async (id) => {
     if (!confirm("Bạn có chắc muốn xóa đối tác này không?")) return;
     try {
-      await axios.delete(`http://localhost:5001/api/partners/${id}`);
+      await axios.delete(`/api/partners/${id}`);
       fetchPartners();
       if (editingId === id) handleCancelEdit();
       showToast('success', 'Xóa đối tác thành công!');
