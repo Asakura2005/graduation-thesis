@@ -2446,6 +2446,15 @@ app.get('/api/security/login-history/:userId', authenticateToken, authorizeRole(
                 ORDER BY attempt_time DESC
             `);
 
+        // Helper: Fix SQL Server DATETIME (stored as local UTC+7) being double-converted by JS
+        const fixLocalTime = (dt) => {
+            if (!dt) return dt;
+            const d = new Date(dt);
+            // Add UTC offset back so the client displays correct local time
+            const offsetMs = 7 * 60 * 60 * 1000;
+            return new Date(d.getTime() + offsetMs).toISOString();
+        };
+
         const history = result.recordset.map(row => {
             let ip = row.ip_address;
             let ua = row.user_agent;
@@ -2457,7 +2466,7 @@ app.get('/api/security/login-history/:userId', authenticateToken, authorizeRole(
             try { successVal = parseInt(decrypt(row.success)) || 0; } catch (e) { }
             try { riskVal = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { }
             try { blockedVal = parseInt(decrypt(row.blocked)) || 0; } catch (e) { }
-            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, success: successVal, risk_score: riskVal, blocked: blockedVal };
+            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, success: successVal, risk_score: riskVal, blocked: blockedVal, attempt_time: fixLocalTime(row.attempt_time) };
         });
 
         res.json(history);
@@ -2641,6 +2650,13 @@ app.get('/api/ai/alerts', authenticateToken, authorizeRole(['Admin']), async (re
             ORDER BY la.attempt_time DESC
         `);
 
+        const fixLocalTime = (dt) => {
+            if (!dt) return dt;
+            const d = new Date(dt);
+            const offsetMs = 7 * 60 * 60 * 1000;
+            return new Date(d.getTime() + offsetMs).toISOString();
+        };
+
         const alerts = result.recordset.map(row => {
             let ip = row.ip_address;
             let ua = row.user_agent;
@@ -2654,7 +2670,7 @@ app.get('/api/ai/alerts', authenticateToken, authorizeRole(['Admin']), async (re
             try { uname = decrypt(row.username); } catch (e) { }
             try { riskVal = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { riskVal = row.risk_score || 0; }
             try { successVal = parseInt(decrypt(row.success)) || 0; } catch (e) { successVal = row.success ? 1 : 0; }
-            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname, risk_score: riskVal, success: successVal };
+            return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname, risk_score: riskVal, success: successVal, attempt_time: fixLocalTime(row.attempt_time) };
         }).filter(r => r.risk_score >= 40 || r.success === 0).slice(0, 50);
 
         res.json(alerts);
