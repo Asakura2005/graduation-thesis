@@ -92,30 +92,32 @@ const DashboardStats = ({ shipments = [] }) => {
     <div className="row g-4 mb-4">
       {kpiList.map((stat, i) => (
         <div key={i} className="col-12 col-md-6 col-xl-3">
-          <div className="glass p-4 d-flex align-items-center justify-content-between gap-3 h-100">
-            <div className="d-flex align-items-center gap-3">
+          <div className="glass p-3 d-flex align-items-center justify-content-between gap-2 h-100">
+            <div className="d-flex align-items-center gap-2">
               <div
-                className="p-3 rounded-circle"
+                className="p-2 rounded-circle flex-shrink-0"
                 style={{
                   background: `${stat.color}15`,
                   border: `1px solid ${stat.color}30`,
                 }}
               >
-                <stat.icon style={{ color: stat.color }} size={24} />
+                <stat.icon style={{ color: stat.color }} size={18} />
               </div>
 
               <div>
-                <p className="text-dim small mb-1 text-uppercase fw-semibold">
+                <p className="text-dim mb-1 text-uppercase fw-semibold"
+                   style={{ fontSize: '0.65rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '140px' }}>
                   {stat.label}
                 </p>
 
                 <div className="d-flex align-items-end gap-2">
-                  <h3 className="mb-0 fw-bold">{stat.val}</h3>
+                  <h5 className="mb-0 fw-bold">{stat.val}</h5>
 
                   {stat.delta ? (
                     <span
-                      className="fw-bold small"
+                      className="fw-semibold"
                       style={{
+                        fontSize: '0.7rem',
                         color: stat.isWarning
                           ? "rgba(244,239,230,.65)"
                           : "#3dde86",
