@@ -227,12 +227,12 @@ const BanDurationSelect = ({ value, onChange }) => (
     onChange={(e) => onChange(parseInt(e.target.value))}
     style={{ width: 180 }}
   >
-    <option value={15}>15 ph�t</option>
-    <option value={60}>1 gi?</option>
-    <option value={360}>6 gi?</option>
-    <option value={1440}>24 gi?</option>
-    <option value={10080}>7 ng�y</option>
-    <option value={-1}>Vinh vi?n</option>
+    <option value={15}>15 phút</option>
+    <option value={60}>1 giờ</option>
+    <option value={360}>6 giờ</option>
+    <option value={1440}>24 giờ</option>
+    <option value={10080}>7 ngày</option>
+    <option value={-1}>Vĩnh viễn</option>
   </select>
 );
 
@@ -272,7 +272,7 @@ const AISecurityMonitor = () => {
       setAllUsers(usersRes.data);
     } catch (err) {
       console.error("AI Security Monitor fetch error:", err);
-      showNotification("error", "Kh�ng th? t?i d? li?u AI Security");
+      showNotification("error", "Không thể tải dữ liệu AI Security");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -294,7 +294,7 @@ const AISecurityMonitor = () => {
   // Actions
   const handleUnban = async (userId, username) => {
     if (
-      !window.confirm(`B?n c� ch?c mu?n g? ban cho user "${username}"?`)
+      !window.confirm(`Bạn có chắc muốn gỡ ban cho user "${username}"?`)
     )
       return;
     setActionLoading(userId);
@@ -307,11 +307,11 @@ const AISecurityMonitor = () => {
       );
       showNotification(
         "success",
-        `? �� g? ban cho ${username} th�nh c�ng!`,
+        `✅ Đã gỡ ban cho ${username} thành công!`,
       );
       fetchData();
     } catch (err) {
-      showNotification("error", `L?i g? ban: ${err.message}`);
+      showNotification("error", `Lỗi gỡ ban: ${err.message}`);
     } finally {
       setActionLoading(null);
     }
@@ -328,13 +328,13 @@ const AISecurityMonitor = () => {
       );
       showNotification(
         "success",
-        `?? �� ban user th�nh c�ng! (${banDuration === -1 ? "Vinh vi?n" : `${banDuration} ph�t`})`,
+        `🛡️ Đã ban user thành công! (${banDuration === -1 ? "Vĩnh viễn" : `${banDuration} phút`})`,
       );
       setShowBanModal(null);
       setBanReason("");
       fetchData();
     } catch (err) {
-      showNotification("error", `L?i ban user: ${err.message}`);
+      showNotification("error", `Lỗi ban user: ${err.message}`);
     } finally {
       setActionLoading(null);
     }
