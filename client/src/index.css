@@ -30,6 +30,10 @@
   /* Slate 700 */
 }
 
+html {
+  font-size: 14px; /* Scale down entire UI */
+}
+
 body {
   background-color: var(--bg-body) !important;
   color: var(--text-light) !important;
