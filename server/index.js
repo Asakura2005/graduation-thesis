@@ -2841,6 +2841,11 @@ try {
         }
     });
 
+// Health check endpoint (for Railway / Render deployment)
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // Catch-all: serve React frontend for any non-API route (SPA support)
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'client', 'dist', 'index.html'));

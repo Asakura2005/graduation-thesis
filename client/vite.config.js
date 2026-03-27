@@ -21,5 +21,13 @@ export default defineConfig({
                 }
             }
         }
+    },
+    build: {
+        outDir: 'dist',
+        sourcemap: false,
+    },
+    // Expose env variables with VITE_ prefix to the client
+    define: {
+        __BACKEND_URL__: JSON.stringify(process.env.VITE_BACKEND_URL || 'http://localhost:5001')
     }
 })
