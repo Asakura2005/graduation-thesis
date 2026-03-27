@@ -2446,13 +2446,13 @@ app.get('/api/security/login-history/:userId', authenticateToken, authorizeRole(
                 ORDER BY attempt_time DESC
             `);
 
-        // Helper: Fix SQL Server DATETIME (stored as local UTC+7) being double-converted by JS
+        // Helper: SQL Server DATETIME is local time (UTC+7) but mssql reads it as UTC
+        // So subtract 7h to get correct UTC, then client adds UTC+7 back = correct display
         const fixLocalTime = (dt) => {
             if (!dt) return dt;
             const d = new Date(dt);
-            // Add UTC offset back so the client displays correct local time
             const offsetMs = 7 * 60 * 60 * 1000;
-            return new Date(d.getTime() + offsetMs).toISOString();
+            return new Date(d.getTime() - offsetMs).toISOString();
         };
 
         const history = result.recordset.map(row => {
@@ -2654,7 +2654,7 @@ app.get('/api/ai/alerts', authenticateToken, authorizeRole(['Admin']), async (re
             if (!dt) return dt;
             const d = new Date(dt);
             const offsetMs = 7 * 60 * 60 * 1000;
-            return new Date(d.getTime() + offsetMs).toISOString();
+            return new Date(d.getTime() - offsetMs).toISOString();
         };
 
         const alerts = result.recordset.map(row => {
