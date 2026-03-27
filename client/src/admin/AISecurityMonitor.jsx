@@ -106,7 +106,7 @@ const RiskBadge = ({ score, labels }) => {
         fontSize: "0.65rem",
       }}
     >
-      {score} � {label}
+      {score} ◆ {label}
     </span>
   );
 };
