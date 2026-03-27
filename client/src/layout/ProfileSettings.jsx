@@ -631,13 +631,15 @@ const ProfileSettings = ({ user }) => {
                                     <h6 className="text-gold fw-bold mb-3 d-flex align-items-center gap-2">
                                         <Settings size={16} /> {t('security.adminTitle')}
                                     </h6>
-                                    <div className="d-flex align-items-center justify-content-between py-2 border-bottom border-light border-opacity-5">
-                                        <div>
+                                    <div className="d-flex align-items-start justify-content-between py-2 border-bottom border-light border-opacity-5 gap-3">
+                                        <div className="flex-grow-1">
                                             <span className="text-white small fw-semibold">{t('security.captchaLabel')}</span>
                                             <div className="text-dim x-small">{t('security.captchaDesc')}</div>
                                         </div>
-                                        <div className="form-check form-switch" style={{ fontSize: '1.25rem' }}>
-                                            <input className="form-check-input" type="checkbox" role="switch" checked={captchaEnabled} onChange={handleToggleCaptcha} style={{ cursor: 'pointer', accentColor: '#D4AF37' }} />
+                                        <div className="flex-shrink-0 pt-1">
+                                            <div className="form-check form-switch mb-0" style={{ fontSize: '1.25rem' }}>
+                                                <input className="form-check-input" type="checkbox" role="switch" checked={captchaEnabled} onChange={handleToggleCaptcha} style={{ cursor: 'pointer', accentColor: '#D4AF37' }} />
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
