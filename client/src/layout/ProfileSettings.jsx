@@ -214,7 +214,7 @@ const ProfileSettings = ({ user }) => {
     const cardStyle = { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' };
 
     return (
-        <div className="glass p-4 fade-in-up h-100 d-flex flex-column" style={{ minHeight: '80vh' }}>
+        <div className="glass p-4 fade-in-up d-flex flex-column" style={{ minHeight: '80vh', marginRight: '2px', overflow: 'hidden' }}>
             {/* Toast */}
             {toast && (
                 <div className="position-fixed top-0 end-0 m-4 px-4 py-3 rounded-3 shadow-lg d-flex align-items-center gap-2 fade-in"
