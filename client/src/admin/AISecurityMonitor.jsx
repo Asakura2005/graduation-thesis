@@ -106,7 +106,7 @@ const RiskBadge = ({ score, labels }) => {
         fontSize: "0.65rem",
       }}
     >
-      {score} ó {label}
+      {score} ÔøΩ {label}
     </span>
   );
 };
@@ -227,11 +227,11 @@ const BanDurationSelect = ({ value, onChange }) => (
     onChange={(e) => onChange(parseInt(e.target.value))}
     style={{ width: 180 }}
   >
-    <option value={15}>15 ph˙t</option>
+    <option value={15}>15 phÔøΩt</option>
     <option value={60}>1 gi?</option>
     <option value={360}>6 gi?</option>
     <option value={1440}>24 gi?</option>
-    <option value={10080}>7 ng‡y</option>
+    <option value={10080}>7 ngÔøΩy</option>
     <option value={-1}>Vinh vi?n</option>
   </select>
 );
@@ -272,7 +272,7 @@ const AISecurityMonitor = () => {
       setAllUsers(usersRes.data);
     } catch (err) {
       console.error("AI Security Monitor fetch error:", err);
-      showNotification("error", "KhÙng th? t?i d? li?u AI Security");
+      showNotification("error", "KhÔøΩng th? t?i d? li?u AI Security");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -294,7 +294,7 @@ const AISecurityMonitor = () => {
   // Actions
   const handleUnban = async (userId, username) => {
     if (
-      !window.confirm(`B?n cÛ ch?c mu?n g? ban cho user "${username}"?`)
+      !window.confirm(`B?n cÔøΩ ch?c mu?n g? ban cho user "${username}"?`)
     )
       return;
     setActionLoading(userId);
@@ -307,7 +307,7 @@ const AISecurityMonitor = () => {
       );
       showNotification(
         "success",
-        `? –„ g? ban cho ${username} th‡nh cÙng!`,
+        `? ÔøΩÔøΩ g? ban cho ${username} thÔøΩnh cÔøΩng!`,
       );
       fetchData();
     } catch (err) {
@@ -328,7 +328,7 @@ const AISecurityMonitor = () => {
       );
       showNotification(
         "success",
-        `?? –„ ban user th‡nh cÙng! (${banDuration === -1 ? "Vinh vi?n" : `${banDuration} ph˙t`})`,
+        `?? ÔøΩÔøΩ ban user thÔøΩnh cÔøΩng! (${banDuration === -1 ? "Vinh vi?n" : `${banDuration} phÔøΩt`})`,
       );
       setShowBanModal(null);
       setBanReason("");
@@ -467,7 +467,7 @@ const AISecurityMonitor = () => {
                 label={t('ai.totalLogins')}
                 value={stats24h.totalAttempts || 0}
                 color="45,135,255"
-                subtext={`${stats24h.successCount || 0} th‡nh cÙng`}
+                subtext={`${stats24h.successCount || 0} th√†nh c√¥ng`}
               />
             </div>
             <div className="col-lg-3 col-md-6">
@@ -477,7 +477,7 @@ const AISecurityMonitor = () => {
                 value={stats24h.blockedCount || 0}
                 color="255,71,87"
                 pulse={stats24h.blockedCount > 0}
-                subtext={`${stats24h.failCount || 0} th?t b?i`}
+                subtext={`${stats24h.failCount || 0} th·∫•t b·∫°i`}
               />
             </div>
             <div className="col-lg-3 col-md-6">
@@ -487,6 +487,7 @@ const AISecurityMonitor = () => {
                 value={analytics?.bannedUsersCount || 0}
                 color="255,165,2"
                 pulse={analytics?.bannedUsersCount > 0}
+                subtext={`${analytics?.bannedUsersCount || 0} t√†i kho·∫£n`}
               />
             </div>
             <div className="col-lg-3 col-md-6">
@@ -523,7 +524,7 @@ const AISecurityMonitor = () => {
                         background: "#2ed573",
                       }}
                     />{" "}
-                    BÏnh thu?ng
+                    B√¨nh th∆∞·ªùng
                   </span>
                   <span
                     className="d-flex align-items-center gap-1 text-dim"
@@ -537,7 +538,7 @@ const AISecurityMonitor = () => {
                         background: "#ffa502",
                       }}
                     />{" "}
-                    –·ng ng?
+                    ƒê√°ng ng·ªù
                   </span>
                   <span
                     className="d-flex align-items-center gap-1 text-dim"
@@ -551,7 +552,7 @@ const AISecurityMonitor = () => {
                         background: "#ff4757",
                       }}
                     />{" "}
-                    B? ch?n
+                    B·ªã ch·∫∑n
                   </span>
                 </div>
               </div>
@@ -861,7 +862,7 @@ const AISecurityMonitor = () => {
                               className="badge rounded-pill"
                               style={{ fontSize: "0.55rem", background: "rgba(255,99,72,0.2)", color: "#ff6348" }}
                             >
-                              –ANG NH?P TH?T B?I
+                              ƒêƒÇNG NH·∫¨P th·∫•t b·∫°i
                             </span>
                           )}
                         </div>
@@ -869,7 +870,7 @@ const AISecurityMonitor = () => {
                           {new Date(alert.attempt_time).toLocaleString(
                             "vi-VN",
                           )}{" "}
-                          ∑ IP: {alert.ip_address}
+                          ÔøΩ IP: {alert.ip_address}
                         </div>
                       </div>
 
@@ -995,7 +996,7 @@ const AISecurityMonitor = () => {
                 <tr>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.user')}</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.role')}</th>
-                  <th style={{ fontSize: "0.7rem" }}>Tr?ng th·i</th>
+                  <th style={{ fontSize: "0.7rem" }}>Tr?ng thÔøΩi</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.risk7d')}</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.login7d')}</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.blocked7d')}</th>
@@ -1067,7 +1068,7 @@ const AISecurityMonitor = () => {
                               className="text-dim"
                               style={{ fontSize: "0.55rem" }}
                             >
-                              –?n:{" "}
+                              ÔøΩ?n:{" "}
                               {new Date(
                                 user.bannedUntil,
                               ).toLocaleString("vi-VN")}
@@ -1132,7 +1133,7 @@ const AISecurityMonitor = () => {
                             style={{ fontSize: "0.65rem" }}
                             title={
                               user.role === "Admin"
-                                ? "KhÙng th? ban Admin"
+                                ? "KhÔøΩng th? ban Admin"
                                 : ""
                             }
                           >
