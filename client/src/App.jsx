@@ -221,7 +221,7 @@ const App = () => {
       >
         <Header user={user} handleLogout={handleLogout} setActiveTab={handleTabChange} />
 
-        <main className="flex-grow-1 overflow-auto px-4 pt-3 pb-5 custom-scrollbar">
+        <main className="flex-grow-1 px-4 pt-3 pb-5 custom-scrollbar" style={{ overflowY: 'auto', overflowX: 'hidden', scrollbarGutter: 'stable', paddingRight: '2rem' }}>
           {/* Modals & Popups (Chỉ còn ShipmentForm là modal) */}
           {showForm && (
             <ShipmentForm
