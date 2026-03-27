@@ -870,7 +870,7 @@ const AISecurityMonitor = () => {
                           {new Date(alert.attempt_time).toLocaleString(
                             "vi-VN",
                           )}{" "}
-                          � IP: {alert.ip_address}
+                          ◆ IP: {alert.ip_address}
                         </div>
                       </div>
 
