@@ -13,7 +13,7 @@ const TrackingPage = ({ trackingNumber }) => {
                 const res = await axios.get(`/api/tracking/${trackingNumber}`);
                 setShipment(res.data);
             } catch (err) {
-                setError('Không tìm thấy thông tin vận đơn hoặc có lỗi xảy ra.');
+                setError('Shipment not found or an error occurred.');
             } finally {
                 setLoading(false);
             }
@@ -33,9 +33,9 @@ const TrackingPage = ({ trackingNumber }) => {
         <div className="d-flex h-100vh w-100 justify-content-center align-items-center bg-black text-center text-white p-5">
             <div>
                 <Package size={64} className="text-secondary mb-3" />
-                <h4 className="text-danger">Lỗi Truy Xuất</h4>
+                <h4 className="text-danger">Retrieval Error</h4>
                 <p>{error}</p>
-                <a href="/" className="btn btn-outline-gold mt-3">Quay Lại</a>
+                <a href="/" className="btn btn-outline-gold mt-3">Go Back</a>
             </div>
         </div>
     );
@@ -46,32 +46,32 @@ const TrackingPage = ({ trackingNumber }) => {
         <div className="d-flex flex-column h-100vh w-100 bg-black text-white p-4 align-items-center overflow-auto">
             <div style={{ maxWidth: '800px', width: '100%' }}>
                 <a href="/" className="btn btn-outline-light d-inline-flex align-items-center gap-2 mb-4 hover-gold">
-                    <ArrowLeft size={16} /> Trang chủ Dashboard
+                    <ArrowLeft size={16} /> Back to Dashboard
                 </a>
 
                 <div className="glass p-5 rounded-4 border-gold shadow-lg position-relative">
                     <div className="text-center mb-5">
                         <Package size={48} className="text-gold mb-2" />
-                        <h2 className="fw-bold mb-1 tracking-h2">TRUY XUẤT VẬN ĐƠN</h2>
-                        <h5 className="text-dim mt-2 fw-semibold">Mã tracking: <span className="text-white bg-dark px-2 rounded">{shipment.tracking_number}</span></h5>
+                        <h2 className="fw-bold mb-1 tracking-h2">SHIPMENT TRACKING</h2>
+                        <h5 className="text-dim mt-2 fw-semibold">Tracking number: <span className="text-white bg-dark px-2 rounded">{shipment.tracking_number}</span></h5>
                     </div>
 
                     <div className="row g-4 mb-5 pb-4 border-bottom border-light border-opacity-10">
                         <div className="col-md-6 border-end border-light border-opacity-10">
-                            <p className="small text-dim text-uppercase fw-bold mb-1">Nơi Gửi (Origin)</p>
+                            <p className="small text-dim text-uppercase fw-bold mb-1">Origin</p>
                             <h5 className="text-white">{shipment.origin_address}</h5>
-                            <p className="mt-3 small text-dim text-uppercase fw-bold mb-1">Đơn vị Vận Chuyển</p>
+                            <p className="mt-3 small text-dim text-uppercase fw-bold mb-1">Logistics Provider</p>
                             <h6 className="text-gold">{shipment.logistics_name}</h6>
                         </div>
                         <div className="col-md-6 text-end">
-                            <p className="small text-dim text-uppercase fw-bold mb-1">Nơi Nhận (Destination)</p>
+                            <p className="small text-dim text-uppercase fw-bold mb-1">Destination</p>
                             <h5 className="text-white">{shipment.destination_address}</h5>
 
                         </div>
                     </div>
 
                     <div className="position-relative mt-4">
-                        <h6 className="text-dim text-uppercase fw-bold x-small mb-4">Tiến Độ Giao Hàng</h6>
+                        <h6 className="text-dim text-uppercase fw-bold x-small mb-4">Delivery Progress</h6>
 
                         {shipment.status === 'Rejected' ? (
                             /* REJECTED: Special 2-step flow */
@@ -92,14 +92,14 @@ const TrackingPage = ({ trackingNumber }) => {
                                         <div className="rounded-circle d-flex align-items-center justify-content-center bg-danger text-white shadow-lg" style={{ width: '44px', height: '44px', border: '3px solid rgba(255,93,93,0.5)' }}>
                                             <XCircle size={24} />
                                         </div>
-                                        <div className="mt-2 fw-semibold text-center x-small text-danger">Từ chối</div>
+                                        <div className="mt-2 fw-semibold text-center x-small text-danger">Rejected</div>
                                     </div>
                                 </div>
 
                                 <div className="mt-4 p-3 rounded-3 bg-danger bg-opacity-10 border border-danger border-opacity-25 text-center">
                                     <XCircle size={20} className="text-danger mb-1" />
-                                    <p className="text-danger fw-bold mb-1">Vận đơn đã bị từ chối</p>
-                                    <p className="text-dim small mb-0">Vận đơn này không được phê duyệt bởi Quản lý Kho.</p>
+                                    <p className="text-danger fw-bold mb-1">Shipment has been rejected</p>
+                                    <p className="text-dim small mb-0">This shipment was not approved by the Warehouse Manager.</p>
                                 </div>
                             </>
                         ) : (

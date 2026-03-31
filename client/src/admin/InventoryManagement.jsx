@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 
 // --- SUB-COMPONENT: MASTER DATA (Danh mục hàng hóa + Nhập kho) ---
-const MasterData = () => { 
+const MasterData = () => {
   const { t } = useLanguage();
   const [formData, setFormData] = useState({
     itemName: "",
@@ -673,7 +673,7 @@ const WarehouseDetail = ({ warehouse, onBack }) => {
 };
 
 // --- MAIN COMPONENT: INVENTORY DASHBOARD ---
-const InventoryManagement = () => { 
+const InventoryManagement = () => {
   const { t } = useLanguage();
   const [viewMode, setViewMode] = useState("DASHBOARD"); // DASHBOARD, MASTER_DATA
   const [warehouses, setWarehouses] = useState([]);
@@ -818,7 +818,7 @@ const InventoryManagement = () => {
                 >
                   <div className="text-center text-dim">
                     <Plus size={32} className="mb-2" />
-                    <div>Thêm Kho Mới</div>
+                    <div>Add New Warehouse</div>
                   </div>
                 </div>
               </div>
@@ -838,7 +838,7 @@ const InventoryManagement = () => {
             style={{ width: "400px" }}
           >
             <div className="d-flex justify-content-between mb-4">
-              <h5 className="fw-bold text-gold mb-0">THÊM KHO MỚI</h5>
+              <h5 className="fw-bold text-gold mb-0">ADD NEW WAREHOUSE</h5>
               <button
                 onClick={() => setShowCreateModal(false)}
                 className="btn btn-sm btn-link text-white"
@@ -852,14 +852,14 @@ const InventoryManagement = () => {
             >
               <input
                 className="form-control bg-transparent text-white border-secondary"
-                placeholder="Tên kho (VD: Kho Cần Thơ)"
+                placeholder="Warehouse name (e.g., Can Tho Warehouse)"
                 value={newWh.name}
                 onChange={(e) => setNewWh({ ...newWh, name: e.target.value })}
                 required
               />
               <input
                 className="form-control bg-transparent text-white border-secondary"
-                placeholder="Địa điểm (VD: Cần Thơ)"
+                placeholder="Location (e.g., Can Tho)"
                 value={newWh.location}
                 onChange={(e) =>
                   setNewWh({ ...newWh, location: e.target.value })
@@ -878,11 +878,11 @@ const InventoryManagement = () => {
               </select>
               {/* Input Total Shelves */}
               <div>
-                <label className="text-dim x-small fw-bold">TỔNG SỐ KỆ</label>
+                <label className="text-dim x-small fw-bold">TOTAL SHELVES</label>
                 <input
                   type="number"
                   className="form-control bg-transparent text-white border-secondary"
-                  placeholder="Ví dụ: 50"
+                  placeholder="e.g., 50"
                   value={newWh.total_shelves}
                   onChange={(e) =>
                     setNewWh({ ...newWh, total_shelves: e.target.value })
@@ -891,7 +891,7 @@ const InventoryManagement = () => {
                   min="1"
                 />
               </div>
-              <button className="btn btn-gold w-100 mt-2">TẠO KHO</button>
+              <button className="btn btn-gold w-100 mt-2">CREATE WAREHOUSE</button>
             </form>
           </div>
         </div>

@@ -46,11 +46,11 @@ const ShipmentApproval = ({ user, onUpdate }) => {
         `/api/shipments/${shipmentId}/approve`,
         { action: "approve" }
       );
-      alert("✅ Đã duyệt vận đơn thành công!");
+      alert("✅ Shipment approved successfully!");
       fetchShipments();
       if (onUpdate) onUpdate();
     } catch (err) {
-      alert("Lỗi: " + (err.response?.data?.error || err.message));
+      alert("Error: " + (err.response?.data?.error || err.message));
     } finally {
       setActionLoading(null);
     }
@@ -63,13 +63,13 @@ const ShipmentApproval = ({ user, onUpdate }) => {
         `/api/shipments/${shipmentId}/approve`,
         { action: "reject", reason: rejectReason }
       );
-      alert("❌ Đã từ chối vận đơn.");
+      alert("❌ Shipment rejected.");
       setShowRejectModal(null);
       setRejectReason("");
       fetchShipments();
       if (onUpdate) onUpdate();
     } catch (err) {
-      alert("Lỗi: " + (err.response?.data?.error || err.message));
+      alert("Error: " + (err.response?.data?.error || err.message));
     } finally {
       setActionLoading(null);
     }
@@ -78,7 +78,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
   const handleExport = async (shipmentId) => {
     if (
       !confirm(
-        "Xác nhận xuất kho? Trạng thái sẽ chuyển thành 'In Transit'."
+        "Confirm warehouse export? Status will change to 'In Transit'."
       )
     )
       return;
@@ -87,11 +87,11 @@ const ShipmentApproval = ({ user, onUpdate }) => {
       await axios.put(
         `/api/shipments/${shipmentId}/export`
       );
-      alert("🚛 Đã xuất kho thành công! Trạng thái: In Transit");
+      alert("🚛 Warehouse export successful! Status: In Transit");
       fetchShipments();
       if (onUpdate) onUpdate();
     } catch (err) {
-      alert("Lỗi: " + (err.response?.data?.error || err.message));
+      alert("Error: " + (err.response?.data?.error || err.message));
     } finally {
       setActionLoading(null);
     }
@@ -148,7 +148,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
             </div>
             <div>
               <p className="text-dim small mb-1 text-uppercase fw-semibold">
-                Chờ duyệt
+                Pending
               </p>
               <h3 className="mb-0 fw-bold text-warning">{pendingCount}</h3>
             </div>
@@ -167,7 +167,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
             </div>
             <div>
               <p className="text-dim small mb-1 text-uppercase fw-semibold">
-                Đã duyệt
+                Approved
               </p>
               <h3 className="mb-0 fw-bold text-success">{approvedCount}</h3>
             </div>
@@ -186,7 +186,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
             </div>
             <div>
               <p className="text-dim small mb-1 text-uppercase fw-semibold">
-                Đang vận chuyển
+                In Transit
               </p>
               <h3 className="mb-0 fw-bold text-info">{inTransitCount}</h3>
             </div>
@@ -199,7 +199,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <h5 className="mb-0 fw-bold d-flex align-items-center gap-2 text-gold">
             <ShieldCheck size={20} />
-            Quản lý duyệt vận đơn
+            Shipment Approval Management
           </h5>
           <div className="d-flex gap-2">
             {["all", "pending", "approved", "rejected"].map((f) => (
@@ -234,12 +234,12 @@ const ShipmentApproval = ({ user, onUpdate }) => {
           <table className="table table-hover align-middle mb-0 border-0">
             <thead>
               <tr>
-                <th>Mã vận đơn</th>
-                <th>Lộ trình</th>
-                <th>Sản phẩm</th>
-                <th>Số lượng</th>
-                <th>Trạng thái</th>
-                <th className="text-end">Hành động</th>
+                <th>Tracking Number</th>
+                <th>Route</th>
+                <th>Logistics</th>
+                <th>Value</th>
+                <th>Status</th>
+                <th className="text-end">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -253,7 +253,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
               ) : filteredShipments.length === 0 ? (
                 <tr>
                   <td colSpan="6" className="text-center py-5 text-dim">
-                    Không có vận đơn nào
+                    No shipments found
                   </td>
                 </tr>
               ) : (
@@ -311,7 +311,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
                               onClick={() => handleApprove(s.shipment_id)}
                               disabled={actionLoading === s.shipment_id}
                             >
-                              <CheckCircle size={14} /> Duyệt
+                              <CheckCircle size={14} /> Approve
                             </button>
                             <button
                               className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1"
@@ -320,7 +320,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
                               }
                               disabled={actionLoading === s.shipment_id}
                             >
-                              <XCircle size={14} /> Từ chối
+                              <XCircle size={14} /> Reject
                             </button>
                           </>
                         )}
@@ -330,17 +330,17 @@ const ShipmentApproval = ({ user, onUpdate }) => {
                             onClick={() => handleExport(s.shipment_id)}
                             disabled={actionLoading === s.shipment_id}
                           >
-                            <Truck size={14} /> Xuất kho
+                            <Truck size={14} /> Export Warehouse
                           </button>
                         )}
                         {s.status === "In Transit" && (
                           <span className="badge bg-info bg-opacity-10 text-info px-3 py-2">
-                            <Truck size={12} /> Đang vận chuyển
+                          <Truck size={12} /> In Transit
                           </span>
                         )}
                         {s.status === "Delivered" && (
                           <span className="badge bg-success bg-opacity-10 text-success px-3 py-2">
-                            <CheckCircle size={12} /> Hoàn tất
+                            <CheckCircle size={12} /> Completed
                           </span>
                         )}
                       </div>
@@ -365,7 +365,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
           >
             <h5 className="text-white fw-bold mb-3 d-flex align-items-center gap-2">
               <AlertTriangle size={20} className="text-danger" />
-              Từ chối vận đơn
+              Reject Shipment
             </h5>
             <div className="mb-3">
               <label className="form-label text-dim small">
@@ -376,7 +376,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
                 rows="3"
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="Nhập lý do từ chối..."
+                placeholder="Enter rejection reason..."
               />
             </div>
             <div className="d-flex gap-2 justify-content-end">
@@ -387,14 +387,14 @@ const ShipmentApproval = ({ user, onUpdate }) => {
                   setRejectReason("");
                 }}
               >
-                Hủy
+                Cancel
               </button>
               <button
                 className="btn btn-danger"
                 onClick={() => handleReject(showRejectModal)}
                 disabled={actionLoading}
               >
-                Xác nhận từ chối
+                Confirm Rejection
               </button>
             </div>
           </div>

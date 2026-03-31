@@ -369,7 +369,7 @@ const App = () => {
                                   <button
                                     className="btn btn-sm btn-dark rounded-circle"
                                     onClick={() => setSelectedShipment(s)}
-                                    title="Xem chi tiết"
+                                    title="View details"
                                   >
                                     <Search size={16} />
                                   </button>

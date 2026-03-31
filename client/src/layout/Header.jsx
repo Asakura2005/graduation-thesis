@@ -1,5 +1,5 @@
 import React from "react";
-import { LogOut, Settings, User, Search } from "lucide-react";
+import { LogOut, Settings, User } from "lucide-react";
 import { useLanguage } from "../i18n/LanguageContext";
 import NotificationPanel from "./NotificationPanel";
 
@@ -12,34 +12,7 @@ const Header = ({ user, handleLogout, setActiveTab }) => {
       style={{ zIndex: 900 }}
     >
       {/* LEFT */}
-      <div className="d-flex align-items-center gap-3">
-        <div className="position-relative d-none d-md-block">
-          <Search
-            size={18}
-            className="position-absolute search-icon"
-            style={{
-              left: 12,
-              top: "50%",
-              transform: "translateY(-50%)",
-              color: "rgba(255,255,255,0.5)",
-              pointerEvents: "none",
-              zIndex: 2,
-            }}
-          />
-          <input
-            type="text"
-            placeholder={t('dashboard.searchPlaceholder')}
-            className="form-control search-input"
-            style={{
-              background: "rgba(255,255,255,0.05)",
-              border: "1px solid rgba(255,255,255,0.1)",
-              color: "white",
-              width: 260,
-              borderRadius: 12,
-            }}
-          />
-        </div>
-      </div>
+      <div className="d-flex align-items-center gap-3"></div>
 
       {/* RIGHT */}
       <div className="d-flex align-items-center gap-4">

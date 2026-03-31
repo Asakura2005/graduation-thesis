@@ -3,7 +3,7 @@ import { useLanguage } from "../i18n/LanguageContext";
 import axios from "axios";
 import { Activity, User, Clock, Search, Terminal, Package } from "lucide-react";
 
-const AuditLogViewer = () => { 
+const AuditLogViewer = () => {
   const { t } = useLanguage();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -159,7 +159,7 @@ const AuditLogViewer = () => {
             {loading ? (
               <tr>
                 <td colSpan="4" className="text-center py-5">
-                  Đang tải dữ liệu audit trail...
+                  Loading audit trail data...
                 </td>
               </tr>
             ) : filteredLogs.length === 0 ? (
@@ -247,13 +247,13 @@ const AuditLogViewer = () => {
                           <div className="d-flex flex-wrap gap-1">
                             {log.details.trackingNumber && (
                               <div className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-success border-opacity-15">
-                                <span className="text-success" style={{ fontSize: "0.75rem", minWidth: '90px' }}>Mã tracking:</span>
+                                <span className="text-success" style={{ fontSize: "0.75rem", minWidth: '90px' }}>Tracking Number:</span>
                                 <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.trackingNumber}</span>
                               </div>
                             )}
                             {log.details.itemCount != null && (
                               <div className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-secondary border-opacity-15">
-                                <span className="text-dim" style={{ fontSize: "0.75rem" }}>Sản phẩm:&nbsp;</span>
+                                <span className="text-dim" style={{ fontSize: "0.75rem" }}>Products:&nbsp;</span>
                                 <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.itemCount}</span>
                               </div>
                             )}
@@ -261,13 +261,13 @@ const AuditLogViewer = () => {
 
                         ) : log.action === 'UPDATE_SHIPMENT_STATUS' ? (
                           <div className="d-flex align-items-center gap-2 bg-black bg-opacity-25 px-2 py-1 rounded small border border-info border-opacity-15">
-                            <span className="text-info" style={{ fontSize: "0.75rem" }}>Trạng thái mới:</span>
+                            <span className="text-info" style={{ fontSize: "0.75rem" }}>New Status:</span>
                             <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.status}</span>
                           </div>
 
                         ) : log.action === 'DELETE_SHIPMENT' ? (
                           <div className="d-flex align-items-center gap-2 bg-black bg-opacity-25 px-2 py-1 rounded small border border-danger border-opacity-15">
-                            <span className="text-danger" style={{ fontSize: "0.75rem" }}>Xóa vận đơn:</span>
+                            <span className="text-danger" style={{ fontSize: "0.75rem" }}>Delete Shipment:</span>
                             <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.trackingNumber || ''}</span>
                           </div>
 
@@ -276,7 +276,7 @@ const AuditLogViewer = () => {
                             <div className="d-flex flex-wrap gap-1">
                               {log.details.username && (
                                 <div className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-info border-opacity-15">
-                                  <span className="text-info" style={{ fontSize: "0.75rem" }}>Tài khoản:&nbsp;</span>
+                                  <span className="text-info" style={{ fontSize: "0.75rem" }}>Account:&nbsp;</span>
                                   <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.username}</span>
                                 </div>
                               )}
@@ -291,7 +291,7 @@ const AuditLogViewer = () => {
                               {log.details.aiDecision && (
                                 <div className={`d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border ${log.details.aiDecision === 'BLOCK' ? 'border-danger' : log.details.aiDecision === 'WARN' ? 'border-warning' : 'border-success'} border-opacity-15`}>
                                   <span className={`fw-bold ${log.details.aiDecision === 'BLOCK' ? 'text-danger' : log.details.aiDecision === 'WARN' ? 'text-warning' : 'text-success'}`} style={{ fontSize: "0.8rem" }}>
-                                    {log.details.aiDecision === 'ALLOW' ? '✓ Cho phép' : log.details.aiDecision === 'WARN' ? '⚠ Cảnh báo' : '✕ Chặn'}
+                                    {log.details.aiDecision === 'ALLOW' ? '✓ Allow' : log.details.aiDecision === 'WARN' ? '⚠ Warn' : '✕ Block'}
                                   </span>
                                 </div>
                               )}
@@ -304,13 +304,13 @@ const AuditLogViewer = () => {
                                   if (f === 'AI_MEMORY_STATE') return null; // Hide internal state
 
                                   const factorColors = {
-                                    'UNSUPERVISED_OUTLIER': { bg: 'rgba(255, 71, 87, 0.15)', text: '#ff4757', icon: '🧠', label: 'Dị biệt AI' },
-                                    'UNSUPERVISED_ANOMALY': { bg: 'rgba(255, 165, 2, 0.15)', text: '#ffa502', icon: '📊', label: 'Bất thường' },
+                                    'UNSUPERVISED_OUTLIER': { bg: 'rgba(255, 71, 87, 0.15)', text: '#ff4757', icon: '🧠', label: 'AI Outlier' },
+                                    'UNSUPERVISED_ANOMALY': { bg: 'rgba(255, 165, 2, 0.15)', text: '#ffa502', icon: '📊', label: 'Anomaly' },
                                     'BRUTE_FORCE': { bg: 'rgba(255, 71, 87, 0.2)', text: '#ff4757', icon: '🛡️', label: 'Brute Force' },
-                                    'UNUSUAL_TIME': { bg: 'rgba(255, 165, 2, 0.15)', text: '#ffa502', icon: '⏰', label: 'Giờ lạ' },
-                                    'RAPID_LOGIN': { bg: 'rgba(255, 165, 2, 0.15)', text: '#ffa502', icon: '⚡', label: 'Login nhanh' },
-                                    'NEW_IP': { bg: 'rgba(45, 135, 255, 0.15)', text: '#2d87ff', icon: '🌐', label: 'IP lạ' },
-                                    'NEW_DEVICE': { bg: 'rgba(45, 135, 255, 0.15)', text: '#2d87ff', icon: '📱', label: 'Thiết bị lạ' },
+                                    'UNUSUAL_TIME': { bg: 'rgba(255, 165, 2, 0.15)', text: '#ffa502', icon: '⏰', label: 'Unusual Time' },
+                                    'RAPID_LOGIN': { bg: 'rgba(255, 165, 2, 0.15)', text: '#ffa502', icon: '⚡', label: 'Rapid Login' },
+                                    'NEW_IP': { bg: 'rgba(45, 135, 255, 0.15)', text: '#2d87ff', icon: '🌐', label: 'New IP' },
+                                    'NEW_DEVICE': { bg: 'rgba(45, 135, 255, 0.15)', text: '#2d87ff', icon: '📱', label: 'New Device' },
                                   };
 
                                   const style = factorColors[f] || { bg: 'rgba(255,255,255,0.1)', text: '#aaa', icon: '❓', label: f };
@@ -336,7 +336,7 @@ const AuditLogViewer = () => {
                           <div className="d-flex flex-column gap-1">
                             {log.details.partnerName && (
                               <div className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-secondary border-opacity-15">
-                                <span className="text-dim" style={{ fontSize: "0.75rem" }}>Đối tác:&nbsp;</span>
+                                <span className="text-dim" style={{ fontSize: "0.75rem" }}>Partner:&nbsp;</span>
                                 <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.partnerName}</span>
                               </div>
                             )}
@@ -360,13 +360,13 @@ const AuditLogViewer = () => {
                           <div className="d-flex flex-wrap gap-1">
                             {log.details.name && (
                               <div className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-success border-opacity-15">
-                                <span className="text-success" style={{ fontSize: "0.75rem" }}>Tên:&nbsp;</span>
+                                <span className="text-success" style={{ fontSize: "0.75rem" }}>Name:&nbsp;</span>
                                 <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.name}</span>
                               </div>
                             )}
                             {log.details.type && (
                               <div className="d-flex align-items-center bg-black bg-opacity-25 px-2 py-1 rounded small border border-secondary border-opacity-15">
-                                <span className="text-dim" style={{ fontSize: "0.75rem" }}>Loại:&nbsp;</span>
+                                <span className="text-dim" style={{ fontSize: "0.75rem" }}>Type:&nbsp;</span>
                                 <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.type}</span>
                               </div>
                             )}
@@ -374,7 +374,7 @@ const AuditLogViewer = () => {
 
                         ) : log.action === 'DELETE_PARTNER' ? (
                           <div className="d-flex align-items-center gap-2 bg-black bg-opacity-25 px-2 py-1 rounded small border border-danger border-opacity-15">
-                            <span className="text-danger" style={{ fontSize: "0.75rem" }}>Xóa đối tác</span>
+                            <span className="text-danger" style={{ fontSize: "0.75rem" }}>Delete Partner</span>
                           </div>
 
                         ) : (

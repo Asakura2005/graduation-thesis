@@ -128,18 +128,18 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
     };
 
     const handleDelete = async () => {
-        if (!confirm('CẢNH BÁO: Xóa đơn hàng sẽ vĩnh viễn không thể khôi phục. Bạn có chắc chắn?')) return;
+        if (!confirm('WARNING: Deleting this shipment is permanent and cannot be undone. Are you sure?')) return;
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
             await axios.delete(`/api/shipments/${shipment.shipment_id}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            alert('Đã xóa vận đơn thành công!');
+            alert('Shipment deleted successfully!');
             onUpdate();
             onBack();
         } catch (err) {
-            alert('Lỗi khi xóa: ' + (err.response?.data?.error || err.message));
+            alert('Error deleting: ' + (err.response?.data?.error || err.message));
             setLoading(false);
         }
     };
@@ -151,18 +151,18 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
             await axios.put(`/api/shipments/${shipment.shipment_id}`, editData, {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            alert('Đã cập nhật thông tin vận đơn!');
+            alert('Shipment information updated!');
             setIsEditing(false);
             onUpdate();
         } catch (err) {
-            alert('Lỗi cập nhật: ' + (err.response?.data?.error || err.message));
+            alert('Update error: ' + (err.response?.data?.error || err.message));
         } finally {
             setLoading(false);
         }
     };
 
     const handleUpdateStatus = async (newStatus) => {
-        if (!confirm(`Bạn có chắc muốn cập nhật trạng thái thành "${newStatus}"?`)) return;
+        if (!confirm(`Are you sure you want to update the status to "${newStatus}"?`)) return;
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
@@ -172,12 +172,12 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
 
             await axios.put(`/api/shipments/${shipment.shipment_id}/status`, { status: newStatus }, config);
 
-            alert("Cập nhật trạng thái thành công!");
-            onUpdate(); // Reload lại dữ liệu
-            onBack();   // Quay lại danh sách
+            alert("Status updated successfully!");
+            onUpdate(); // Reload data
+            onBack();   // Go back to list
         } catch (err) {
             console.error("Update Error:", err);
-            alert("Lỗi cập nhật trạng thái: " + (err.response?.data?.error || err.message));
+            alert("Status update error: " + (err.response?.data?.error || err.message));
         } finally {
             setLoading(false);
         }
@@ -199,14 +199,14 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                     {shipment.status}
                                 </span>
                             </h4>
-                            <small className="text-dim">Chi tiết vận đơn & Lịch sử hành trình</small>
+                            <small className="text-dim">Shipment details & Journey history</small>
                         </div>
                     </div>
 
                     {/* Quản lý quyền Admin */}
                     <div className="d-flex align-items-center gap-2">
                         <button className="btn btn-sm btn-outline-light d-flex align-items-center gap-1" onClick={handleDownloadPDF} disabled={isEditing}>
-                            <Download size={16} /> Xuất PDF
+                            <Download size={16} /> Export PDF
                         </button>
                         {user?.role === 'Admin' && (
                             <>
@@ -215,24 +215,24 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                         {isEditing ? (
                                             <>
                                                 <button className="btn btn-sm btn-success d-flex align-items-center gap-1" onClick={handleSaveEdit} disabled={loading}>
-                                                    <Save size={16} /> Lưu
+                                                    <Save size={16} /> Save
                                                 </button>
                                                 <button className="btn btn-sm btn-secondary d-flex align-items-center gap-1" onClick={() => setIsEditing(false)} disabled={loading}>
-                                                    <X size={16} /> Hủy
+                                                    <X size={16} /> Cancel
                                                 </button>
                                             </>
                                         ) : (
                                             <button className="btn btn-sm btn-outline-info d-flex align-items-center gap-1" onClick={startEditing}>
-                                                <Edit size={16} /> Sửa
+                                                <Edit size={16} /> Edit
                                             </button>
                                         )}
                                         <button className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1" onClick={handleDelete} disabled={loading}>
-                                            <Trash2 size={16} /> Xóa
+                                            <Trash2 size={16} /> Delete
                                         </button>
                                     </>
                                 ) : (
                                     <span className="badge bg-secondary bg-opacity-25 text-dim border border-secondary px-3 py-2 ms-2 d-flex align-items-center gap-2">
-                                        <AlertCircle size={14} /> Khóa cập nhật (Đã rời kho)
+                                        <AlertCircle size={14} /> Update locked (Left warehouse)
                                     </span>
                                 )}
                             </>
@@ -246,22 +246,22 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                         <div className="d-flex flex-column gap-3">
                             {/* Info Card */}
                             <div className="p-3 rounded-3 bg-black bg-opacity-20 border border-light border-opacity-10">
-                                <h6 className="text-gold fw-bold mb-3 d-flex align-items-center gap-2"><Package size={16} /> THÔNG TIN HÀNG HÓA</h6>
+                                <h6 className="text-gold fw-bold mb-3 d-flex align-items-center gap-2"><Package size={16} /> CARGO INFORMATION</h6>
 
 
                                 <div className="mb-3">
-                                    <div className="text-dim x-small text-uppercase">Đơn vị vận chuyển</div>
+                                    <div className="text-dim x-small text-uppercase">Logistics Provider</div>
                                     <div className="fw-semibold text-white">{shipment.logistics_name}</div>
                                 </div>
                                 <div className="mb-3">
-                                    <div className="text-dim x-small text-uppercase">Giá trị lô hàng</div>
+                                    <div className="text-dim x-small text-uppercase">Shipment Value</div>
                                     {isEditing ? (
                                         <>
                                             <input
                                                 type="number" className="form-control form-control-sm bg-dark text-white border-secondary mt-1 opacity-75"
                                                 value={editData.totalValue} readOnly
                                             />
-                                            <small className="text-dim x-small">* Tự động tính theo đơn giá sản phẩm</small>
+                                            <small className="text-dim x-small">* Auto-calculated from product unit price</small>
                                         </>
                                     ) : (
                                         <div className="fw-bold text-success d-flex align-items-center gap-1">
@@ -271,7 +271,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                     )}
                                 </div>
                                 <div>
-                                    <div className="text-dim x-small text-uppercase">Ngày tạo</div>
+                                    <div className="text-dim x-small text-uppercase">Created Date</div>
                                     <div className="d-flex align-items-center gap-2 text-white">
                                         <Calendar size={14} />
                                         {new Date(shipment.shipment_date).toLocaleString()}
@@ -281,12 +281,12 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
 
                             {/* Route Card */}
                             <div className="p-3 rounded-3 bg-black bg-opacity-20 border border-light border-opacity-10">
-                                <h6 className="text-gold fw-bold mb-3 d-flex align-items-center gap-2"><MapPin size={16} /> LỘ TRÌNH VẬN CHUYỂN</h6>
+                                <h6 className="text-gold fw-bold mb-3 d-flex align-items-center gap-2"><MapPin size={16} /> SHIPPING ROUTE</h6>
 
                                 <div className="position-relative ps-3 my-2 border-start border-secondary border-opacity-50 ms-2">
                                     <div className="mb-4 position-relative">
                                         <div className="position-absolute top-0 start-0 translate-middle-x bg-gold rounded-circle border border-dark" style={{ width: '12px', height: '12px', left: '-1px' }}></div>
-                                        <div className="text-dim x-small">Điểm đi (Origin)</div>
+                                        <div className="text-dim x-small">Origin</div>
                                         {isEditing ? (
                                             <input
                                                 type="text" className="form-control form-control-sm bg-dark text-white border-secondary mt-1"
@@ -298,7 +298,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                     </div>
                                     <div className="position-relative">
                                         <div className="position-absolute top-0 start-0 translate-middle-x bg-info rounded-circle border border-dark" style={{ width: '12px', height: '12px', left: '-1px' }}></div>
-                                        <div className="text-dim x-small">Điểm đến (Destination)</div>
+                                        <div className="text-dim x-small">Destination</div>
                                         {isEditing ? (
                                             <input
                                                 type="text" className="form-control form-control-sm bg-dark text-white border-secondary mt-1"
@@ -314,7 +314,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                             {/* QRCode Card */}
                             <div className="p-3 rounded-3 bg-black bg-opacity-20 border border-light border-opacity-10 text-center mt-3">
                                 <h6 className="text-gold fw-bold mb-3 d-flex justify-content-center align-items-center gap-2">
-                                    <Package size={16} /> DANH SÁCH SẢN PHẨM
+                                    <Package size={16} /> PRODUCT LIST
                                 </h6>
                                 <div className="text-start">
                                     {isEditing ? (
@@ -328,7 +328,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                                             value={item.itemId}
                                                             onChange={(e) => handleItemChange(idx, 'itemId', e.target.value)}
                                                         >
-                                                            <option value="">-- Chọn hàng --</option>
+                                                            <option value="">-- Select item --</option>
                                                             {supplyItems.map(p => <option key={p.item_id} value={p.item_id}>{p.item_name}</option>)}
                                                         </select>
                                                     </div>
@@ -343,10 +343,10 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                                             }}
                                                             onChange={(e) => handleItemChange(idx, 'stockId', e.target.value)}
                                                         >
-                                                            <option value="">-- Chọn lô hàng --</option>
+                                                            <option value="">-- Select stock lot --</option>
                                                             {stockList.map(s => <option key={s.stock_id} value={s.stock_id}>{s.warehouse_name} ({s.quantity})</option>)}
                                                             {/* Fallback for current stock if not in list */}
-                                                            {!stockList.find(s => s.stock_id === item.stockId) && <option value={item.stockId}>{item.warehouse_name} (Hiện tại)</option>}
+                                                            {!stockList.find(s => s.stock_id === item.stockId) && <option value={item.stockId}>{item.warehouse_name} (Current)</option>}
                                                         </select>
                                                     </div>
                                                     <div>
@@ -367,7 +367,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                                 <div key={idx} className="p-2 border border-light border-opacity-10 rounded d-flex justify-content-between align-items-center">
                                                     <div>
                                                         <div className="text-white small fw-bold">{item.item_name}</div>
-                                                        <div className="x-small text-dim">Kho: {item.warehouse_name}</div>
+                                                        <div className="x-small text-dim">Warehouse: {item.warehouse_name}</div>
                                                     </div>
                                                     <div className="text-gold fw-bold">x{item.quantity}</div>
                                                 </div>
@@ -379,7 +379,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
 
                             <div className="p-3 rounded-3 bg-black bg-opacity-20 border border-light border-opacity-10 text-center mt-3">
                                 <h6 className="text-gold fw-bold mb-3 d-flex justify-content-center align-items-center gap-2">
-                                    <Package size={16} /> MÃ QUÉT TRUY XUẤT (QR CODE)
+                                    <Package size={16} /> QR TRACKING CODE
                                 </h6>
                                 <div className="bg-white p-3 d-inline-block rounded-3 shadow-sm mx-auto mb-2">
                                     <QRCodeSVG
@@ -389,10 +389,10 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                         includeMargin={true}
                                     />
                                 </div>
-                                <div className="text-dim x-small mb-2">Quét để theo dõi hành trình mọi lúc mọi nơi</div>
+                                <div className="text-dim x-small mb-2">Scan to track shipment anytime, anywhere</div>
                                 <div className="mt-2 text-truncate">
                                     <a href={`/tracking/${shipment.tracking_number}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline-gold text-decoration-none d-inline-flex gap-1 align-items-center">
-                                        <Search size={14} /> Mở Trực Tiếp
+                                        <Search size={14} /> Open Tracking
                                     </a>
                                 </div>
                             </div>
@@ -402,7 +402,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                     {/* Cột Phải: Timeline & Actions */}
                     <div className="col-md-8">
                         <div className="p-4 rounded-3 bg-black bg-opacity-20 border border-light border-opacity-10 h-100 position-relative">
-                            <h6 className="text-gold fw-bold mb-4 d-flex align-items-center gap-2"><Clock size={16} /> TIẾN ĐỘ VẬN CHUYỂN</h6>
+                            <h6 className="text-gold fw-bold mb-4 d-flex align-items-center gap-2"><Clock size={16} /> SHIPPING PROGRESS</h6>
 
                             {/* Timeline Visualization */}
                             {shipment.status === 'Rejected' ? (
@@ -429,7 +429,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                         <div className="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-2 shadow-lg bg-danger text-white" style={{ width: '48px', height: '48px', border: '3px solid rgba(255,93,93,0.5)' }}>
                                             <XCircle size={24} />
                                         </div>
-                                        <div className="x-small fw-bold text-danger">Từ chối</div>
+                                        <div className="x-small fw-bold text-danger">Rejected</div>
                                         <div className="badge bg-danger bg-opacity-25 text-danger mt-1 shadow-sm" style={{ fontSize: '0.6rem' }}>Rejected</div>
                                     </div>
                                 </div>
@@ -467,7 +467,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                                         {new Date(displayTime).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}
                                                     </div>
                                                 )}
-                                                {isCurrent && <div className="badge bg-primary text-white mt-1 shadow-sm" style={{ fontSize: '0.6rem' }}>Hiện tại</div>}
+                                                {isCurrent && <div className="badge bg-primary text-white mt-1 shadow-sm" style={{ fontSize: '0.6rem' }}>Current</div>}
                                             </div>
                                         );
 
@@ -478,21 +478,21 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                             {/* Action Area */}
                             {validNextStatus() && (
                                 <div id="action-area" className="mt-5 pt-4 border-top border-light border-opacity-10">
-                                    <h6 className="text-white mb-3">Cập nhật trạng thái tiếp theo:</h6>
+                                    <h6 className="text-white mb-3">Update to next status:</h6>
                                     <button
                                         className="btn btn-gold py-3 px-4 fw-bold shadow-lg d-flex align-items-center gap-2"
                                         onClick={() => handleUpdateStatus(validNextStatus())}
                                         disabled={loading}
                                     >
-                                        {loading ? 'Đang xử lý...' : (
+                                        {loading ? 'Processing...' : (
                                             <>
                                                 <Truck size={20} />
-                                                Chuyển sang: {validNextStatus()}
+                                                Advance to: {validNextStatus()}
                                             </>
                                         )}
                                     </button>
                                     <p className="text-dim x-small mt-2">
-                                        * Hành động này sẽ được ghi vào <strong>Nhật ký hệ thống (Audit Logs)</strong> để truy vết.
+                                        * This action will be recorded in the <strong>System Audit Logs</strong> for traceability.
                                     </p>
                                 </div>
                             )}
@@ -501,7 +501,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                 <div className="mt-5 pt-4 border-top border-light border-opacity-10 text-center">
                                     <div className="d-inline-flex flex-column align-items-center text-success">
                                         <CheckCircle size={48} className="mb-2" />
-                                        <h5 className="fw-bold">Đơn hàng đã hoàn tất</h5>
+                                        <h5 className="fw-bold">Order completed</h5>
                                     </div>
                                 </div>
                             )}
@@ -509,10 +509,10 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                             {shipment.status === 'Rejected' && (
                                 <div className="mt-4 p-3 rounded-3 bg-danger bg-opacity-10 border border-danger border-opacity-25">
                                     <div className="d-flex align-items-center gap-2 text-danger fw-bold mb-1">
-                                        <XCircle size={18} /> Vận đơn đã bị từ chối
+                                        <XCircle size={18} /> Shipment has been rejected
                                     </div>
                                     <p className="text-dim small mb-0">
-                                        Vận đơn này đã bị Quản lý Kho từ chối và không thể thực hiện vận chuyển.
+                                        This shipment has been rejected by the Warehouse Manager and cannot be transported.
                                     </p>
                                 </div>
                             )}
@@ -520,7 +520,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                             {/* Activity Logs Section */}
                             <div className="mt-5 pt-4 border-top border-light border-opacity-10">
                                 <h6 className="text-gold fw-bold mb-4 d-flex align-items-center gap-2">
-                                    <Activity size={16} /> NHẬT KÝ HOẠT ĐỘNG CHI TIẾT
+                                    <Activity size={16} /> DETAILED ACTIVITY LOGS
                                 </h6>
 
                                 {logsLoading ? (
@@ -529,7 +529,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                     </div>
                                 ) : auditLogs.length === 0 ? (
                                     <div className="text-dim x-small italic p-3 text-center border border-dashed border-light border-opacity-10 rounded">
-                                        Chưa có nhật ký hoạt động nào được ghi nhận cho vận đơn này.
+                                        No activity logs recorded for this shipment yet.
                                     </div>
                                 ) : (
                                     <div className="d-flex flex-column gap-3">
@@ -560,39 +560,39 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                                             <div className="x-small d-flex flex-column gap-1">
                                                                 <div className="d-flex align-items-center gap-2 text-success">
                                                                     <Package size={12} />
-                                                                    <span>Tạo vận đơn mới</span>
+                                                                    <span>New shipment created</span>
                                                                 </div>
                                                                 {log.details.trackingNumber && (
-                                                                    <div className="text-dim ps-4">Mã tracking: <strong className="text-white">{log.details.trackingNumber}</strong></div>
+                                                                    <div className="text-dim ps-4">Tracking number: <strong className="text-white">{log.details.trackingNumber}</strong></div>
                                                                 )}
                                                                 {log.details.itemCount != null && (
-                                                                    <div className="text-dim ps-4">Số sản phẩm: <strong className="text-white">{log.details.itemCount}</strong></div>
+                                                                    <div className="text-dim ps-4">Item count: <strong className="text-white">{log.details.itemCount}</strong></div>
                                                                 )}
                                                             </div>
                                                         ) : log.action === 'UPDATE_SHIPMENT' ? (
                                                             <div className="x-small d-flex flex-column gap-1">
                                                                 <div className="d-flex align-items-center gap-2 text-warning mb-1">
                                                                     <Edit size={12} />
-                                                                    <span>Chỉnh sửa thông tin vận đơn</span>
+                                                                    <span>Shipment information edited</span>
                                                                 </div>
                                                                 {log.details.changes && log.details.changes.length > 0 ? (
                                                                     log.details.changes.map((change, ci) => (
                                                                         <div key={ci} className="ps-4 d-flex flex-column gap-0 mb-1">
                                                                             <div className="text-secondary fw-semibold" style={{ fontSize: '0.7rem' }}>{change.field}:</div>
                                                                             <div className="d-flex align-items-center gap-2 ps-2">
-                                                                                <span className="text-danger text-decoration-line-through" style={{ fontSize: '0.7rem' }}>{change.from || '(trống)'}</span>
+                                                                                <span className="text-danger text-decoration-line-through" style={{ fontSize: '0.7rem' }}>{change.from || '(empty)'}</span>
                                                                                 <span className="text-dim">→</span>
-                                                                                <span className="text-success fw-bold" style={{ fontSize: '0.7rem' }}>{change.to || '(trống)'}</span>
+                                                                                <span className="text-success fw-bold" style={{ fontSize: '0.7rem' }}>{change.to || '(empty)'}</span>
                                                                             </div>
                                                                         </div>
                                                                     ))
                                                                 ) : (
                                                                     <>
                                                                         {log.details.originAddress && (
-                                                                            <div className="text-dim ps-4">Điểm đi: <strong className="text-white">{log.details.originAddress}</strong></div>
+                                                                            <div className="text-dim ps-4">Origin: <strong className="text-white">{log.details.originAddress}</strong></div>
                                                                         )}
                                                                         {log.details.destinationAddress && (
-                                                                            <div className="text-dim ps-4">Điểm đến: <strong className="text-white">{log.details.destinationAddress}</strong></div>
+                                                                            <div className="text-dim ps-4">Destination: <strong className="text-white">{log.details.destinationAddress}</strong></div>
                                                                         )}
                                                                     </>
                                                                 )}
@@ -600,7 +600,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                                         ) : log.action === 'DELETE_SHIPMENT' ? (
                                                             <div className="x-small d-flex align-items-center gap-2 text-danger">
                                                                 <Trash2 size={12} />
-                                                                <span>Xóa vận đơn {log.details.trackingNumber && <strong>{log.details.trackingNumber}</strong>}</span>
+                                                                <span>Shipment deleted {log.details.trackingNumber && <strong>{log.details.trackingNumber}</strong>}</span>
                                                             </div>
                                                         ) : (
                                                             <div className="x-small d-flex flex-column gap-1">
@@ -636,35 +636,35 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                 <div id="pdf-invoice-export" style={{ padding: '40px', fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif', color: '#333' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #333', paddingBottom: '20px', marginBottom: '30px' }}>
                         <div>
-                            <h1 style={{ margin: 0, fontSize: '28px', color: '#1a1a1a', textTransform: 'uppercase', letterSpacing: '2px' }}>HÓA ĐƠN VẬN CHUYỂN</h1>
-                            <p style={{ margin: '5px 0 0', fontSize: '14px', color: '#666' }}>Mã Hóa Đơn: <strong>{shipment.tracking_number}</strong></p>
+                            <h1 style={{ margin: 0, fontSize: '28px', color: '#1a1a1a', textTransform: 'uppercase', letterSpacing: '2px' }}>SHIPPING INVOICE</h1>
+                            <p style={{ margin: '5px 0 0', fontSize: '14px', color: '#666' }}>Invoice Number: <strong>{shipment.tracking_number}</strong></p>
                         </div>
                         <div style={{ textAlign: 'right' }}>
                             <h3 style={{ margin: 0, fontSize: '20px', color: '#1a1a1a' }}>SecureChain Logistics</h3>
-                            <p style={{ margin: '5px 0 0', fontSize: '12px', color: '#666' }}>Bảo mật Blockchain & AES-256</p>
+                            <p style={{ margin: '5px 0 0', fontSize: '12px', color: '#666' }}>Blockchain & AES-256 Secured</p>
                         </div>
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '40px' }}>
                         <div style={{ flex: 1, paddingRight: '20px' }}>
-                            <h4 style={{ margin: '0 0 10px', fontSize: '14px', color: '#666', textTransform: 'uppercase' }}>Thông Tin Đối Tác</h4>
+                            <h4 style={{ margin: '0 0 10px', fontSize: '14px', color: '#666', textTransform: 'uppercase' }}>Partner Information</h4>
 
-                            <p style={{ margin: '0 0 5px' }}><strong>Đơn Vị Vận Chuyển:</strong> {shipment.logistics_name}</p>
-                            <p style={{ margin: '0 0 5px' }}><strong>Ngày Tạo Đơn:</strong> {new Date(shipment.shipment_date).toLocaleDateString('vi-VN')}</p>
+                            <p style={{ margin: '0 0 5px' }}><strong>Logistics Provider:</strong> {shipment.logistics_name}</p>
+                            <p style={{ margin: '0 0 5px' }}><strong>Order Date:</strong> {new Date(shipment.shipment_date).toLocaleDateString('en-US')}</p>
                         </div>
                         <div style={{ flex: 1, textAlign: 'right' }}>
-                            <h4 style={{ margin: '0 0 10px', fontSize: '14px', color: '#666', textTransform: 'uppercase' }}>Lộ Trình / Giá Trị</h4>
+                            <h4 style={{ margin: '0 0 10px', fontSize: '14px', color: '#666', textTransform: 'uppercase' }}>Route / Value</h4>
                             <p style={{ margin: '0 0 5px' }}><strong>Kho Gửi:</strong> {shipment.origin_address}</p>
                             <p style={{ margin: '0 0 5px' }}><strong>Kho Nhận:</strong> {shipment.destination_address}</p>
-                            <p style={{ margin: '0 0 5px' }}><strong>Tổng Giá Trị:</strong> ${parseFloat(shipment.total_value).toLocaleString('en-US')}</p>
+                            <p style={{ margin: '0 0 5px' }}><strong>Total Value:</strong> ${parseFloat(shipment.total_value).toLocaleString('en-US')}</p>
                         </div>
                     </div>
 
                     <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '40px' }}>
                         <thead>
                             <tr style={{ backgroundColor: '#f5f5f5' }}>
-                                <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>Trạng Thái Hiện Tại</th>
-                                <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>Chi Phí Tham Khảo</th>
+                                <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>Current Status</th>
+                                <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>Reference Cost</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -680,15 +680,15 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                             <QRCodeSVG value={`http://localhost:3000/tracking/${shipment.tracking_number}`} size={100} level="H" />
                         </div>
                         <div>
-                            <h5 style={{ margin: '0 0 10px', fontSize: '16px' }}>Tra Cứu Khách Hàng (Tracking)</h5>
-                            <p style={{ margin: '0 0 5px', fontSize: '13px', color: '#555' }}>Quý khách vui lòng quét mã QR Code để tra cứu lộ trình trực tuyến thời gian thực hoặc truy cập địa chỉ bên dưới:</p>
+                            <h5 style={{ margin: '0 0 10px', fontSize: '16px' }}>Customer Tracking</h5>
+                            <p style={{ margin: '0 0 5px', fontSize: '13px', color: '#555' }}>Please scan the QR Code to track the shipment in real-time or visit the link below:</p>
                             <a href={`http://localhost:3000/tracking/${shipment.tracking_number}`} style={{ color: '#0056b3', textDecoration: 'none', fontSize: '13px' }}>http://localhost:3000/tracking/{shipment.tracking_number}</a>
                         </div>
                     </div>
 
                     <div style={{ marginTop: '40px', borderTop: '1px dotted #ccc', paddingTop: '20px', textAlign: 'center', fontSize: '11px', color: '#888' }}>
-                        <p style={{ margin: '0' }}>Văn bản xuất tự động từ hệ thống SecureChain V1.2.0 • Zero Trust.</p>
-                        <p style={{ margin: '0' }}>Có giá trị pháp lý và xác minh dựa trên nền tảng Mã Hóa Envelope bảo mật cấp cao.</p>
+                        <p style={{ margin: '0' }}>Auto-generated from SecureChain System V1.2.0 • Zero Trust.</p>
+                        <p style={{ margin: '0' }}>Legally valid and verified on high-security Envelope Encryption platform.</p>
                     </div>
                 </div>
             </div>

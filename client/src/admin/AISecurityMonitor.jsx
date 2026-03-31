@@ -227,12 +227,12 @@ const BanDurationSelect = ({ value, onChange }) => (
     onChange={(e) => onChange(parseInt(e.target.value))}
     style={{ width: 180 }}
   >
-    <option value={15}>15 phút</option>
-    <option value={60}>1 giờ</option>
-    <option value={360}>6 giờ</option>
-    <option value={1440}>24 giờ</option>
-    <option value={10080}>7 ngày</option>
-    <option value={-1}>Vĩnh viễn</option>
+    <option value={15}>15m</option>
+    <option value={60}>1h</option>
+    <option value={360}>6h</option>
+    <option value={1440}>24h</option>
+    <option value={10080}>7d</option>
+    <option value={-1}>Permanent</option>
   </select>
 );
 
@@ -272,7 +272,7 @@ const AISecurityMonitor = () => {
       setAllUsers(usersRes.data);
     } catch (err) {
       console.error("AI Security Monitor fetch error:", err);
-      showNotification("error", "Không thể tải dữ liệu AI Security");
+      showNotification("error", "Failed to load AI Security data");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -294,7 +294,7 @@ const AISecurityMonitor = () => {
   // Actions
   const handleUnban = async (userId, username) => {
     if (
-      !window.confirm(`Bạn có chắc muốn gỡ ban cho user "${username}"?`)
+      !window.confirm(`Are you sure you want to unban user "${username}"?`)
     )
       return;
     setActionLoading(userId);
@@ -307,11 +307,11 @@ const AISecurityMonitor = () => {
       );
       showNotification(
         "success",
-        `✅ Đã gỡ ban cho ${username} thành công!`,
+        `✅ Unbanned ${username} successfully!`,
       );
       fetchData();
     } catch (err) {
-      showNotification("error", `Lỗi gỡ ban: ${err.message}`);
+      showNotification("error", `Unban error: ${err.message}`);
     } finally {
       setActionLoading(null);
     }
@@ -328,13 +328,13 @@ const AISecurityMonitor = () => {
       );
       showNotification(
         "success",
-        `🛡️ Đã ban user thành công! (${banDuration === -1 ? "Vĩnh viễn" : `${banDuration} phút`})`,
+        `🛡️ Banned user successfully! (${banDuration === -1 ? "Permanent" : `${banDuration} minutes`})`,
       );
       setShowBanModal(null);
       setBanReason("");
       fetchData();
     } catch (err) {
-      showNotification("error", `Lỗi ban user: ${err.message}`);
+      showNotification("error", `Ban error: ${err.message}`);
     } finally {
       setActionLoading(null);
     }
@@ -429,11 +429,10 @@ const AISecurityMonitor = () => {
         ].map(({ key, icon: Icon, label }) => (
           <button
             key={key}
-            className={`btn d-flex align-items-center gap-2 px-3 py-2 rounded-3 border-0 transition-all ${
-              activeSubTab === key
-                ? "btn-warning text-dark fw-bold shadow"
-                : "btn-dark text-dim"
-            }`}
+            className={`btn d-flex align-items-center gap-2 px-3 py-2 rounded-3 border-0 transition-all ${activeSubTab === key
+              ? "btn-warning text-dark fw-bold shadow"
+              : "btn-dark text-dim"
+              }`}
             onClick={() => setActiveSubTab(key)}
           >
             <Icon size={16} />
@@ -467,7 +466,7 @@ const AISecurityMonitor = () => {
                 label={t('ai.totalLogins')}
                 value={stats24h.totalAttempts || 0}
                 color="45,135,255"
-                subtext={`${stats24h.successCount || 0} thành công`}
+                subtext={`${stats24h.successCount || 0} success`}
               />
             </div>
             <div className="col-lg-3 col-md-6">
@@ -477,7 +476,7 @@ const AISecurityMonitor = () => {
                 value={stats24h.blockedCount || 0}
                 color="255,71,87"
                 pulse={stats24h.blockedCount > 0}
-                subtext={`${stats24h.failCount || 0} thất bại`}
+                subtext={`${stats24h.failCount || 0} failures`}
               />
             </div>
             <div className="col-lg-3 col-md-6">
@@ -487,7 +486,7 @@ const AISecurityMonitor = () => {
                 value={analytics?.bannedUsersCount || 0}
                 color="255,165,2"
                 pulse={analytics?.bannedUsersCount > 0}
-                subtext={`${analytics?.bannedUsersCount || 0} tài khoản`}
+                subtext={`${analytics?.bannedUsersCount || 0} accounts`}
               />
             </div>
             <div className="col-lg-3 col-md-6">
@@ -996,7 +995,7 @@ const AISecurityMonitor = () => {
                 <tr>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.user')}</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.role')}</th>
-                  <th style={{ fontSize: "0.7rem" }}>Tr?ng th�i</th>
+                  <th style={{ fontSize: "0.7rem" }}>Status</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.risk7d')}</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.login7d')}</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.blocked7d')}</th>
@@ -1133,7 +1132,7 @@ const AISecurityMonitor = () => {
                             style={{ fontSize: "0.65rem" }}
                             title={
                               user.role === "Admin"
-                                ? "Kh�ng th? ban Admin"
+                                ? "Cannot ban Admin"
                                 : ""
                             }
                           >
@@ -1214,7 +1213,7 @@ const AISecurityMonitor = () => {
                 className="btn btn-outline-secondary flex-grow-1"
                 onClick={() => setShowBanModal(null)}
               >
-                H?y
+                Cancel
               </button>
               <button
                 className="btn btn-danger flex-grow-1 d-flex align-items-center justify-content-center gap-2"

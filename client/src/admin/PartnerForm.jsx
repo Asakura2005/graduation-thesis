@@ -32,7 +32,7 @@ const COUNTRY_CODES = [
   { code: '+33', label: 'FR +33' },
 ];
 
-const PartnerForm = ({ onClose }) => { 
+const PartnerForm = ({ onClose }) => {
   const { t } = useLanguage();
   // State cho Form
   const [formData, setFormData] = useState({
@@ -261,7 +261,7 @@ const PartnerForm = ({ onClose }) => {
               {loadingList ? (
                 <tr>
                   <td colSpan="5" className="text-center py-5">
-                    Đang tải dữ liệu...
+                    Loading data...
                   </td>
                 </tr>
               ) : filteredPartners.length === 0 ? (
@@ -354,12 +354,12 @@ const PartnerForm = ({ onClose }) => {
 
           <div>
             <label className="form-label text-dim x-small text-uppercase fw-bold">
-              Tên công ty
+              Company name
             </label>
             <input
               type="text"
               className="form-control bg-transparent text-white"
-              placeholder="Nhập tên..."
+              placeholder="Enter name..."
               value={formData.name}
               onChange={(e) =>
                 setFormData({ ...formData, name: e.target.value })
@@ -370,12 +370,12 @@ const PartnerForm = ({ onClose }) => {
 
           <div>
             <label className="form-label text-dim x-small text-uppercase fw-bold">
-              Người liên hệ
+              Contact person
             </label>
             <input
               type="text"
               className="form-control bg-transparent text-white"
-              placeholder="Họ tên..."
+              placeholder="Enter name..."
               value={formData.contact}
               onChange={(e) =>
                 setFormData({ ...formData, contact: e.target.value })
@@ -387,7 +387,7 @@ const PartnerForm = ({ onClose }) => {
           <div className="row g-2">
             <div className="col-6">
               <label className="form-label text-dim x-small text-uppercase fw-bold">
-                Số điện thoại
+                Phone number
               </label>
               <div className="d-flex gap-1">
                 <select
@@ -424,7 +424,7 @@ const PartnerForm = ({ onClose }) => {
             </div>
             <div className="col-6">
               <label className="form-label text-dim x-small text-uppercase fw-bold">
-                Loại
+                Type
               </label>
               <select
                 className="form-select bg-transparent text-white"

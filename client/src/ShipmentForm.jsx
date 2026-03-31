@@ -99,11 +99,11 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!selectedStockId) return alert("Vui lòng chọn Kho xuất hàng (Nguồn)!");
+        if (!selectedStockId) return alert("Please select a Source Warehouse!");
 
         const stock = stockList.find(s => s.stock_id === selectedStockId);
         if (parseInt(formData.shipmentQuantity) > stock.quantity) {
-            return alert(`{t('shipments.exportQuantity')} (${formData.shipmentQuantity}) vượt quá tồn kho (${stock.quantity}) tại ${stock.warehouse_name}!`);
+            return alert(`Export Quantity (${formData.shipmentQuantity}) exceeds available stock (${stock.quantity}) at ${stock.warehouse_name}!`);
         }
 
         setLoading(true);
@@ -121,11 +121,11 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                     unitValue: (parseFloat(selectedItem.unit_cost) * 1.2)
                 }]
             });
-            alert(`✅ Tạo vận đơn thành công!\nMã vận đơn: ${formData.trackingNumber}`);
+            alert(`✅ Shipment created successfully!\nTracking Number: ${formData.trackingNumber}`);
             onSuccess();
             onSidebarClose();
         } catch (err) {
-            alert('Lỗi khi tạo vận đơn: ' + (err.response?.data?.error || err.message));
+            alert('Error creating shipment: ' + (err.response?.data?.error || err.message));
         } finally {
             setLoading(false);
         }
@@ -178,7 +178,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                                     <select className="form-select bg-dark text-white border-secondary focus-ring-gold" value={selectedItemId} onChange={handleProductChange} required>
                                         <option value="">{t('shipments.selectProduct')}</option>
                                         {supplyItems.map(i => (
-                                            <option key={i.item_id} value={i.item_id}>{i.item_name} (Tổng tồn: {i.quantity_in_stock})</option>
+                                            <option key={i.item_id} value={i.item_id}>{i.item_name} (Total Stock: {i.quantity_in_stock})</option>
                                         ))}
                                     </select>
                                 </div>
@@ -191,7 +191,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                                         <option value="">{t('shipments.selectSourceStock')}</option>
                                         {stockList.map(s => (
                                             <option key={s.stock_id} value={s.stock_id}>
-                                                {s.warehouse_name} - {s.bin_location} (Tồn: {s.quantity})
+                                                {s.warehouse_name} - {s.bin_location} (Stock: {s.quantity})
                                             </option>
                                         ))}
                                     </select>
@@ -267,7 +267,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                 <div className="p-4 bg-black bg-opacity-20 border-top border-secondary border-opacity-10 d-flex justify-content-between align-items-center">
                     <p className="small text-dim mb-0 d-flex align-items-center gap-2">
                         <Save size={14} />
-                        Data encrypted with standard / Mã hóa chuẩn <strong>AES-256-GCM</strong>
+                        Data encrypted with standard <strong>AES-256-GCM</strong>
                     </p>
                     <div className="d-flex gap-2">
                         <button className="btn btn-outline-secondary text-white hover-light px-4" onClick={onSidebarClose}>{t('common.cancel')}</button>
