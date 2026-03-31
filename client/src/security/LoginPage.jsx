@@ -45,6 +45,25 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
     useEffect(() => {
         if (!captchaEnabled) return;
 
+        // Remove old scripts
+        const scriptId = 'recaptcha-script';
+        let script = document.getElementById(scriptId);
+        if (script) script.remove();
+        
+        // Clear DOM and global state to force clean render
+        if (recaptchaRef.current) recaptchaRef.current.innerHTML = '';
+        window.grecaptcha = undefined;
+        window.___grecaptcha_cfg = undefined;
+        recaptchaWidgetId.current = null;
+
+        // Load new script
+        script = document.createElement('script');
+        script.id = scriptId;
+        script.src = `https://www.google.com/recaptcha/api.js?render=explicit&hl=${language}`;
+        script.async = true;
+        script.defer = true;
+        document.head.appendChild(script);
+
         const renderCaptcha = () => {
             if (window.grecaptcha && window.grecaptcha.render && recaptchaRef.current && recaptchaWidgetId.current === null) {
                 try {
@@ -55,24 +74,22 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
                         theme: 'dark',
                     });
                 } catch (e) {
-                    // Widget already rendered
+                    // ignore render error
                 }
             }
         };
 
-        // Wait for grecaptcha to be ready
-        if (window.grecaptcha && window.grecaptcha.render) {
-            renderCaptcha();
-        } else {
-            const interval = setInterval(() => {
-                if (window.grecaptcha && window.grecaptcha.render) {
-                    renderCaptcha();
-                    clearInterval(interval);
-                }
-            }, 500);
-            return () => clearInterval(interval);
-        }
-    }, [requires2FA, captchaEnabled]);
+        const interval = setInterval(() => {
+            if (window.grecaptcha && window.grecaptcha.render) {
+                renderCaptcha();
+                clearInterval(interval);
+            }
+        }, 500);
+
+        return () => {
+            clearInterval(interval);
+        };
+    }, [requires2FA, captchaEnabled, language]);
 
     const resetCaptcha = useCallback(() => {
         setCaptchaToken('');
@@ -623,7 +640,7 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
                             {/* reCAPTCHA */}
                             {captchaEnabled && (
                                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
-                                    <div ref={recaptchaRef}></div>
+                                    <div key={language} ref={recaptchaRef}></div>
                                 </div>
                             )}
 

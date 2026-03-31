@@ -4,7 +4,7 @@ import axios from 'axios';
 import { UserPlus, User, Lock, Mail, Phone, ShieldCheck, Eye, EyeOff, CheckCircle, AlertCircle, KeyRound } from 'lucide-react';
 
 const RegisterPage = ({ onBackToLogin }) => {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const [formData, setFormData] = useState({
         username: '',
         password: '',
@@ -45,6 +45,26 @@ const RegisterPage = ({ onBackToLogin }) => {
     // Render reCAPTCHA widget khi captcha được bật
     useEffect(() => {
         if (!captchaEnabled) return;
+
+        // Remove old scripts
+        const scriptId = 'recaptcha-script';
+        let script = document.getElementById(scriptId);
+        if (script) script.remove();
+        
+        // Clear DOM and global state to force clean render
+        if (recaptchaRef.current) recaptchaRef.current.innerHTML = '';
+        window.grecaptcha = undefined;
+        window.___grecaptcha_cfg = undefined;
+        recaptchaWidgetId.current = null;
+
+        // Load new script
+        script = document.createElement('script');
+        script.id = scriptId;
+        script.src = `https://www.google.com/recaptcha/api.js?render=explicit&hl=${language}`;
+        script.async = true;
+        script.defer = true;
+        document.head.appendChild(script);
+
         const renderCaptcha = () => {
             if (window.grecaptcha && window.grecaptcha.render && recaptchaRef.current && recaptchaWidgetId.current === null) {
                 try {
@@ -54,21 +74,17 @@ const RegisterPage = ({ onBackToLogin }) => {
                         'expired-callback': () => setCaptchaToken(''),
                         theme: 'dark',
                     });
-                } catch (e) { /* widget đã render */ }
+                } catch (e) { /* ignore */ }
             }
         };
-        if (window.grecaptcha && window.grecaptcha.render) {
-            renderCaptcha();
-        } else {
-            const interval = setInterval(() => {
-                if (window.grecaptcha && window.grecaptcha.render) {
-                    renderCaptcha();
-                    clearInterval(interval);
-                }
-            }, 500);
-            return () => clearInterval(interval);
-        }
-    }, [captchaEnabled]);
+        const interval = setInterval(() => {
+            if (window.grecaptcha && window.grecaptcha.render) {
+                renderCaptcha();
+                clearInterval(interval);
+            }
+        }, 500);
+        return () => clearInterval(interval);
+    }, [captchaEnabled, language]);
 
     const resetCaptcha = useCallback(() => {
         setCaptchaToken('');
@@ -665,7 +681,7 @@ const RegisterPage = ({ onBackToLogin }) => {
                     {/* reCAPTCHA Widget */}
                     {captchaEnabled && (
                         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px', marginTop: '4px' }}>
-                            <div ref={recaptchaRef}></div>
+                            <div key={language} ref={recaptchaRef}></div>
                         </div>
                     )}
 
