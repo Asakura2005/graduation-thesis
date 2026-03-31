@@ -24,12 +24,7 @@ import { backendTranslations_en } from "./i18n/translations";
 
 const App = () => {
   const { t, language } = useLanguage();
-  // 1. Intercept for public Tracking Page BEFORE Auth
-  const currentPath = window.location.pathname;
-  if (currentPath.startsWith("/tracking/")) {
-    const trackingNumber = currentPath.split("/")[2];
-    return <TrackingPage trackingNumber={trackingNumber} />;
-  }
+
   const [user, setUser] = useState(null);
   const [authMode, setAuthMode] = useState("login");
   const [initialCheck, setInitialCheck] = useState(true); // Need to wait before forcing login
@@ -135,7 +130,7 @@ const App = () => {
 
     const resInterceptor = axios.interceptors.response.use(
       (response) => {
-        if (language === 'en' && response.data) {
+        if (language && language === 'en' && response.data) {
           if (response.data.message && backendTranslations_en[response.data.message]) {
             response.data.message = backendTranslations_en[response.data.message];
           }
@@ -146,7 +141,7 @@ const App = () => {
         return response;
       },
       (error) => {
-        if (language === 'en' && error.response && error.response.data) {
+        if (language && language === 'en' && error.response && error.response.data) {
           if (error.response.data.error && backendTranslations_en[error.response.data.error]) {
             error.response.data.error = backendTranslations_en[error.response.data.error];
           }
@@ -453,4 +448,13 @@ const App = () => {
   );
 };
 
-export default App;
+const AppWrapper = () => {
+  const currentPath = window.location.pathname;
+  if (currentPath.startsWith("/tracking/")) {
+    const trackingNumber = currentPath.split("/")[2];
+    return <TrackingPage trackingNumber={trackingNumber} />;
+  }
+  return <App />;
+};
+
+export default AppWrapper;
