@@ -68,14 +68,14 @@ const MasterData = () => {
   });
 
   const deleteStock = async (stockId) => {
-    if (!window.confirm("Bạn có chắc chắn muốn xóa bản ghi tồn kho này?"))
+    if (!window.confirm(t('inventory.confirmDeleteStock')))
       return;
     try {
       await axios.delete(`/api/inventory/${stockId}`);
       setExistingStock((prev) => prev.filter((s) => s.stock_id !== stockId));
       fetchItems();
     } catch (err) {
-      alert("Lỗi xóa tồn kho: " + (err.response?.data?.error || err.message));
+      alert(`${t('inventory.errorDeleteStock')} ` + (err.response?.data?.error || err.message));
     }
   };
 
@@ -107,7 +107,7 @@ const MasterData = () => {
       fetchItems();
     } catch (err) {
       alert(
-        "Lỗi cập nhật tồn kho: " + (err.response?.data?.error || err.message),
+        `${t('inventory.errorUpdateStock')} ` + (err.response?.data?.error || err.message),
       );
     }
   };
@@ -177,16 +177,16 @@ const MasterData = () => {
         binLocation: "Shelf 1",
       });
       fetchItems();
-      alert(editingId ? "Cập nhật thành công!" : "Thành công!");
+      alert(editingId ? t('inventory.updateSuccessItem') : t('inventory.successMsg'));
     } catch (err) {
-      alert(err.response?.data?.error || "Lỗi lưu");
+      alert(err.response?.data?.error || t('inventory.saveErrorMsg'));
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!confirm("Bạn có chắc chắn muốn xóa sản phẩm này?")) return;
+    if (!confirm(t('inventory.confirmDeleteItem'))) return;
     try {
       await axios.delete(`/api/items/${id}`);
       fetchItems();
@@ -209,14 +209,14 @@ const MasterData = () => {
         <div className="row g-3 mb-3">
           <div className="col-md-3">
             <div className="glass kpi-card">
-              <div className="kpi-label">TOTAL ITEMS</div>
+              <div className="kpi-label">{t('inventory.totalItems')}</div>
               <div className="kpi-value text-gold">{items.length}</div>
             </div>
           </div>
 
           <div className="col-md-3">
             <div className="glass kpi-card">
-              <div className="kpi-label">TOTAL STOCK</div>
+              <div className="kpi-label">{t('inventory.totalStock')}</div>
               <div className="kpi-value text-info">
                 {items.reduce((sum, i) => sum + (i.quantity_in_stock || 0), 0)}
               </div>
@@ -225,7 +225,7 @@ const MasterData = () => {
 
           <div className="col-md-3">
             <div className="glass kpi-card">
-              <div className="kpi-label">CATEGORIES</div>
+              <div className="kpi-label">{t('inventory.categories')}</div>
               <div className="kpi-value text-success">
                 {new Set(items.map((i) => i.category)).size}
               </div>
@@ -234,7 +234,7 @@ const MasterData = () => {
 
           <div className="col-md-3">
             <div className="glass kpi-card">
-              <div className="kpi-label">SUPPLIERS</div>
+              <div className="kpi-label">{t('inventory.suppliers')}</div>
               <div className="kpi-value text-warning">{partners.length}</div>
             </div>
           </div>
@@ -309,14 +309,14 @@ const MasterData = () => {
                             supplierId: i.supplier_id || "", // Add this
                           });
                         }}
-                        title="Sửa"
+                        title={t('common.edit')}
                       >
                         <Edit size={16} />
                       </button>
                       <button
                         className="btn btn-sm btn-outline-light border-0 text-danger hover-bg-light"
                         onClick={() => handleDelete(i.item_id)}
-                        title="Xóa"
+                        title={t('common.delete')}
                       >
                         <Trash2 size={16} />
                       </button>
@@ -425,7 +425,7 @@ const MasterData = () => {
               >
                 {existingStock.length === 0 ? (
                   <div className="text-center text-dim x-small">
-                    Chưa có tồn kho.
+                    {t('inventory.noStock')}
                   </div>
                 ) : (
                   existingStock.map((s, idx) => (
@@ -448,7 +448,7 @@ const MasterData = () => {
                                 binLocation: e.target.value,
                               })
                             }
-                            placeholder="Vị trí"
+                            placeholder={t('inventory.location')}
                             style={{ width: "40%" }}
                           />
                           <input
@@ -461,7 +461,7 @@ const MasterData = () => {
                                 quantity: e.target.value,
                               })
                             }
-                            placeholder="SL"
+                            placeholder={t('inventory.qty')}
                             style={{ width: "30%" }}
                           />
                           <button
@@ -625,15 +625,15 @@ const WarehouseDetail = ({ warehouse, onBack }) => {
       {/* Grid hiển thị các kệ hàng (Bin Locations) */}
       <div className="flex-grow-1 glass p-4 overflow-auto custom-scrollbar">
         <h6 className="text-uppercase text-dim font-monospace mb-3">
-          SƠ ĐỒ TỒN KHO
+          {t('inventory.stockMap')}
         </h6>
         {loading ? (
           <div className="text-center py-5">
-            <div className="text-dim mt-2">Đang kiểm kê kho...</div>
+            <div className="text-dim mt-2">{t('inventory.checkingStock')}</div>
           </div>
         ) : inventory.length === 0 ? (
           <div className="text-center py-5 text-dim">
-            <div className="mt-2">Kho đang trống</div>
+            <div className="mt-2">{t('inventory.emptyWarehouse')}</div>
           </div>
         ) : (
           <div className="row g-3">
@@ -660,7 +660,7 @@ const WarehouseDetail = ({ warehouse, onBack }) => {
                     <span className="fw-bold fs-5 text-white">
                       {stock.quantity}
                     </span>
-                    <span className="text-dim x-small">đơn vị</span>
+                    <span className="text-dim x-small">{t('inventory.units')}</span>
                   </div>
                 </div>
               </div>
@@ -712,21 +712,21 @@ const InventoryManagement = () => {
         total_shelves: 50,
       });
       fetchWarehouses();
-      alert("Tạo kho thành công!");
+      alert(t('inventory.whCreateSuccess'));
     } catch (err) {
-      alert(err.response?.data?.error || "Lỗi tạo kho");
+      alert(err.response?.data?.error || t('inventory.whCreateError'));
     }
   };
 
   const handleDeleteWarehouse = async (id, name, e) => {
     e.stopPropagation(); // Prevent opening details
-    if (!window.confirm(`Bạn có chắc chắn muốn xóa kho "${name}"?`)) return;
+    if (!window.confirm(t('inventory.confirmDeleteWh').replace('{name}', name))) return;
     try {
       await axios.delete(`/api/warehouses/${id}`);
       fetchWarehouses();
-      alert("Xóa kho thành công!");
+      alert(t('inventory.whDeleteSuccess'));
     } catch (err) {
-      alert(err.response?.data?.error || err.response?.data || err.message || "Lỗi xóa kho");
+      alert(err.response?.data?.error || err.response?.data || err.message || t('inventory.whDeleteError'));
     }
   };
 
@@ -783,7 +783,7 @@ const InventoryManagement = () => {
                       <button
                         className="btn btn-sm btn-outline-danger position-absolute top-0 end-0 m-2 border-0 opacity-0 group-hover-opacity-100 transition-all"
                         onClick={(e) => handleDeleteWarehouse(wh.warehouse_id, wh.name, e)}
-                        title="Xóa kho"
+                        title={t('inventory.deleteWh')}
                       >
                         <Trash2 size={16} />
                       </button>

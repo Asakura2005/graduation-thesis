@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useLanguage } from "../i18n/LanguageContext";
 import axios from "axios";
 import {
   Package,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react";
 
 const ShipmentApproval = ({ user, onUpdate }) => {
+  const { t } = useLanguage();
   const [shipments, setShipments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all"); // all, pending, approved, rejected
@@ -46,11 +48,11 @@ const ShipmentApproval = ({ user, onUpdate }) => {
         `/api/shipments/${shipmentId}/approve`,
         { action: "approve" }
       );
-      alert("✅ Shipment approved successfully!");
+      alert(t('shipmentApproval.approveSuccess'));
       fetchShipments();
       if (onUpdate) onUpdate();
     } catch (err) {
-      alert("Error: " + (err.response?.data?.error || err.message));
+      alert(t('shipmentApproval.errorPrefix') + (err.response?.data?.error || err.message));
     } finally {
       setActionLoading(null);
     }
@@ -63,13 +65,13 @@ const ShipmentApproval = ({ user, onUpdate }) => {
         `/api/shipments/${shipmentId}/approve`,
         { action: "reject", reason: rejectReason }
       );
-      alert("❌ Shipment rejected.");
+      alert(t('shipmentApproval.rejectSuccess'));
       setShowRejectModal(null);
       setRejectReason("");
       fetchShipments();
       if (onUpdate) onUpdate();
     } catch (err) {
-      alert("Error: " + (err.response?.data?.error || err.message));
+      alert(t('shipmentApproval.errorPrefix') + (err.response?.data?.error || err.message));
     } finally {
       setActionLoading(null);
     }
@@ -78,7 +80,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
   const handleExport = async (shipmentId) => {
     if (
       !confirm(
-        "Confirm warehouse export? Status will change to 'In Transit'."
+        t('shipmentApproval.exportConfirm')
       )
     )
       return;
@@ -87,11 +89,11 @@ const ShipmentApproval = ({ user, onUpdate }) => {
       await axios.put(
         `/api/shipments/${shipmentId}/export`
       );
-      alert("🚛 Warehouse export successful! Status: In Transit");
+      alert(t('shipmentApproval.exportSuccess'));
       fetchShipments();
       if (onUpdate) onUpdate();
     } catch (err) {
-      alert("Error: " + (err.response?.data?.error || err.message));
+      alert(t('shipmentApproval.errorPrefix') + (err.response?.data?.error || err.message));
     } finally {
       setActionLoading(null);
     }
@@ -148,7 +150,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
             </div>
             <div>
               <p className="text-dim small mb-1 text-uppercase fw-semibold">
-                Pending
+                {t('shipmentApproval.pending')}
               </p>
               <h3 className="mb-0 fw-bold text-warning">{pendingCount}</h3>
             </div>
@@ -167,7 +169,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
             </div>
             <div>
               <p className="text-dim small mb-1 text-uppercase fw-semibold">
-                Approved
+                {t('shipmentApproval.approved')}
               </p>
               <h3 className="mb-0 fw-bold text-success">{approvedCount}</h3>
             </div>
@@ -186,7 +188,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
             </div>
             <div>
               <p className="text-dim small mb-1 text-uppercase fw-semibold">
-                In Transit
+                {t('shipmentApproval.inTransit')}
               </p>
               <h3 className="mb-0 fw-bold text-info">{inTransitCount}</h3>
             </div>
@@ -199,7 +201,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
           <h5 className="mb-0 fw-bold d-flex align-items-center gap-2 text-gold">
             <ShieldCheck size={20} />
-            Shipment Approval Management
+            {t('shipmentApproval.title')}
           </h5>
           <div className="d-flex gap-2">
             {["all", "pending", "approved", "rejected"].map((f) => (
@@ -213,12 +215,12 @@ const ShipmentApproval = ({ user, onUpdate }) => {
                 onClick={() => setFilter(f)}
               >
                 {f === "all"
-                  ? "Tất cả"
+                  ? t('shipmentApproval.filterAll')
                   : f === "pending"
-                  ? "Chờ duyệt"
+                  ? t('shipmentApproval.filterPending')
                   : f === "approved"
-                  ? "Đã duyệt"
-                  : "Từ chối"}
+                  ? t('shipmentApproval.filterApproved')
+                  : t('shipmentApproval.filterRejected')}
               </button>
             ))}
             <button
@@ -234,12 +236,12 @@ const ShipmentApproval = ({ user, onUpdate }) => {
           <table className="table table-hover align-middle mb-0 border-0">
             <thead>
               <tr>
-                <th>Tracking Number</th>
-                <th>Route</th>
-                <th>Logistics</th>
-                <th>Value</th>
-                <th>Status</th>
-                <th className="text-end">Action</th>
+                <th>{t('shipmentApproval.colTracking')}</th>
+                <th>{t('shipmentApproval.colRoute')}</th>
+                <th>{t('shipmentApproval.colLogistics')}</th>
+                <th>{t('shipmentApproval.colValue')}</th>
+                <th>{t('shipmentApproval.colStatus')}</th>
+                <th className="text-end">{t('shipmentApproval.colAction')}</th>
               </tr>
             </thead>
             <tbody>
@@ -247,13 +249,13 @@ const ShipmentApproval = ({ user, onUpdate }) => {
                 <tr>
                   <td colSpan="6" className="text-center py-5 text-dim">
                     <div className="spinner-border spinner-border-sm text-gold"></div>{" "}
-                    Đang tải...
+                    {t('shipmentApproval.loading')}
                   </td>
                 </tr>
               ) : filteredShipments.length === 0 ? (
                 <tr>
                   <td colSpan="6" className="text-center py-5 text-dim">
-                    No shipments found
+                    {t('shipmentApproval.noShipments')}
                   </td>
                 </tr>
               ) : (
@@ -311,7 +313,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
                               onClick={() => handleApprove(s.shipment_id)}
                               disabled={actionLoading === s.shipment_id}
                             >
-                              <CheckCircle size={14} /> Approve
+                              <CheckCircle size={14} /> {t('shipmentApproval.btnApprove')}
                             </button>
                             <button
                               className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1"
@@ -320,7 +322,7 @@ const ShipmentApproval = ({ user, onUpdate }) => {
                               }
                               disabled={actionLoading === s.shipment_id}
                             >
-                              <XCircle size={14} /> Reject
+                              <XCircle size={14} /> {t('shipmentApproval.btnReject')}
                             </button>
                           </>
                         )}
@@ -330,17 +332,17 @@ const ShipmentApproval = ({ user, onUpdate }) => {
                             onClick={() => handleExport(s.shipment_id)}
                             disabled={actionLoading === s.shipment_id}
                           >
-                            <Truck size={14} /> Export Warehouse
+                            <Truck size={14} /> {t('shipmentApproval.btnExport')}
                           </button>
                         )}
                         {s.status === "In Transit" && (
                           <span className="badge bg-info bg-opacity-10 text-info px-3 py-2">
-                          <Truck size={12} /> In Transit
+                          <Truck size={12} /> {t('shipmentApproval.btnInTransit')}
                           </span>
                         )}
                         {s.status === "Delivered" && (
                           <span className="badge bg-success bg-opacity-10 text-success px-3 py-2">
-                            <CheckCircle size={12} /> Completed
+                            <CheckCircle size={12} /> {t('shipmentApproval.btnCompleted')}
                           </span>
                         )}
                       </div>
@@ -365,18 +367,18 @@ const ShipmentApproval = ({ user, onUpdate }) => {
           >
             <h5 className="text-white fw-bold mb-3 d-flex align-items-center gap-2">
               <AlertTriangle size={20} className="text-danger" />
-              Reject Shipment
+              {t('shipmentApproval.rejectTitle')}
             </h5>
             <div className="mb-3">
               <label className="form-label text-dim small">
-                Lý do từ chối (tùy chọn)
+                {t('shipmentApproval.rejectReasonLabel')}
               </label>
               <textarea
                 className="form-control bg-dark text-white border-secondary"
                 rows="3"
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="Enter rejection reason..."
+                placeholder={t('shipmentApproval.rejectReasonPlaceholder')}
               />
             </div>
             <div className="d-flex gap-2 justify-content-end">
@@ -387,14 +389,14 @@ const ShipmentApproval = ({ user, onUpdate }) => {
                   setRejectReason("");
                 }}
               >
-                Cancel
+                {t('shipmentApproval.btnCancel')}
               </button>
               <button
                 className="btn btn-danger"
                 onClick={() => handleReject(showRejectModal)}
                 disabled={actionLoading}
               >
-                Confirm Rejection
+                {t('shipmentApproval.btnConfirmReject')}
               </button>
             </div>
           </div>

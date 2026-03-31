@@ -159,7 +159,7 @@ const AuditLogViewer = () => {
             {loading ? (
               <tr>
                 <td colSpan="4" className="text-center py-5">
-                  Loading audit trail data...
+                  {t('audit.loadingData')}
                 </td>
               </tr>
             ) : filteredLogs.length === 0 ? (
@@ -217,11 +217,11 @@ const AuditLogViewer = () => {
                                 {change.field}:
                               </span>
                               <span className="text-danger text-decoration-line-through" style={{ fontSize: "0.8rem" }}>
-                                {change.from || '(trống)'}
+                                {change.from || t('audit.emptyValue')}
                               </span>
                               <span className="text-dim">→</span>
                               <span className="text-success fw-bold" style={{ fontSize: "0.8rem" }}>
-                                {change.to || '(trống)'}
+                                {change.to || t('audit.emptyValue')}
                               </span>
                             </div>
                           ))
@@ -231,13 +231,13 @@ const AuditLogViewer = () => {
                           <div className="d-flex flex-column gap-1">
                             {log.details.originAddress && (
                               <div className="d-flex align-items-center gap-2 bg-black bg-opacity-25 px-2 py-1 rounded small border border-warning border-opacity-15">
-                                <span className="text-warning" style={{ fontSize: "0.75rem", minWidth: '90px' }}>Điểm đi:</span>
+                                <span className="text-warning" style={{ fontSize: "0.75rem", minWidth: '90px' }}>{t('audit.origin')}:</span>
                                 <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.originAddress}</span>
                               </div>
                             )}
                             {log.details.destinationAddress && (
                               <div className="d-flex align-items-center gap-2 bg-black bg-opacity-25 px-2 py-1 rounded small border border-warning border-opacity-15">
-                                <span className="text-warning" style={{ fontSize: "0.75rem", minWidth: '90px' }}>Điểm đến:</span>
+                                <span className="text-warning" style={{ fontSize: "0.75rem", minWidth: '90px' }}>{t('audit.destination')}:</span>
                                 <span className="text-white fw-bold" style={{ fontSize: "0.8rem" }}>{log.details.destinationAddress}</span>
                               </div>
                             )}
@@ -409,7 +409,7 @@ const AuditLogViewer = () => {
                       <div className="d-flex align-items-center gap-2 text-dim small bg-black bg-opacity-20 p-2 rounded">
                         <Terminal size={14} className="text-dim shrink-0" />
                         <span className="text-break">
-                          {String(log.details || "Không có chi tiết")}
+                          {String(log.details || t('audit.noDetails'))}
                         </span>
                       </div>
                     )}

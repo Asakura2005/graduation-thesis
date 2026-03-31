@@ -53,16 +53,16 @@ const PartnerForm = ({ onClose }) => {
     if (!phone) return ''; // optional field
     const digitsOnly = /^\d{7,12}$/;
     if (!digitsOnly.test(phone)) {
-      return 'SĐT không hợp lệ';
+      return t('partners.invalidPhone');
     }
     return '';
   };
 
   const validateEmail = (email) => {
-    if (!email) return 'Email là bắt buộc';
+    if (!email) return t('partners.emailRequired');
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
     if (!emailRegex.test(email)) {
-      return 'Email không hợp lệ';
+      return t('partners.invalidEmail');
     }
     return '';
   };
@@ -84,7 +84,7 @@ const PartnerForm = ({ onClose }) => {
       const response = await axios.get("/api/partners");
       setPartners(response.data);
     } catch (err) {
-      console.error("Lỗi lấy danh sách đối tác:", err);
+      console.error(t('partners.fetchError'), err);
     } finally {
       setLoadingList(false);
     }
@@ -124,28 +124,28 @@ const PartnerForm = ({ onClose }) => {
         await axios.post("/api/partners", submitData);
       }
 
-      // Reset form và reload list
-      const msg = editingId ? 'Cập nhật đối tác thành công!' : 'Thêm đối tác thành công!';
+      // Reset form and reload list
+      const msg = editingId ? t('partners.updateSuccess') : t('partners.addSuccess');
       handleCancelEdit();
       fetchPartners();
       showToast('success', msg);
     } catch (err) {
-      setError(err.response?.data?.error || "Không thể lưu đối tác");
-      showToast('error', err.response?.data?.error || 'Không thể lưu đối tác');
+      setError(err.response?.data?.error || t('partners.saveError'));
+      showToast('error', err.response?.data?.error || t('partners.saveError'));
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!confirm("Bạn có chắc muốn xóa đối tác này không?")) return;
+    if (!confirm(t('partners.deleteConfirm'))) return;
     try {
       await axios.delete(`/api/partners/${id}`);
       fetchPartners();
       if (editingId === id) handleCancelEdit();
-      showToast('success', 'Xóa đối tác thành công!');
+      showToast('success', t('partners.deleteSuccess'));
     } catch (err) {
-      showToast('error', err.response?.data?.error || 'Lỗi khi xóa đối tác');
+      showToast('error', err.response?.data?.error || t('partners.deleteError'));
     }
   };
 
@@ -261,7 +261,7 @@ const PartnerForm = ({ onClose }) => {
               {loadingList ? (
                 <tr>
                   <td colSpan="5" className="text-center py-5">
-                    Loading data...
+                    {t('partners.loading')}
                   </td>
                 </tr>
               ) : filteredPartners.length === 0 ? (
@@ -297,7 +297,7 @@ const PartnerForm = ({ onClose }) => {
                           : "bg-info bg-opacity-25 text-info"
                           }`}
                       >
-                        {p.type}
+                        {t(`partners.type${p.type}`)}
                       </span>
                     </td>
                     <td className="text-end">
@@ -305,7 +305,7 @@ const PartnerForm = ({ onClose }) => {
                         <button
                           className="btn btn-sm btn-dark rounded-circle"
                           onClick={() => handleEdit(p)}
-                          title="Sửa"
+                          title={t('common.edit')}
                         >
                           <Edit size={14} />
                         </button>
@@ -313,7 +313,7 @@ const PartnerForm = ({ onClose }) => {
                         <button
                           className="btn btn-sm btn-danger rounded-circle"
                           onClick={() => handleDelete(p.partner_id)}
-                          title="Xóa"
+                          title={t('common.delete')}
                         >
                           <Trash2 size={14} />
                         </button>
@@ -339,7 +339,7 @@ const PartnerForm = ({ onClose }) => {
               className="btn btn-sm btn-link text-dim text-decoration-none d-flex align-items-center gap-1"
               onClick={handleCancelEdit}
             >
-              <X size={16} /> Hủy
+              <X size={16} /> {t('common.cancel')}
             </button>
           )}
         </div>
@@ -354,12 +354,12 @@ const PartnerForm = ({ onClose }) => {
 
           <div>
             <label className="form-label text-dim x-small text-uppercase fw-bold">
-              Company name
+              {t('partners.companyName')}
             </label>
             <input
               type="text"
               className="form-control bg-transparent text-white"
-              placeholder="Enter name..."
+              placeholder={t('partners.placeholderName')}
               value={formData.name}
               onChange={(e) =>
                 setFormData({ ...formData, name: e.target.value })
@@ -370,12 +370,12 @@ const PartnerForm = ({ onClose }) => {
 
           <div>
             <label className="form-label text-dim x-small text-uppercase fw-bold">
-              Contact person
+              {t('partners.contactPerson')}
             </label>
             <input
               type="text"
               className="form-control bg-transparent text-white"
-              placeholder="Enter name..."
+              placeholder={t('partners.placeholderName')}
               value={formData.contact}
               onChange={(e) =>
                 setFormData({ ...formData, contact: e.target.value })
@@ -387,7 +387,7 @@ const PartnerForm = ({ onClose }) => {
           <div className="row g-2">
             <div className="col-6">
               <label className="form-label text-dim x-small text-uppercase fw-bold">
-                Phone number
+                {t('partners.phone')}
               </label>
               <div className="d-flex gap-1">
                 <select
@@ -424,7 +424,7 @@ const PartnerForm = ({ onClose }) => {
             </div>
             <div className="col-6">
               <label className="form-label text-dim x-small text-uppercase fw-bold">
-                Type
+                {t('partners.type')}
               </label>
               <select
                 className="form-select bg-transparent text-white"
@@ -434,13 +434,13 @@ const PartnerForm = ({ onClose }) => {
                 }
               >
                 <option value="Supplier" className="text-white bg-dark">
-                  Supplier
+                  {t('partners.typeSupplier')}
                 </option>
                 <option value="Logistics" className="text-white bg-dark">
-                  Logistics
+                  {t('partners.typeLogistics')}
                 </option>
                 <option value="Warehouse" className="text-white bg-dark">
-                  Warehouse
+                  {t('partners.typeWarehouse')}
                 </option>
               </select>
             </div>

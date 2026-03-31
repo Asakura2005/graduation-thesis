@@ -362,7 +362,7 @@ const App = () => {
                                               : "bg-danger bg-opacity-25 text-danger"
                                       }`}
                                   >
-                                    {s.status}
+                                    {t(`dashboard.statusMap.${s.status}`) || s.status}
                                   </span>
                                 </td>
                                 <td className="text-end">

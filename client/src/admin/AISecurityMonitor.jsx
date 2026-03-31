@@ -220,19 +220,19 @@ const HourlyChart = ({ data }) => {
 };
 
 // Ban Duration Selector
-const BanDurationSelect = ({ value, onChange }) => (
+const BanDurationSelect = ({ value, onChange, t }) => (
   <select
     className="form-select form-select-sm bg-dark text-light border-secondary"
     value={value}
     onChange={(e) => onChange(parseInt(e.target.value))}
     style={{ width: 180 }}
   >
-    <option value={15}>15m</option>
-    <option value={60}>1h</option>
-    <option value={360}>6h</option>
-    <option value={1440}>24h</option>
-    <option value={10080}>7d</option>
-    <option value={-1}>Permanent</option>
+    <option value={15}>{t('ai.duration15m')}</option>
+    <option value={60}>{t('ai.duration1h')}</option>
+    <option value={360}>{t('ai.duration6h')}</option>
+    <option value={1440}>{t('ai.duration24h')}</option>
+    <option value={10080}>{t('ai.duration7d')}</option>
+    <option value={-1}>{t('ai.durationPermanent')}</option>
   </select>
 );
 
@@ -294,7 +294,7 @@ const AISecurityMonitor = () => {
   // Actions
   const handleUnban = async (userId, username) => {
     if (
-      !window.confirm(`Are you sure you want to unban user "${username}"?`)
+      !window.confirm(`${t('ai.unbanConfirm')} "${username}"?`)
     )
       return;
     setActionLoading(userId);
@@ -307,11 +307,11 @@ const AISecurityMonitor = () => {
       );
       showNotification(
         "success",
-        `✅ Unbanned ${username} successfully!`,
+        `${t('ai.unbanSuccess')} ${username} ${t('ai.unbanSuccessSuff')}`,
       );
       fetchData();
     } catch (err) {
-      showNotification("error", `Unban error: ${err.message}`);
+      showNotification("error", `${t('ai.unbanError')} ${err.message}`);
     } finally {
       setActionLoading(null);
     }
@@ -328,13 +328,13 @@ const AISecurityMonitor = () => {
       );
       showNotification(
         "success",
-        `🛡️ Banned user successfully! (${banDuration === -1 ? "Permanent" : `${banDuration} minutes`})`,
+        `${t('ai.banSuccess')} (${banDuration === -1 ? t('ai.banPermanent') : `${banDuration} ${t('ai.banMinutes')}`})`,
       );
       setShowBanModal(null);
       setBanReason("");
       fetchData();
     } catch (err) {
-      showNotification("error", `Ban error: ${err.message}`);
+      showNotification("error", `${t('ai.banError')} ${err.message}`);
     } finally {
       setActionLoading(null);
     }
@@ -466,7 +466,7 @@ const AISecurityMonitor = () => {
                 label={t('ai.totalLogins')}
                 value={stats24h.totalAttempts || 0}
                 color="45,135,255"
-                subtext={`${stats24h.successCount || 0} success`}
+                subtext={`${stats24h.successCount || 0} ${t('ai.successLabel')}`}
               />
             </div>
             <div className="col-lg-3 col-md-6">
@@ -476,7 +476,7 @@ const AISecurityMonitor = () => {
                 value={stats24h.blockedCount || 0}
                 color="255,71,87"
                 pulse={stats24h.blockedCount > 0}
-                subtext={`${stats24h.failCount || 0} failures`}
+                subtext={`${stats24h.failCount || 0} ${t('ai.failuresLabel')}`}
               />
             </div>
             <div className="col-lg-3 col-md-6">
@@ -486,7 +486,7 @@ const AISecurityMonitor = () => {
                 value={analytics?.bannedUsersCount || 0}
                 color="255,165,2"
                 pulse={analytics?.bannedUsersCount > 0}
-                subtext={`${analytics?.bannedUsersCount || 0} accounts`}
+                subtext={`${analytics?.bannedUsersCount || 0} ${t('ai.accountsLabel')}`}
               />
             </div>
             <div className="col-lg-3 col-md-6">
@@ -523,7 +523,7 @@ const AISecurityMonitor = () => {
                         background: "#2ed573",
                       }}
                     />{" "}
-                    Bình thường
+                    {t('ai.statusNormal')}
                   </span>
                   <span
                     className="d-flex align-items-center gap-1 text-dim"
@@ -537,7 +537,7 @@ const AISecurityMonitor = () => {
                         background: "#ffa502",
                       }}
                     />{" "}
-                    Đáng ngờ
+                    {t('ai.statusSuspicious')}
                   </span>
                   <span
                     className="d-flex align-items-center gap-1 text-dim"
@@ -551,7 +551,7 @@ const AISecurityMonitor = () => {
                         background: "#ff4757",
                       }}
                     />{" "}
-                    Bị chặn
+                    {t('ai.statusBlockedItem')}
                   </span>
                 </div>
               </div>
@@ -1192,6 +1192,7 @@ const AISecurityMonitor = () => {
               <BanDurationSelect
                 value={banDuration}
                 onChange={setBanDuration}
+                t={t}
               />
             </div>
 
@@ -1213,7 +1214,7 @@ const AISecurityMonitor = () => {
                 className="btn btn-outline-secondary flex-grow-1"
                 onClick={() => setShowBanModal(null)}
               >
-                Cancel
+                {t('ai.cancelBtn')}
               </button>
               <button
                 className="btn btn-danger flex-grow-1 d-flex align-items-center justify-content-center gap-2"

@@ -3,8 +3,10 @@ import { ArrowLeft, Package, MapPin, Calendar, DollarSign, Truck, CheckCircle, A
 import axios from 'axios';
 import html2pdf from 'html2pdf.js';
 import { QRCodeSVG } from 'qrcode.react';
+import { useLanguage } from './i18n/LanguageContext';
 
 const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
+    const { t } = useLanguage();
     const [loading, setLoading] = useState(false);
 
     // States for Editing
@@ -128,18 +130,18 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
     };
 
     const handleDelete = async () => {
-        if (!confirm('WARNING: Deleting this shipment is permanent and cannot be undone. Are you sure?')) return;
+        if (!confirm(t('shipmentDetails.deleteConfirm'))) return;
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
             await axios.delete(`/api/shipments/${shipment.shipment_id}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            alert('Shipment deleted successfully!');
+            alert(t('shipmentDetails.deleteSuccess'));
             onUpdate();
             onBack();
         } catch (err) {
-            alert('Error deleting: ' + (err.response?.data?.error || err.message));
+            alert(`${t('shipmentDetails.deleteError')} ` + (err.response?.data?.error || err.message));
             setLoading(false);
         }
     };
@@ -151,18 +153,18 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
             await axios.put(`/api/shipments/${shipment.shipment_id}`, editData, {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            alert('Shipment information updated!');
+            alert(t('shipmentDetails.updateSuccess'));
             setIsEditing(false);
             onUpdate();
         } catch (err) {
-            alert('Update error: ' + (err.response?.data?.error || err.message));
+            alert(`${t('shipmentDetails.updateError')} ` + (err.response?.data?.error || err.message));
         } finally {
             setLoading(false);
         }
     };
 
     const handleUpdateStatus = async (newStatus) => {
-        if (!confirm(`Are you sure you want to update the status to "${newStatus}"?`)) return;
+        if (!confirm(`${t('shipmentDetails.statusConfirm')} "${t(`dashboard.statusMap.${newStatus}`) || newStatus}"?`)) return;
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
@@ -172,12 +174,12 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
 
             await axios.put(`/api/shipments/${shipment.shipment_id}/status`, { status: newStatus }, config);
 
-            alert("Status updated successfully!");
+            alert(t('shipmentDetails.statusSuccess'));
             onUpdate(); // Reload data
             onBack();   // Go back to list
         } catch (err) {
             console.error("Update Error:", err);
-            alert("Status update error: " + (err.response?.data?.error || err.message));
+            alert(`${t('shipmentDetails.statusError')} ` + (err.response?.data?.error || err.message));
         } finally {
             setLoading(false);
         }
@@ -196,17 +198,17 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                             <h4 className="mb-0 fw-bold text-gold d-flex align-items-center gap-2">
                                 {shipment.tracking_number}
                                 <span className={`badge fs-6 ${shipment.status === 'Delivered' ? 'bg-success' : 'bg-warning'} bg-opacity-25 text-white border border-light border-opacity-25 ms-2`}>
-                                    {shipment.status}
+                                    {t(`dashboard.statusMap.${shipment.status}`) || shipment.status}
                                 </span>
                             </h4>
-                            <small className="text-dim">Shipment details & Journey history</small>
+                            <small className="text-dim">{t('shipmentDetails.titleSub')}</small>
                         </div>
                     </div>
 
                     {/* Quản lý quyền Admin */}
                     <div className="d-flex align-items-center gap-2">
                         <button className="btn btn-sm btn-outline-light d-flex align-items-center gap-1" onClick={handleDownloadPDF} disabled={isEditing}>
-                            <Download size={16} /> Export PDF
+                            <Download size={16} /> {t('shipmentDetails.exportPdf')}
                         </button>
                         {user?.role === 'Admin' && (
                             <>
@@ -215,24 +217,24 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                         {isEditing ? (
                                             <>
                                                 <button className="btn btn-sm btn-success d-flex align-items-center gap-1" onClick={handleSaveEdit} disabled={loading}>
-                                                    <Save size={16} /> Save
+                                                    <Save size={16} /> {t('shipmentDetails.save')}
                                                 </button>
                                                 <button className="btn btn-sm btn-secondary d-flex align-items-center gap-1" onClick={() => setIsEditing(false)} disabled={loading}>
-                                                    <X size={16} /> Cancel
+                                                    <X size={16} /> {t('shipmentDetails.cancel')}
                                                 </button>
                                             </>
                                         ) : (
                                             <button className="btn btn-sm btn-outline-info d-flex align-items-center gap-1" onClick={startEditing}>
-                                                <Edit size={16} /> Edit
+                                                <Edit size={16} /> {t('shipmentDetails.edit')}
                                             </button>
                                         )}
                                         <button className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1" onClick={handleDelete} disabled={loading}>
-                                            <Trash2 size={16} /> Delete
+                                            <Trash2 size={16} /> {t('shipmentDetails.delete')}
                                         </button>
                                     </>
                                 ) : (
                                     <span className="badge bg-secondary bg-opacity-25 text-dim border border-secondary px-3 py-2 ms-2 d-flex align-items-center gap-2">
-                                        <AlertCircle size={14} /> Update locked (Left warehouse)
+                                        <AlertCircle size={14} /> {t('shipmentDetails.locked')}
                                     </span>
                                 )}
                             </>
@@ -246,22 +248,22 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                         <div className="d-flex flex-column gap-3">
                             {/* Info Card */}
                             <div className="p-3 rounded-3 bg-black bg-opacity-20 border border-light border-opacity-10">
-                                <h6 className="text-gold fw-bold mb-3 d-flex align-items-center gap-2"><Package size={16} /> CARGO INFORMATION</h6>
+                                <h6 className="text-gold fw-bold mb-3 d-flex align-items-center gap-2"><Package size={16} /> {t('shipmentDetails.cargoInfo')}</h6>
 
 
                                 <div className="mb-3">
-                                    <div className="text-dim x-small text-uppercase">Logistics Provider</div>
+                                    <div className="text-dim x-small text-uppercase">{t('shipmentDetails.logistics')}</div>
                                     <div className="fw-semibold text-white">{shipment.logistics_name}</div>
                                 </div>
                                 <div className="mb-3">
-                                    <div className="text-dim x-small text-uppercase">Shipment Value</div>
+                                    <div className="text-dim x-small text-uppercase">{t('shipmentDetails.value')}</div>
                                     {isEditing ? (
                                         <>
                                             <input
                                                 type="number" className="form-control form-control-sm bg-dark text-white border-secondary mt-1 opacity-75"
                                                 value={editData.totalValue} readOnly
                                             />
-                                            <small className="text-dim x-small">* Auto-calculated from product unit price</small>
+                                            <small className="text-dim x-small">{t('shipmentDetails.calcNote')}</small>
                                         </>
                                     ) : (
                                         <div className="fw-bold text-success d-flex align-items-center gap-1">
@@ -271,7 +273,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                     )}
                                 </div>
                                 <div>
-                                    <div className="text-dim x-small text-uppercase">Created Date</div>
+                                    <div className="text-dim x-small text-uppercase">{t('shipmentDetails.createdDate')}</div>
                                     <div className="d-flex align-items-center gap-2 text-white">
                                         <Calendar size={14} />
                                         {new Date(shipment.shipment_date).toLocaleString()}
@@ -281,12 +283,12 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
 
                             {/* Route Card */}
                             <div className="p-3 rounded-3 bg-black bg-opacity-20 border border-light border-opacity-10">
-                                <h6 className="text-gold fw-bold mb-3 d-flex align-items-center gap-2"><MapPin size={16} /> SHIPPING ROUTE</h6>
+                                <h6 className="text-gold fw-bold mb-3 d-flex align-items-center gap-2"><MapPin size={16} /> {t('shipmentDetails.route')}</h6>
 
                                 <div className="position-relative ps-3 my-2 border-start border-secondary border-opacity-50 ms-2">
                                     <div className="mb-4 position-relative">
                                         <div className="position-absolute top-0 start-0 translate-middle-x bg-gold rounded-circle border border-dark" style={{ width: '12px', height: '12px', left: '-1px' }}></div>
-                                        <div className="text-dim x-small">Origin</div>
+                                        <div className="text-dim x-small">{t('shipmentDetails.origin')}</div>
                                         {isEditing ? (
                                             <input
                                                 type="text" className="form-control form-control-sm bg-dark text-white border-secondary mt-1"
@@ -298,7 +300,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                     </div>
                                     <div className="position-relative">
                                         <div className="position-absolute top-0 start-0 translate-middle-x bg-info rounded-circle border border-dark" style={{ width: '12px', height: '12px', left: '-1px' }}></div>
-                                        <div className="text-dim x-small">Destination</div>
+                                        <div className="text-dim x-small">{t('shipmentDetails.destination')}</div>
                                         {isEditing ? (
                                             <input
                                                 type="text" className="form-control form-control-sm bg-dark text-white border-secondary mt-1"
@@ -314,7 +316,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                             {/* QRCode Card */}
                             <div className="p-3 rounded-3 bg-black bg-opacity-20 border border-light border-opacity-10 text-center mt-3">
                                 <h6 className="text-gold fw-bold mb-3 d-flex justify-content-center align-items-center gap-2">
-                                    <Package size={16} /> PRODUCT LIST
+                                    <Package size={16} /> {t('shipmentDetails.productList')}
                                 </h6>
                                 <div className="text-start">
                                     {isEditing ? (
@@ -322,18 +324,18 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                             {editData.items.map((item, idx) => (
                                                 <div key={idx} className="p-2 border border-secondary rounded bg-dark bg-opacity-25">
                                                     <div className="mb-2">
-                                                        <label className="x-small text-dim">Sản phẩm:</label>
+                                                        <label className="x-small text-dim">{t('shipmentDetails.itemLabel')}</label>
                                                         <select
                                                             className="form-select form-select-sm bg-dark text-white border-secondary"
                                                             value={item.itemId}
                                                             onChange={(e) => handleItemChange(idx, 'itemId', e.target.value)}
                                                         >
-                                                            <option value="">-- Select item --</option>
+                                                            <option value="">{t('shipmentDetails.selectItem')}</option>
                                                             {supplyItems.map(p => <option key={p.item_id} value={p.item_id}>{p.item_name}</option>)}
                                                         </select>
                                                     </div>
                                                     <div className="mb-2">
-                                                        <label className="x-small text-dim">Kho xuất:</label>
+                                                        <label className="x-small text-dim">{t('shipmentDetails.stockLabel')}</label>
                                                         <select
                                                             className="form-select form-select-sm bg-dark text-success border-success"
                                                             value={item.stockId}
@@ -343,14 +345,14 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                                             }}
                                                             onChange={(e) => handleItemChange(idx, 'stockId', e.target.value)}
                                                         >
-                                                            <option value="">-- Select stock lot --</option>
+                                                            <option value="">{t('shipmentDetails.selectStock')}</option>
                                                             {stockList.map(s => <option key={s.stock_id} value={s.stock_id}>{s.warehouse_name} ({s.quantity})</option>)}
                                                             {/* Fallback for current stock if not in list */}
-                                                            {!stockList.find(s => s.stock_id === item.stockId) && <option value={item.stockId}>{item.warehouse_name} (Current)</option>}
+                                                            {!stockList.find(s => s.stock_id === item.stockId) && <option value={item.stockId}>{item.warehouse_name} {t('shipmentDetails.currentStock')}</option>}
                                                         </select>
                                                     </div>
                                                     <div>
-                                                        <label className="x-small text-dim">Số lượng:</label>
+                                                        <label className="x-small text-dim">{t('shipmentDetails.qtyLabel')}</label>
                                                         <input
                                                             type="number"
                                                             className="form-control form-control-sm bg-dark text-white border-secondary"
@@ -367,7 +369,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                                 <div key={idx} className="p-2 border border-light border-opacity-10 rounded d-flex justify-content-between align-items-center">
                                                     <div>
                                                         <div className="text-white small fw-bold">{item.item_name}</div>
-                                                        <div className="x-small text-dim">Warehouse: {item.warehouse_name}</div>
+                                                        <div className="x-small text-dim">{t('shipmentDetails.warehouse')} {item.warehouse_name}</div>
                                                     </div>
                                                     <div className="text-gold fw-bold">x{item.quantity}</div>
                                                 </div>
@@ -379,7 +381,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
 
                             <div className="p-3 rounded-3 bg-black bg-opacity-20 border border-light border-opacity-10 text-center mt-3">
                                 <h6 className="text-gold fw-bold mb-3 d-flex justify-content-center align-items-center gap-2">
-                                    <Package size={16} /> QR TRACKING CODE
+                                    <Package size={16} /> {t('shipmentDetails.qrCode')}
                                 </h6>
                                 <div className="bg-white p-3 d-inline-block rounded-3 shadow-sm mx-auto mb-2">
                                     <QRCodeSVG
@@ -389,10 +391,10 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                         includeMargin={true}
                                     />
                                 </div>
-                                <div className="text-dim x-small mb-2">Scan to track shipment anytime, anywhere</div>
+                                <div className="text-dim x-small mb-2">{t('shipmentDetails.scanNote')}</div>
                                 <div className="mt-2 text-truncate">
                                     <a href={`/tracking/${shipment.tracking_number}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline-gold text-decoration-none d-inline-flex gap-1 align-items-center">
-                                        <Search size={14} /> Open Tracking
+                                        <Search size={14} /> {t('shipmentDetails.openTrack')}
                                     </a>
                                 </div>
                             </div>
@@ -402,7 +404,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                     {/* Cột Phải: Timeline & Actions */}
                     <div className="col-md-8">
                         <div className="p-4 rounded-3 bg-black bg-opacity-20 border border-light border-opacity-10 h-100 position-relative">
-                            <h6 className="text-gold fw-bold mb-4 d-flex align-items-center gap-2"><Clock size={16} /> SHIPPING PROGRESS</h6>
+                            <h6 className="text-gold fw-bold mb-4 d-flex align-items-center gap-2"><Clock size={16} /> {t('shipmentDetails.progress')}</h6>
 
                             {/* Timeline Visualization */}
                             {shipment.status === 'Rejected' ? (
@@ -415,7 +417,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                         <div className="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-2 shadow-lg bg-gold text-dark" style={{ width: '40px', height: '40px' }}>
                                             <CheckCircle size={20} />
                                         </div>
-                                        <div className="x-small fw-bold text-white">Pending Approval</div>
+                                        <div className="x-small fw-bold text-white">{t('dashboard.statusMap.Pending Approval')}</div>
                                         {shipment.shipment_date && (
                                             <div className="text-dim x-small mt-1" style={{ fontSize: '0.65rem', lineHeight: '1.2' }}>
                                                 {new Date(shipment.shipment_date).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}<br />
@@ -429,8 +431,8 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                         <div className="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-2 shadow-lg bg-danger text-white" style={{ width: '48px', height: '48px', border: '3px solid rgba(255,93,93,0.5)' }}>
                                             <XCircle size={24} />
                                         </div>
-                                        <div className="x-small fw-bold text-danger">Rejected</div>
-                                        <div className="badge bg-danger bg-opacity-25 text-danger mt-1 shadow-sm" style={{ fontSize: '0.6rem' }}>Rejected</div>
+                                        <div className="x-small fw-bold text-danger">{t('dashboard.statusMap.Rejected')}</div>
+                                        <div className="badge bg-danger bg-opacity-25 text-danger mt-1 shadow-sm" style={{ fontSize: '0.6rem' }}>{t('dashboard.statusMap.Rejected')}</div>
                                     </div>
                                 </div>
                             ) : (
@@ -460,14 +462,14 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                                 >
                                                     {active ? <CheckCircle size={20} /> : <div style={{ width: '10px', height: '10px' }} className="rounded-circle bg-secondary opacity-50"></div>}
                                                 </div>
-                                                <div className={`x-small fw-bold ${active ? 'text-white' : 'text-dim'}`}>{step}</div>
+                                                <div className={`x-small fw-bold ${active ? 'text-white' : 'text-dim'}`}>{t('dashboard.statusMap.' + step) || step}</div>
                                                 {active && displayTime && (
                                                     <div className="text-dim x-small mt-1" style={{ fontSize: '0.65rem', lineHeight: '1.2' }}>
                                                         {new Date(displayTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}<br />
                                                         {new Date(displayTime).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}
                                                     </div>
                                                 )}
-                                                {isCurrent && <div className="badge bg-primary text-white mt-1 shadow-sm" style={{ fontSize: '0.6rem' }}>Current</div>}
+                                                {isCurrent && <div className="badge bg-primary text-white mt-1 shadow-sm" style={{ fontSize: '0.6rem' }}>{t('shipmentDetails.current')}</div>}
                                             </div>
                                         );
 
@@ -478,21 +480,21 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                             {/* Action Area */}
                             {validNextStatus() && (
                                 <div id="action-area" className="mt-5 pt-4 border-top border-light border-opacity-10">
-                                    <h6 className="text-white mb-3">Update to next status:</h6>
+                                    <h6 className="text-white mb-3">{t('shipmentDetails.nextStatus')}</h6>
                                     <button
                                         className="btn btn-gold py-3 px-4 fw-bold shadow-lg d-flex align-items-center gap-2"
                                         onClick={() => handleUpdateStatus(validNextStatus())}
                                         disabled={loading}
                                     >
-                                        {loading ? 'Processing...' : (
+                                        {loading ? t('shipmentDetails.processing') : (
                                             <>
                                                 <Truck size={20} />
-                                                Advance to: {validNextStatus()}
+                                                {t('shipmentDetails.advanceTo')} {t('dashboard.statusMap.' + validNextStatus()) || validNextStatus()}
                                             </>
                                         )}
                                     </button>
                                     <p className="text-dim x-small mt-2">
-                                        * This action will be recorded in the <strong>System Audit Logs</strong> for traceability.
+                                        {t('shipmentDetails.auditNote')}
                                     </p>
                                 </div>
                             )}
@@ -501,7 +503,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                 <div className="mt-5 pt-4 border-top border-light border-opacity-10 text-center">
                                     <div className="d-inline-flex flex-column align-items-center text-success">
                                         <CheckCircle size={48} className="mb-2" />
-                                        <h5 className="fw-bold">Order completed</h5>
+                                        <h5 className="fw-bold">{t('shipmentDetails.completed')}</h5>
                                     </div>
                                 </div>
                             )}
@@ -509,10 +511,10 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                             {shipment.status === 'Rejected' && (
                                 <div className="mt-4 p-3 rounded-3 bg-danger bg-opacity-10 border border-danger border-opacity-25">
                                     <div className="d-flex align-items-center gap-2 text-danger fw-bold mb-1">
-                                        <XCircle size={18} /> Shipment has been rejected
+                                        <XCircle size={18} /> {t('shipmentDetails.rejected')}
                                     </div>
                                     <p className="text-dim small mb-0">
-                                        This shipment has been rejected by the Warehouse Manager and cannot be transported.
+                                        {t('shipmentDetails.rejectedDesc')}
                                     </p>
                                 </div>
                             )}
@@ -520,7 +522,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                             {/* Activity Logs Section */}
                             <div className="mt-5 pt-4 border-top border-light border-opacity-10">
                                 <h6 className="text-gold fw-bold mb-4 d-flex align-items-center gap-2">
-                                    <Activity size={16} /> DETAILED ACTIVITY LOGS
+                                    <Activity size={16} /> {t('shipmentDetails.activityLogs')}
                                 </h6>
 
                                 {logsLoading ? (
@@ -529,7 +531,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                     </div>
                                 ) : auditLogs.length === 0 ? (
                                     <div className="text-dim x-small italic p-3 text-center border border-dashed border-light border-opacity-10 rounded">
-                                        No activity logs recorded for this shipment yet.
+                                        {t('shipmentDetails.noLogs')}
                                     </div>
                                 ) : (
                                     <div className="d-flex flex-column gap-3">
@@ -554,45 +556,45 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                                     <div className="mt-2 pt-2 border-top border-light border-opacity-5">
                                                         {log.action === 'UPDATE_SHIPMENT_STATUS' ? (
                                                             <div className="text-info x-small d-flex align-items-center gap-2">
-                                                                <Truck size={12} /> Cập nhật trạng thái thành: <strong>{log.details.status}</strong>
+                                                                <Truck size={12} /> {t('shipmentDetails.statusUpdated')} <strong>{t('dashboard.statusMap.' + log.details.status) || log.details.status}</strong>
                                                             </div>
                                                         ) : log.action === 'CREATE_SHIPMENT' ? (
                                                             <div className="x-small d-flex flex-column gap-1">
                                                                 <div className="d-flex align-items-center gap-2 text-success">
                                                                     <Package size={12} />
-                                                                    <span>New shipment created</span>
+                                                                    <span>{t('shipmentDetails.newShipment')}</span>
                                                                 </div>
                                                                 {log.details.trackingNumber && (
-                                                                    <div className="text-dim ps-4">Tracking number: <strong className="text-white">{log.details.trackingNumber}</strong></div>
+                                                                    <div className="text-dim ps-4">{t('shipmentDetails.trackingNum')} <strong className="text-white">{log.details.trackingNumber}</strong></div>
                                                                 )}
                                                                 {log.details.itemCount != null && (
-                                                                    <div className="text-dim ps-4">Item count: <strong className="text-white">{log.details.itemCount}</strong></div>
+                                                                    <div className="text-dim ps-4">{t('shipmentDetails.itemCount')} <strong className="text-white">{log.details.itemCount}</strong></div>
                                                                 )}
                                                             </div>
                                                         ) : log.action === 'UPDATE_SHIPMENT' ? (
                                                             <div className="x-small d-flex flex-column gap-1">
                                                                 <div className="d-flex align-items-center gap-2 text-warning mb-1">
                                                                     <Edit size={12} />
-                                                                    <span>Shipment information edited</span>
+                                                                    <span>{t('shipmentDetails.edited')}</span>
                                                                 </div>
                                                                 {log.details.changes && log.details.changes.length > 0 ? (
                                                                     log.details.changes.map((change, ci) => (
                                                                         <div key={ci} className="ps-4 d-flex flex-column gap-0 mb-1">
                                                                             <div className="text-secondary fw-semibold" style={{ fontSize: '0.7rem' }}>{change.field}:</div>
                                                                             <div className="d-flex align-items-center gap-2 ps-2">
-                                                                                <span className="text-danger text-decoration-line-through" style={{ fontSize: '0.7rem' }}>{change.from || '(empty)'}</span>
+                                                                                <span className="text-danger text-decoration-line-through" style={{ fontSize: '0.7rem' }}>{change.from || t('shipmentDetails.empty')}</span>
                                                                                 <span className="text-dim">→</span>
-                                                                                <span className="text-success fw-bold" style={{ fontSize: '0.7rem' }}>{change.to || '(empty)'}</span>
+                                                                                <span className="text-success fw-bold" style={{ fontSize: '0.7rem' }}>{change.to || t('shipmentDetails.empty')}</span>
                                                                             </div>
                                                                         </div>
                                                                     ))
                                                                 ) : (
                                                                     <>
                                                                         {log.details.originAddress && (
-                                                                            <div className="text-dim ps-4">Origin: <strong className="text-white">{log.details.originAddress}</strong></div>
+                                                                            <div className="text-dim ps-4">{t('shipmentDetails.origin')}: <strong className="text-white">{log.details.originAddress}</strong></div>
                                                                         )}
                                                                         {log.details.destinationAddress && (
-                                                                            <div className="text-dim ps-4">Destination: <strong className="text-white">{log.details.destinationAddress}</strong></div>
+                                                                            <div className="text-dim ps-4">{t('shipmentDetails.destination')}: <strong className="text-white">{log.details.destinationAddress}</strong></div>
                                                                         )}
                                                                     </>
                                                                 )}
@@ -600,7 +602,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
                                                         ) : log.action === 'DELETE_SHIPMENT' ? (
                                                             <div className="x-small d-flex align-items-center gap-2 text-danger">
                                                                 <Trash2 size={12} />
-                                                                <span>Shipment deleted {log.details.trackingNumber && <strong>{log.details.trackingNumber}</strong>}</span>
+                                                                <span>{t('shipmentDetails.deletedLog')} {log.details.trackingNumber && <strong>{log.details.trackingNumber}</strong>}</span>
                                                             </div>
                                                         ) : (
                                                             <div className="x-small d-flex flex-column gap-1">

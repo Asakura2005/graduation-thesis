@@ -93,13 +93,14 @@ const RegisterPage = ({ onBackToLogin }) => {
         if (/[A-Z]/.test(pw)) score++;
         if (/[0-9]/.test(pw)) score++;
         if (/[^A-Za-z0-9]/.test(pw)) score++;
+        const labels = t('password.strengthLabels');
         const map = [
             { level: 0, label: '', color: '' },
-            { level: 1, label: 'Rất yếu', color: '#ef4444' },
-            { level: 2, label: 'Yếu', color: '#f97316' },
-            { level: 3, label: 'Trung bình', color: '#eab308' },
-            { level: 4, label: 'Mạnh', color: '#22c55e' },
-            { level: 5, label: 'Rất mạnh', color: '#00e5a0' },
+            { level: 1, label: Array.isArray(labels) ? labels[1] : 'Rất yếu', color: '#ef4444' },
+            { level: 2, label: Array.isArray(labels) ? labels[2] : 'Yếu', color: '#f97316' },
+            { level: 3, label: Array.isArray(labels) ? labels[3] : 'Trung bình', color: '#eab308' },
+            { level: 4, label: Array.isArray(labels) ? labels[4] : 'Mạnh', color: '#22c55e' },
+            { level: 5, label: Array.isArray(labels) ? labels[5] : 'Rất mạnh', color: '#00e5a0' },
         ];
         return map[score] || map[4];
     };
@@ -112,16 +113,15 @@ const RegisterPage = ({ onBackToLogin }) => {
         setSuccess('');
 
         if (formData.password !== formData.confirmPassword) {
-            return setError('Mật khẩu nhập lại không khớp!');
+            return setError(t('register.errorNoMatch'));
         }
 
         if (!pwValid(formData.password)) {
-            return setError('Mật khẩu phải chứa ít nhất 8 ký tự, 1 chữ hoa, 1 chữ số và 1 ký tự đặc biệt');
+            return setError(t('register.errorWeak'));
         }
 
-        // Kiểm tra reCAPTCHA
         if (captchaEnabled && !captchaToken) {
-            return setError('Vui lòng xác nhận bạn không phải robot 🤖');
+            return setError(t('register.captchaRequired'));
         }
 
         setLoading(true);
@@ -130,12 +130,12 @@ const RegisterPage = ({ onBackToLogin }) => {
                 ...formData,
                 captchaToken  // gửi captchaToken lên server
             });
-            setSuccess(res.data.message || 'Đăng ký thành công! Đang chuyển về trang đăng nhập...');
+            setSuccess(res.data.message || t('register.successMessage'));
             setTimeout(() => {
                 onBackToLogin();
             }, 2000);
         } catch (err) {
-            setError(err.response?.data?.error || 'Đăng ký thất bại');
+            setError(err.response?.data?.error || t('register.errorMessage'));
             resetCaptcha(); // reset captcha khi có lỗi
         } finally {
             setLoading(false);
@@ -715,13 +715,12 @@ const RegisterPage = ({ onBackToLogin }) => {
                 <div style={s.sysLine}>LATENCY: <span style={{ color: '#00e5a0', animation: 'pulse 3s infinite' }}>{latency}ms</span></div>
             </div>
 
-            {/* Copyright */}
             <div style={s.copyright}>
                 <div style={s.copyrightText}>
-                    © 2026 Secure Chain Tech. Đã đăng ký bản quyền.
+                    {t('login.copyright')}
                 </div>
                 <div style={{ ...s.copyrightText, fontSize: '10px', marginTop: '2px' }}>
-                    Hệ thống được giám sát liên tục bởi AI Security Protocols.
+                    {t('login.aiMonitor')}
                 </div>
             </div>
         </div>

@@ -99,11 +99,11 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!selectedStockId) return alert("Please select a Source Warehouse!");
+        if (!selectedStockId) return alert(t('shipments.selectSourceWarning'));
 
         const stock = stockList.find(s => s.stock_id === selectedStockId);
         if (parseInt(formData.shipmentQuantity) > stock.quantity) {
-            return alert(`Export Quantity (${formData.shipmentQuantity}) exceeds available stock (${stock.quantity}) at ${stock.warehouse_name}!`);
+            return alert(t('shipments.exceedsStockWarning') + ` (${formData.shipmentQuantity} > ${stock.quantity} @ ${stock.warehouse_name})`);
         }
 
         setLoading(true);
@@ -121,11 +121,11 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                     unitValue: (parseFloat(selectedItem.unit_cost) * 1.2)
                 }]
             });
-            alert(`✅ Shipment created successfully!\nTracking Number: ${formData.trackingNumber}`);
+            alert(`${t('shipments.createSuccess')} ${formData.trackingNumber}`);
             onSuccess();
             onSidebarClose();
         } catch (err) {
-            alert('Error creating shipment: ' + (err.response?.data?.error || err.message));
+            alert(`${t('shipments.createError')} ` + (err.response?.data?.error || err.message));
         } finally {
             setLoading(false);
         }
@@ -178,7 +178,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                                     <select className="form-select bg-dark text-white border-secondary focus-ring-gold" value={selectedItemId} onChange={handleProductChange} required>
                                         <option value="">{t('shipments.selectProduct')}</option>
                                         {supplyItems.map(i => (
-                                            <option key={i.item_id} value={i.item_id}>{i.item_name} (Total Stock: {i.quantity_in_stock})</option>
+                                            <option key={i.item_id} value={i.item_id}>{i.item_name} ({t('shipments.totalStock')}: {i.quantity_in_stock})</option>
                                         ))}
                                     </select>
                                 </div>
@@ -191,7 +191,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                                         <option value="">{t('shipments.selectSourceStock')}</option>
                                         {stockList.map(s => (
                                             <option key={s.stock_id} value={s.stock_id}>
-                                                {s.warehouse_name} - {s.bin_location} (Stock: {s.quantity})
+                                                {s.warehouse_name} - {s.bin_location} ({t('shipments.stock')}: {s.quantity})
                                             </option>
                                         ))}
                                     </select>
@@ -253,7 +253,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                                         <label className="form-label text-white small fw-semibold">{t('shipments.totalValueUSD')}</label>
                                         <div className="input-group">
                                             <span className="input-group-text bg-dark border-secondary text-success"><DollarSign size={18} /></span>
-                                            <input type="text" className="form-control bg-dark text-white border-secondary fw-bold" name="totalValue" value={formData.totalValue} readOnly placeholder="Auto (+20%)" />
+                                            <input type="text" className="form-control bg-dark text-white border-secondary fw-bold" name="totalValue" value={formData.totalValue} readOnly placeholder={t('shipments.autoCalc')} />
                                         </div>
                                     </div>
                                 </div>
@@ -267,7 +267,7 @@ const ShipmentForm = ({ onSidebarClose, onSuccess }) => {
                 <div className="p-4 bg-black bg-opacity-20 border-top border-secondary border-opacity-10 d-flex justify-content-between align-items-center">
                     <p className="small text-dim mb-0 d-flex align-items-center gap-2">
                         <Save size={14} />
-                        Data encrypted with standard <strong>AES-256-GCM</strong>
+                        {t('shipments.encryptedNote')} <strong>AES-256-GCM</strong>
                     </p>
                     <div className="d-flex gap-2">
                         <button className="btn btn-outline-secondary text-white hover-light px-4" onClick={onSidebarClose}>{t('common.cancel')}</button>

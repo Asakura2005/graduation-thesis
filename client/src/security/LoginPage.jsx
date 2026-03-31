@@ -89,7 +89,7 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
 
         try {
             if (captchaEnabled && !captchaToken) {
-                setError(language === 'en' ? 'Please confirm you are not a robot' : 'Vui lòng xác nhận bạn không phải robot');
+                setError(t('login.captchaRequired'));
                 setLoading(false);
                 return;
             }
@@ -153,7 +153,7 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
             }
             onLoginSuccess(response.data);
         } catch (err) {
-            setError(err.response?.data?.error || (language === 'en' ? 'Invalid verification code' : 'Mã xác thực không hợp lệ'));
+            setError(err.response?.data?.error || t('login.invalidCode'));
         } finally {
             setLoading(false);
         }

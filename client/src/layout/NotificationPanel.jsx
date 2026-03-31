@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Bell, Check, CheckCheck, Package, Truck, X, AlertCircle } from "lucide-react";
 import axios from "axios";
+import { useLanguage } from "../i18n/LanguageContext";
 
 const NotificationPanel = ({ user }) => {
+  const { t } = useLanguage();
   const [notifications, setNotifications] = useState([]);
   const [showPanel, setShowPanel] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -15,7 +17,7 @@ const NotificationPanel = ({ user }) => {
       const res = await axios.get("/api/notifications");
       setNotifications(res.data);
     } catch (err) {
-      console.error("Error fetching notifications:", err);
+      console.error(t('notifications.fetchError'), err);
     }
   };
 
@@ -83,10 +85,10 @@ const NotificationPanel = ({ user }) => {
     const diffHour = Math.floor(diffMs / 3600000);
     const diffDay = Math.floor(diffMs / 86400000);
 
-    if (diffMin < 1) return "Just now";
-    if (diffMin < 60) return `${diffMin} min ago`;
-    if (diffHour < 24) return `${diffHour} hr ago`;
-    return `${diffDay} days ago`;
+    if (diffMin < 1) return t('notifications.justNow');
+    if (diffMin < 60) return `${diffMin} ${t('notifications.minAgo')}`;
+    if (diffHour < 24) return `${diffHour} ${t('notifications.hrAgo')}`;
+    return `${diffDay} ${t('notifications.daysAgo')}`;
   };
 
   return (
@@ -165,7 +167,7 @@ const NotificationPanel = ({ user }) => {
       <button
         className={`bell-btn${unreadCount > 0 ? " has-unread" : ""}`}
         onClick={() => setShowPanel(!showPanel)}
-        title="Notifications"
+        title={t('notifications.title')}
       >
         <Bell size={22} className="bell-icon" />
         {unreadCount > 0 && (
@@ -191,7 +193,7 @@ const NotificationPanel = ({ user }) => {
           <div className="d-flex justify-content-between align-items-center p-3 border-bottom border-secondary border-opacity-10">
             <h6 className="mb-0 fw-bold text-white d-flex align-items-center gap-2">
               <Bell size={16} className="text-gold" />
-              Notifications
+              {t('notifications.title')}
               {unreadCount > 0 && (
                 <span className="badge bg-danger bg-opacity-25 text-danger rounded-pill">
                   {unreadCount}
@@ -204,7 +206,7 @@ const NotificationPanel = ({ user }) => {
                 onClick={markAllRead}
               >
                 <CheckCheck size={14} />
-                <span className="x-small">Mark all read</span>
+                <span className="x-small">{t('notifications.markAllRead')}</span>
               </button>
             )}
           </div>
@@ -217,7 +219,7 @@ const NotificationPanel = ({ user }) => {
             {notifications.length === 0 ? (
               <div className="text-center py-5">
                 <Bell size={32} className="text-dim opacity-25 mb-2" />
-                <p className="text-dim small mb-0">No notifications yet</p>
+                <p className="text-dim small mb-0">{t('notifications.empty')}</p>
               </div>
             ) : (
               notifications.slice(0, 50).map((n) => (

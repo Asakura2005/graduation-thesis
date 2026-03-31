@@ -76,7 +76,7 @@ const ProfileSettings = ({ user }) => {
             showToast('success', t('profile.success'));
             setConfirmPassword('');
         } catch (e) {
-            showToast('error', e.response?.data?.error || 'Lỗi khi cập nhật hồ sơ');
+            showToast('error', e.response?.data?.error || t('profile.saveError'));
         } finally { setProfileSaving(false); }
     };
 
@@ -102,7 +102,7 @@ const ProfileSettings = ({ user }) => {
             showToast('success', t('password.success'));
             setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
         } catch (e) {
-            showToast('error', e.response?.data?.error || 'Lỗi đổi mật khẩu');
+            showToast('error', e.response?.data?.error || t('password.saveError'));
         } finally { setPwSaving(false); }
     };
 
@@ -134,7 +134,7 @@ const ProfileSettings = ({ user }) => {
             setTwoFaSetup(null);
             setTwoFaCode('');
         } catch (e) {
-            showToast('error', e.response?.data?.error || 'Mã xác thực không đúng');
+            showToast('error', e.response?.data?.error || t('twofa.verifyError'));
         } finally { setTwoFaLoading(false); }
     };
 
@@ -150,7 +150,7 @@ const ProfileSettings = ({ user }) => {
             setProfile(p => ({ ...p, is2FAEnabled: false }));
             setDisablePassword('');
         } catch (e) {
-            showToast('error', e.response?.data?.error || 'Mật khẩu sai');
+            showToast('error', e.response?.data?.error || t('twofa.passwordError'));
         } finally { setTwoFaLoading(false); }
     };
 
@@ -164,7 +164,7 @@ const ProfileSettings = ({ user }) => {
             setCaptchaEnabled(newStatus);
             showToast('success', newStatus ? t('security.captchaOn') : t('security.captchaOff'));
         } catch (e) {
-            showToast('error', e.response?.data?.error || 'Lỗi khi thay đổi cài đặt CAPTCHA');
+            showToast('error', e.response?.data?.error || t('security.captchaError'));
         }
     };
 

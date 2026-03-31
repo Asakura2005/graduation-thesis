@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Package, Truck, CheckCircle, Clock, ArrowLeft, XCircle } from 'lucide-react';
 import axios from 'axios';
+import { useLanguage } from './i18n/LanguageContext';
 
 const TrackingPage = ({ trackingNumber }) => {
+    const { t } = useLanguage();
     const [shipment, setShipment] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -13,7 +15,7 @@ const TrackingPage = ({ trackingNumber }) => {
                 const res = await axios.get(`/api/tracking/${trackingNumber}`);
                 setShipment(res.data);
             } catch (err) {
-                setError('Shipment not found or an error occurred.');
+                setError(t('tracking.notFound'));
             } finally {
                 setLoading(false);
             }
@@ -33,9 +35,9 @@ const TrackingPage = ({ trackingNumber }) => {
         <div className="d-flex h-100vh w-100 justify-content-center align-items-center bg-black text-center text-white p-5">
             <div>
                 <Package size={64} className="text-secondary mb-3" />
-                <h4 className="text-danger">Retrieval Error</h4>
+                <h4 className="text-danger">{t('tracking.errorTitle')}</h4>
                 <p>{error}</p>
-                <a href="/" className="btn btn-outline-gold mt-3">Go Back</a>
+                <a href="/" className="btn btn-outline-gold mt-3">{t('tracking.goBack')}</a>
             </div>
         </div>
     );
@@ -46,32 +48,32 @@ const TrackingPage = ({ trackingNumber }) => {
         <div className="d-flex flex-column h-100vh w-100 bg-black text-white p-4 align-items-center overflow-auto">
             <div style={{ maxWidth: '800px', width: '100%' }}>
                 <a href="/" className="btn btn-outline-light d-inline-flex align-items-center gap-2 mb-4 hover-gold">
-                    <ArrowLeft size={16} /> Back to Dashboard
+                    <ArrowLeft size={16} /> {t('tracking.backDash')}
                 </a>
 
                 <div className="glass p-5 rounded-4 border-gold shadow-lg position-relative">
                     <div className="text-center mb-5">
                         <Package size={48} className="text-gold mb-2" />
-                        <h2 className="fw-bold mb-1 tracking-h2">SHIPMENT TRACKING</h2>
-                        <h5 className="text-dim mt-2 fw-semibold">Tracking number: <span className="text-white bg-dark px-2 rounded">{shipment.tracking_number}</span></h5>
+                        <h2 className="fw-bold mb-1 tracking-h2">{t('tracking.title')}</h2>
+                        <h5 className="text-dim mt-2 fw-semibold">{t('tracking.trackingNum')} <span className="text-white bg-dark px-2 rounded">{shipment.tracking_number}</span></h5>
                     </div>
 
                     <div className="row g-4 mb-5 pb-4 border-bottom border-light border-opacity-10">
                         <div className="col-md-6 border-end border-light border-opacity-10">
-                            <p className="small text-dim text-uppercase fw-bold mb-1">Origin</p>
+                            <p className="small text-dim text-uppercase fw-bold mb-1">{t('tracking.origin')}</p>
                             <h5 className="text-white">{shipment.origin_address}</h5>
-                            <p className="mt-3 small text-dim text-uppercase fw-bold mb-1">Logistics Provider</p>
+                            <p className="mt-3 small text-dim text-uppercase fw-bold mb-1">{t('tracking.logistics')}</p>
                             <h6 className="text-gold">{shipment.logistics_name}</h6>
                         </div>
                         <div className="col-md-6 text-end">
-                            <p className="small text-dim text-uppercase fw-bold mb-1">Destination</p>
+                            <p className="small text-dim text-uppercase fw-bold mb-1">{t('tracking.destination')}</p>
                             <h5 className="text-white">{shipment.destination_address}</h5>
 
                         </div>
                     </div>
 
                     <div className="position-relative mt-4">
-                        <h6 className="text-dim text-uppercase fw-bold x-small mb-4">Delivery Progress</h6>
+                        <h6 className="text-dim text-uppercase fw-bold x-small mb-4">{t('tracking.progress')}</h6>
 
                         {shipment.status === 'Rejected' ? (
                             /* REJECTED: Special 2-step flow */
@@ -84,7 +86,7 @@ const TrackingPage = ({ trackingNumber }) => {
                                         <div className="rounded-circle d-flex align-items-center justify-content-center bg-success text-white shadow-sm" style={{ width: '36px', height: '36px' }}>
                                             <CheckCircle size={20} />
                                         </div>
-                                        <div className="mt-2 fw-semibold text-center x-small text-success">Pending Approval</div>
+                                        <div className="mt-2 fw-semibold text-center x-small text-success">{t('dashboard.statusMap.Pending Approval')}</div>
                                     </div>
 
                                     {/* Step 2: Rejected */}
@@ -92,14 +94,14 @@ const TrackingPage = ({ trackingNumber }) => {
                                         <div className="rounded-circle d-flex align-items-center justify-content-center bg-danger text-white shadow-lg" style={{ width: '44px', height: '44px', border: '3px solid rgba(255,93,93,0.5)' }}>
                                             <XCircle size={24} />
                                         </div>
-                                        <div className="mt-2 fw-semibold text-center x-small text-danger">Rejected</div>
+                                        <div className="mt-2 fw-semibold text-center x-small text-danger">{t('dashboard.statusMap.Rejected')}</div>
                                     </div>
                                 </div>
 
                                 <div className="mt-4 p-3 rounded-3 bg-danger bg-opacity-10 border border-danger border-opacity-25 text-center">
                                     <XCircle size={20} className="text-danger mb-1" />
-                                    <p className="text-danger fw-bold mb-1">Shipment has been rejected</p>
-                                    <p className="text-dim small mb-0">This shipment was not approved by the Warehouse Manager.</p>
+                                    <p className="text-danger fw-bold mb-1">{t('tracking.rejected')}</p>
+                                    <p className="text-dim small mb-0">{t('tracking.rejectedDesc')}</p>
                                 </div>
                             </>
                         ) : (
@@ -120,7 +122,7 @@ const TrackingPage = ({ trackingNumber }) => {
                                                 {isCompleted ? <CheckCircle size={20} /> : <Clock size={16} />}
                                             </div>
                                             <div className={`mt-2 fw-semibold text-center x-small ${isCurrent ? 'text-white' : (isCompleted ? 'text-success' : 'text-dim')}`}>
-                                                {step}
+                                                {t('dashboard.statusMap.' + step) || step}
                                             </div>
                                         </div>
                                     );
