@@ -104,7 +104,7 @@ const ShipmentDetails = ({ shipment, user, onBack, onUpdate }) => {
     };
 
     // Status flow with new approval workflow
-    const statusFlow = ['Pending Approval', 'Approved', 'In Transit', 'Customs Check', 'Delivered'];
+    const statusFlow = ['Pending Approval', 'Approved', 'In Transit', 'Delivered'];
 
     const validNextStatus = () => {
         // Rejected/Cancelled shipments cannot advance

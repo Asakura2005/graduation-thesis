@@ -4,13 +4,75 @@ import axios from "axios";
 import { useLanguage } from "../i18n/LanguageContext";
 
 const NotificationPanel = ({ user }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [notifications, setNotifications] = useState([]);
   const [showPanel, setShowPanel] = useState(false);
   const [loading, setLoading] = useState(false);
   const panelRef = useRef(null);
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
+
+  // --- Translate notification content from server Vietnamese to English ---
+  const notifMap = t('notifications.notifContent') || {};
+
+  const translateNotif = (title, message) => {
+    if (language !== 'en') return { title, message };
+
+    // Translate title (exact match first)
+    let tTitle = notifMap[title] || title;
+    // Fallback: pattern match for dynamic titles like "Vận đơn Approved"
+    if (tTitle === title && title) {
+      const vdMatch = title.match(/^Vận đơn (.+)$/);
+      if (vdMatch) tTitle = `Shipment ${vdMatch[1]}`;
+    }
+
+    // Translate message patterns
+    let tMsg = message;
+    if (message) {
+      // "Tài khoản "xxx" không tồn tại nhưng có người cố đăng nhập..."
+      tMsg = tMsg.replace(
+        /Tài khoản "(.+?)" không tồn tại nhưng có người cố đăng nhập\. Risk Score: (\d+)\. IP: (.+)/,
+        'Account "$1" does not exist but login attempt detected. Risk Score: $2. IP: $3'
+      );
+      // "Tài khoản "xxx" đăng nhập sai mật khẩu..."
+      tMsg = tMsg.replace(
+        /Tài khoản "(.+?)" đăng nhập sai mật khẩu\. Risk Score: (\d+)\. IP: (.+)/,
+        'Account "$1" failed login (wrong password). Risk Score: $2. IP: $3'
+      );
+      // "Tài khoản "xxx" đã bị AI tự động khoá do sai mật khẩu ≥ N lần..."
+      tMsg = tMsg.replace(
+        /Tài khoản "(.+?)" đã bị AI tự động khoá do sai mật khẩu ≥ (\d+) lần liên tiếp\. Thời gian khoá: (.+?)\. Ban level: (\d+)\. IP: (.+)/,
+        'Account "$1" auto-banned by AI due to ≥ $2 consecutive wrong passwords. Duration: $3. Ban level: $4. IP: $5'
+      );
+      // "Vận đơn xxx vừa được tạo bởi yyy. Vui lòng xem xét và phê duyệt."
+      tMsg = tMsg.replace(
+        /Vận đơn (.+?) vừa được tạo bởi (.+?)\. Vui lòng xem xét và phê duyệt\./,
+        'Shipment $1 was created by $2. Please review and approve.'
+      );
+      // "Vận đơn xxx đã được cập nhật trạng thái: yyy"
+      tMsg = tMsg.replace(
+        /Vận đơn (.+?) đã được cập nhật trạng thái: (.+)/,
+        'Shipment $1 status updated to: $2'
+      );
+      // "Vận đơn xxx đã được yyy phê duyệt thành công."
+      tMsg = tMsg.replace(
+        /Vận đơn (.+?) đã được (.+?) phê duyệt thành công\./,
+        'Shipment $1 has been approved by $2.'
+      );
+      // "Vận đơn xxx đã bị yyy từ chối. Lý do: zzz"
+      tMsg = tMsg.replace(
+        /Vận đơn (.+?) đã bị (.+?) từ chối\. Lý do: (.+)/,
+        'Shipment $1 has been rejected by $2. Reason: $3'
+      );
+      // "Vận đơn xxx đã được xuất kho và đang vận chuyển."
+      tMsg = tMsg.replace(
+        /Vận đơn (.+?) đã được xuất kho và đang vận chuyển\./,
+        'Shipment $1 has been exported and is in transit.'
+      );
+    }
+
+    return { title: tTitle, message: tMsg };
+  };
 
   const fetchNotifications = async () => {
     try {
@@ -222,7 +284,9 @@ const NotificationPanel = ({ user }) => {
                 <p className="text-dim small mb-0">{t('notifications.empty')}</p>
               </div>
             ) : (
-              notifications.slice(0, 50).map((n) => (
+              notifications.slice(0, 50).map((n) => {
+                const translated = translateNotif(n.title, n.message);
+                return (
                 <div
                   key={n.notification_id}
                   className={`d-flex gap-3 p-3 border-bottom border-secondary border-opacity-5 transition-all ${
@@ -251,7 +315,7 @@ const NotificationPanel = ({ user }) => {
                           !n.is_read ? "text-white" : "text-dim"
                         }`}
                       >
-                        {n.title}
+                        {translated.title}
                       </span>
                       {!n.is_read && (
                         <span
@@ -268,14 +332,15 @@ const NotificationPanel = ({ user }) => {
                       className="text-dim x-small mb-1 text-truncate"
                       style={{ maxWidth: "280px" }}
                     >
-                      {n.message}
+                      {translated.message}
                     </p>
                     <span className="text-dim" style={{ fontSize: "0.65rem" }}>
                       {formatTime(n.created_at)}
                     </span>
                   </div>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

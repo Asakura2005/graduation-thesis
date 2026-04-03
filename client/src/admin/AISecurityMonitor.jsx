@@ -861,7 +861,7 @@ const AISecurityMonitor = () => {
                               className="badge rounded-pill"
                               style={{ fontSize: "0.55rem", background: "rgba(255,99,72,0.2)", color: "#ff6348" }}
                             >
-                              ĐĂNG NHẬP thất bại
+                              {t('ai.loginFailed')}
                             </span>
                           )}
                         </div>
@@ -995,7 +995,7 @@ const AISecurityMonitor = () => {
                 <tr>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.user')}</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.role')}</th>
-                  <th style={{ fontSize: "0.7rem" }}>Status</th>
+                  <th style={{ fontSize: "0.7rem" }}>{t('ai.status')}</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.risk7d')}</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.login7d')}</th>
                   <th style={{ fontSize: "0.7rem" }}>{t('ai.blocked7d')}</th>
@@ -1067,7 +1067,7 @@ const AISecurityMonitor = () => {
                               className="text-dim"
                               style={{ fontSize: "0.55rem" }}
                             >
-                              �?n:{" "}
+                              {t('ai.bannedUntil')}{" "}
                               {new Date(
                                 user.bannedUntil,
                               ).toLocaleString("vi-VN")}

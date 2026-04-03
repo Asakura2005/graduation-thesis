@@ -309,6 +309,8 @@ export const translations = {
             duration7d: '7n',
             durationPermanent: 'Vĩnh viễn',
             loading: 'Đang khởi động AI Security Monitor...',
+            loginFailed: 'ĐĂNG NHẬP THẤT BẠI',
+            bannedUntil: 'Đến:',
         },
         admin: {
             approve: {
@@ -558,6 +560,7 @@ export const translations = {
             hrAgo: 'giờ trước',
             daysAgo: 'ngày trước',
             fetchError: 'Lỗi lấy thông báo:',
+            notifContent: {},
         },
         roles: {
             admin: '👑 Admin',
@@ -911,6 +914,8 @@ export const translations = {
             duration7d: '7d',
             durationPermanent: 'Permanent',
             loading: 'Starting up AI Security Monitor...',
+            loginFailed: 'LOGIN FAILED',
+            bannedUntil: 'Until:',
         },
         admin: {
             approve: {
@@ -1166,6 +1171,20 @@ export const translations = {
             hrAgo: 'hr ago',
             daysAgo: 'days ago',
             fetchError: 'Error fetching notifications:',
+            notifContent: {
+                // === Notification TITLE translations (exact match) ===
+                '⚠️ Đăng nhập thất bại': '⚠️ Login Failed',
+                '🚫 AI tự động khoá tài khoản': '🚫 AI Auto-Banned Account',
+                'Yêu cầu duyệt vận đơn mới': 'New Shipment Approval Request',
+                'Vận đơn đã được duyệt ✅': 'Shipment Approved ✅',
+                'Vận đơn bị từ chối ❌': 'Shipment Rejected ❌',
+                'Hàng đã xuất kho 🚛': 'Goods Exported from Warehouse 🚛',
+                'Vận đơn Approved': 'Shipment Approved',
+                'Vận đơn In Transit': 'Shipment In Transit',
+                'Vận đơn Delivered': 'Shipment Delivered',
+                'Vận đơn Rejected': 'Shipment Rejected',
+                'Vận đơn Pending Approval': 'Shipment Pending Approval',
+            },
         },
         // === ROLES ===
         roles: {
@@ -1219,20 +1238,36 @@ export const translations = {
 
 export const backendTranslations_en = {
   "Tài khoản của bạn đang chờ quản lý phê duyệt. Vui lòng liên hệ quản lý.": "Your account is pending manager approval. Please contact management.",
+  "Tài khoản của bạn đang chờ quản lý phê duyệt. Vui lòng liên hệ Admin.": "Your account is pending Admin approval. Please contact Admin.",
   "Sai thông tin đăng nhập": "Invalid credentials",
   "Tài khoản không tồn tại": "Account does not exist",
   "Tài khoản tạm thời bị khóa do có quá nhiều nguy cơ rủi ro. Vui lòng thử lại sau.": "Account temporarily locked due to high risk. Please try again later.",
   "Hệ thống nhận diện hành vi nguy hiểm. Bị cấm đăng nhập.": "System detected dangerous behavior. Login banned.",
   "Xác nhận reCAPTCHA thất bại. Vui lòng thử lại.": "reCAPTCHA verification failed. Please try again.",
+  "Vui lòng xác nhận reCAPTCHA": "Please verify reCAPTCHA",
   "Mã xác thực không hợp lệ": "Invalid verification code",
+  "Mã xác thực không hợp lệ. Hãy kiểm tra lại Google Authenticator.": "Invalid verification code. Please check Google Authenticator.",
   "Token expired or invalid": "Token expired or invalid",
   "Lỗi khi tải danh sách chờ duyệt": "Error loading pending list",
   "Tài khoản đã được duyệt thành công!": "Account approved successfully!",
+  "Đã phê duyệt và cấp quyền thành công!": "Account approved and role assigned successfully!",
   "Lỗi khi phê duyệt tài khoản": "Error approving account",
   "Đăng ký thành công! Đang chuyển về trang đăng nhập...": "Registration successful! Redirecting to login...",
   "Mật khẩu phải chứa ít nhất 8 ký tự, 1 chữ hoa và 1 ký tự đặc biệt": "Password must contain at least 8 chars, 1 uppercase and 1 special char",
   "Username or email already exists": "Username or email already exists",
   "Vui lòng điền đủ thông tin": "Please fill in all information",
   "Vui lòng xác nhận bạn không phải robot": "Please confirm you are not a robot",
-  "Lỗi hệ thống trong quá trình đăng nhập": "System error during login"
+  "Lỗi hệ thống trong quá trình đăng nhập": "System error during login",
+  "Vui lòng chọn quyền truy cập hợp lệ": "Please select a valid access role",
+  "Vui lòng nhập mật khẩu để xác nhận thay đổi": "Please enter your password to confirm changes",
+  "Mật khẩu xác nhận không chính xác": "Incorrect confirmation password",
+  "Email đã được sử dụng bởi tài khoản khác": "Email is already used by another account",
+  "Cập nhật hồ sơ thành công": "Profile updated successfully",
+  "Vui lòng nhập đầy đủ thông tin": "Please fill in all required fields",
+  "Mật khẩu mới phải có ít nhất 8 ký tự": "New password must be at least 8 characters",
+  "Mật khẩu hiện tại không đúng": "Current password is incorrect",
+  "Đổi mật khẩu thành công": "Password changed successfully",
+  "Không thể cập nhật trạng thái vận đơn đã bị từ chối hoặc hủy.": "Cannot update status of a rejected or cancelled shipment.",
+  "Chỉ có thể xuất kho vận đơn ở trạng thái Đã duyệt.": "Can only export shipments with Approved status.",
+  "Vận đơn đã xuất kho thành công. Trạng thái: In Transit": "Shipment exported successfully. Status: In Transit"
 };

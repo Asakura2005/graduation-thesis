@@ -583,6 +583,7 @@ const MasterData = () => {
 
 // --- SUB-COMPONENT: WAREHOUSE DETAIL ---
 const WarehouseDetail = ({ warehouse, onBack }) => {
+  const { t } = useLanguage();
   const [inventory, setInventory] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -604,7 +605,7 @@ const WarehouseDetail = ({ warehouse, onBack }) => {
   }, [warehouse.warehouse_id]); // Depend on warehouse.warehouse_id to refetch if warehouse changes
 
   return (
-    <div className="h-100 d-flex flex-column fade-in-up">
+    <div className="d-flex flex-column fade-in-up" style={{ minHeight: '400px' }}>
       <div className="d-flex align-items-center gap-3 mb-4">
         <button onClick={onBack} className="btn btn-outline-light border-0">
           <ArrowLeft size={24} />
@@ -732,10 +733,12 @@ const InventoryManagement = () => {
 
   if (selectedWarehouse) {
     return (
-      <WarehouseDetail
-        warehouse={selectedWarehouse}
-        onBack={() => setSelectedWarehouse(null)}
-      />
+      <div className="fade-in-up" style={{ minHeight: '400px' }}>
+        <WarehouseDetail
+          warehouse={selectedWarehouse}
+          onBack={() => setSelectedWarehouse(null)}
+        />
+      </div>
     );
   }
 

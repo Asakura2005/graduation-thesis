@@ -23,7 +23,7 @@ const TrackingPage = ({ trackingNumber }) => {
         fetchShipment();
     }, [trackingNumber]);
 
-    const statusFlow = ['Pending Approval', 'Approved', 'In Transit', 'Customs Check', 'Delivered'];
+    const statusFlow = ['Pending Approval', 'Approved', 'In Transit', 'Delivered'];
 
     if (loading) return (
         <div className="d-flex h-100vh w-100 justify-content-center align-items-center bg-black">
