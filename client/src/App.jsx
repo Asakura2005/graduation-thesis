@@ -35,6 +35,7 @@ const App = () => {
   const [showPartnerForm, setShowPartnerForm] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const shipmentsPerPage = 10;
   const indexOfLast = currentPage * shipmentsPerPage;
@@ -197,24 +198,23 @@ const App = () => {
 
   return (
     <div className="d-flex w-100 vh-100">
-      {/* Sidebar Left */}
+      {/* Sidebar Overlay */}
       <Sidebar
         user={user}
         activeTab={activeTab}
         setActiveTab={handleTabChange}
         onOpenCreateShipment={() => setShowForm(true)}
         onOpenAddPartner={() => setShowPartnerForm(true)}
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
       />
 
-      {/* Main Content Right */}
+      {/* Main Content - full width, no margin */}
       <div
-        className="flex-grow-1 d-flex flex-column"
-        style={{
-          marginLeft: "280px",
-          minHeight: "100vh",
-        }}
+        className="flex-grow-1 d-flex flex-column w-100"
+        style={{ minHeight: "100vh" }}
       >
-        <Header user={user} handleLogout={handleLogout} setActiveTab={handleTabChange} />
+        <Header user={user} handleLogout={handleLogout} setActiveTab={handleTabChange} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
 
         <main className="flex-grow-1 pt-3 pb-5 custom-scrollbar" style={{ overflowY: 'scroll', overflowX: 'hidden', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
           {/* Modals & Popups (Chỉ còn ShipmentForm là modal) */}
