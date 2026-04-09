@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const os = require('os');
 const cors = require('cors');
+const helmet = require('helmet');
 const sql = require('mssql');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -11,12 +12,46 @@ const { encrypt, decrypt, hashData } = require('./EncryptionService');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const anomalyDetector = require('./AnomalyDetectionService');
+const cookieParser = require('cookie-parser');
 
 const path = require('path');
 
 const app = express();
-app.use(cors());
+
+// === Cấu hình Bảo mật: HELMET ===
+// Thêm HTTP Security Headers để chặn XSS, Clickjacking, Sniffing...
+app.use(helmet({
+    contentSecurityPolicy: false, // Tắt CSP để Google reCAPTCHA không bị chặn
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: false, // Tắt COOP để iframe reCAPTCHA hoạt động
+    crossOriginResourcePolicy: false // Tắt CORP để tải script bên thứ 3
+}));
+
+// === Cấu hình Bảo mật: CORS (Danh sách trắng + Ngrok) ===
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:5001',
+    'http://127.0.0.1:5001'
+];
+
+app.use(cors({
+    origin: function (origin, callback) {
+        // - !origin: Cho phép Postman hoặc Server-to-server request
+        // - allowedOrigins: Cho phép client dev local
+        // - ngrok regex: Cho phép tất cả subdomain của ngrok
+        if (!origin || allowedOrigins.includes(origin) || /ngrok(-free)?\.(app|io|dev)$/i.test(origin)) {
+            callback(null, true);
+        } else {
+            console.log('[SECURITY ALERT] Blocked CORS Origin:', origin);
+            callback(new Error('CORS Policy: Access Denied. Lỗi bảo mật: Domain của bạn không được cấp phép truy cập hệ thống này.'));
+        }
+    },
+    credentials: true // Cho phép gửi cookie/token
+}));
+
 app.use(express.json());
+app.use(cookieParser());
 
 // Skip ngrok browser warning page for all responses
 app.use((req, res, next) => {
@@ -357,6 +392,25 @@ async function connectDB() {
             }
         } catch (e) { console.log("Migration Warn (system_users ban columns):", e.message); }
 
+        // --- AUTO MIGRATION: REFRESH_TOKENS TABLE ---
+        try {
+            const checkTable = await pool.request().query("SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'auth_refresh_tokens'");
+            if (checkTable.recordset.length === 0) {
+                console.log("Migrating: Creating auth_refresh_tokens table...");
+                await pool.request().query(`
+                    CREATE TABLE auth_refresh_tokens (
+                        id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                        user_id UNIQUEIDENTIFIER NOT NULL,
+                        token_hash NVARCHAR(MAX) NOT NULL,
+                        expires_at DATETIME NOT NULL,
+                        created_at DATETIME DEFAULT GETDATE(),
+                        FOREIGN KEY (user_id) REFERENCES system_users(user_id) ON DELETE CASCADE
+                    )
+                `);
+                console.log("auth_refresh_tokens table created successfully.");
+            }
+        } catch (e) { console.log("Migration Warn (auth_refresh_tokens):", e.message); }
+
         return pool;
     } catch (err) {
         console.error('Database connection failed:', err.message);
@@ -511,7 +565,7 @@ app.post('/api/settings/captcha', authenticateToken, authorizeRole(['Admin']), a
 
 app.post('/api/auth/login', async (req, res) => {
     let { username, password, captchaToken, rememberSession } = req.body;
-    
+
     username = (username || '').trim();
     password = (password || '').trim();
 
@@ -524,7 +578,7 @@ app.post('/api/auth/login', async (req, res) => {
         const fs = require('fs');
         const data = fs.readFileSync('./settings.json', 'utf8');
         captchaEnabled = JSON.parse(data).captchaEnabled;
-    } catch (e) {}
+    } catch (e) { }
 
     // === reCAPTCHA Verification ===
     if (captchaEnabled && !captchaToken) {
@@ -626,47 +680,47 @@ app.post('/api/auth/login', async (req, res) => {
                 // Ghi nhận attempt (không block) để sau khi login thành công, counter reset
             } else {
                 // User ĐANG bị ban thật → giữ nguyên BLOCK
-            try {
-                // Auto-ban nếu có tài khoản
-                if (userId) {
-                    const banResult = await anomalyDetector.autoBan(pool, {
-                        userId: userId,
-                        usernameHash,
-                        riskScore: preAnalysis.riskScore,
-                        riskFactors: preAnalysis.riskFactors,
-                        ipAddress: clientIP
-                    });
+                try {
+                    // Auto-ban nếu có tài khoản
+                    if (userId) {
+                        const banResult = await anomalyDetector.autoBan(pool, {
+                            userId: userId,
+                            usernameHash,
+                            riskScore: preAnalysis.riskScore,
+                            riskFactors: preAnalysis.riskFactors,
+                            ipAddress: clientIP
+                        });
 
-                    if (banResult?.banned) {
-                        await logAudit(userId, 'ACCOUNT_AUTO_BANNED', {
-                            username, riskScore: preAnalysis.riskScore,
-                            duration: banResult.duration,
-                            banLevel: banResult.banLevel
-                        }).catch(() => { });
+                        if (banResult?.banned) {
+                            await logAudit(userId, 'ACCOUNT_AUTO_BANNED', {
+                                username, riskScore: preAnalysis.riskScore,
+                                duration: banResult.duration,
+                                banLevel: banResult.banLevel
+                            }).catch(() => { });
+                        }
                     }
+
+                    // Ghi Log login attempt Blocked
+                    await anomalyDetector.recordAttempt(pool, {
+                        usernameHash, userId: userId, ipAddress: clientIP, userAgent,
+                        success: false, riskScore: preAnalysis.riskScore,
+                        riskFactors: preAnalysis.riskFactors, blocked: true, captchaVerified: true
+                    });
+                } catch (recErr) { console.error('[AI Anomaly] Record / Ban error:', recErr.message); }
+
+                // Only log in audit table if we know which user it is
+                if (userId) {
+                    await logAudit(userId, 'LOGIN_BLOCKED_BY_AI', {
+                        username, riskScore: preAnalysis.riskScore,
+                        factors: preAnalysis.riskFactors.map(f => f.type)
+                    }).catch(() => { });
                 }
 
-                // Ghi Log login attempt Blocked
-                await anomalyDetector.recordAttempt(pool, {
-                    usernameHash, userId: userId, ipAddress: clientIP, userAgent,
-                    success: false, riskScore: preAnalysis.riskScore,
-                    riskFactors: preAnalysis.riskFactors, blocked: true, captchaVerified: true
+                return res.status(403).json({
+                    error: 'Tài khoản đã bị Tự động Khóa do hành vi đáng ngờ. Xin vui lòng liên hệ Admin.',
+                    riskScore: preAnalysis.riskScore,
+                    blocked: true
                 });
-            } catch (recErr) { console.error('[AI Anomaly] Record / Ban error:', recErr.message); }
-
-            // Only log in audit table if we know which user it is
-            if (userId) {
-                await logAudit(userId, 'LOGIN_BLOCKED_BY_AI', {
-                    username, riskScore: preAnalysis.riskScore,
-                    factors: preAnalysis.riskFactors.map(f => f.type)
-                }).catch(() => { });
-            }
-
-            return res.status(403).json({
-                error: 'Tài khoản đã bị Tự động Khóa do hành vi đáng ngờ. Xin vui lòng liên hệ Admin.',
-                riskScore: preAnalysis.riskScore,
-                blocked: true
-            });
             } // end else (currentlyBanned)
         }
 
@@ -737,7 +791,7 @@ app.post('/api/auth/login', async (req, res) => {
                 });
                 // Tạo thông báo cảnh báo cho Admin
                 let decryptedUsernameForNotif = username;
-                try { decryptedUsernameForNotif = decrypt(user.username) || username; } catch(e) {}
+                try { decryptedUsernameForNotif = decrypt(user.username) || username; } catch (e) { }
                 await pool.request()
                     .input('nTitle', sql.NVarChar, '⚠️ Đăng nhập thất bại')
                     .input('nMsg', sql.NVarChar, `Tài khoản "${decryptedUsernameForNotif}" đăng nhập sai mật khẩu. Risk Score: ${preAnalysis.riskScore}. IP: ${clientIP}`)
@@ -755,14 +809,14 @@ app.post('/api/auth/login', async (req, res) => {
 
                 if (banResult?.banned) {
                     let decryptedUsernameForBan = username;
-                    try { decryptedUsernameForBan = decrypt(user.username) || username; } catch(e) {}
+                    try { decryptedUsernameForBan = decrypt(user.username) || username; } catch (e) { }
 
                     // Ghi audit log
                     await logAudit(user.user_id, 'ACCOUNT_AUTO_BANNED_FAILED_PASSWORDS', {
                         username: decryptedUsernameForBan,
                         duration: banResult.duration,
                         banLevel: banResult.banLevel
-                    }).catch(() => {});
+                    }).catch(() => { });
 
                     // Gửi notification cho Admin
                     await pool.request()
@@ -808,7 +862,7 @@ app.post('/api/auth/login', async (req, res) => {
                     riskFactors: [{ type: 'UNAPPROVED_ACCOUNT', score: 20, severity: 'low', message: 'Pending account login attempt' }],
                     blocked: false, captchaVerified: true
                 });
-            } catch (recErr) {}
+            } catch (recErr) { }
             return res.status(403).json({ error: 'Tài khoản của bạn đang chờ quản lý phê duyệt. Vui lòng liên hệ Admin.', isPending: true });
         }
 
@@ -827,9 +881,30 @@ app.post('/api/auth/login', async (req, res) => {
             return res.json({ requires2FA: true, tempToken, riskScore: fullAnalysis.riskScore });
         }
 
-        // Thời hạn token: 30 ngày nếu "Duy trì phiên", 30 phút nếu không
-        const tokenExpiry = rememberSession ? '30d' : '30m';
-        const token = jwt.sign({ id: user.user_id, role: decryptedRole, username: decryptedUsername }, process.env.JWT_SECRET || 'secret', { expiresIn: tokenExpiry });
+        // Thời hạn access token luôn là ngắn hạn (15 phút)
+        const token = jwt.sign({ id: user.user_id, role: decryptedRole, username: decryptedUsername }, process.env.JWT_SECRET || 'secret', { expiresIn: '15m' });
+
+        // Refresh Token: 7 ngày (hoặc 1 ngày nếu không Remember Session)
+        const refreshTokenExpiry = rememberSession ? '7d' : '1d';
+        const refreshToken = jwt.sign({ id: user.user_id }, process.env.JWT_SECRET || 'secret', { expiresIn: refreshTokenExpiry });
+
+        // Lưu refresh token hash vào DB
+        const hashedRefresh = hashData(refreshToken);
+        const expDate = new Date();
+        expDate.setDate(expDate.getDate() + (rememberSession ? 7 : 1));
+        await pool.request()
+            .input('uid', sql.UniqueIdentifier, user.user_id)
+            .input('th', sql.NVarChar, hashedRefresh)
+            .input('exp', sql.DateTime, expDate)
+            .query("INSERT INTO auth_refresh_tokens (user_id, token_hash, expires_at) VALUES (@uid, @th, @exp)");
+
+        res.cookie('refreshToken', refreshToken, {
+            httpOnly: true,
+            secure: true,
+            sameSite: 'none',
+            path: '/', // Chỉ gửi cookie này khi gọi refresh endpoint
+            maxAge: (rememberSession ? 7 : 1) * 24 * 60 * 60 * 1000
+        });
 
         await logAudit(user.user_id, 'USER_LOGIN', {
             username: decryptedUsername,
@@ -877,12 +952,89 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
         if (!isValid) return res.status(401).json({ error: 'Mã xác thực không hợp lệ. Hãy kiểm tra lại Google Authenticator.' });
 
         // Lấy rememberSession từ tempToken (đã được nhúng trước đó khi login)
-        const tokenExpiry2FA = decoded.rememberSession ? '30d' : '30m';
+        const tokenExpiry2FA = '15m'; // Access Token ngắn hạn
         const finalToken = jwt.sign({ id: decoded.id, role: decoded.role, username: decoded.username }, process.env.JWT_SECRET || 'secret', { expiresIn: tokenExpiry2FA });
+
+        // Refresh token
+        const refreshTokenExpiry = decoded.rememberSession ? '7d' : '1d';
+        const refreshToken = jwt.sign({ id: decoded.id }, process.env.JWT_SECRET || 'secret', { expiresIn: refreshTokenExpiry });
+
+        const hashedRefresh = hashData(refreshToken);
+        const expDate = new Date();
+        expDate.setDate(expDate.getDate() + (decoded.rememberSession ? 7 : 1));
+        await pool.request()
+            .input('uid', sql.UniqueIdentifier, decoded.id)
+            .input('th', sql.NVarChar, hashedRefresh)
+            .input('exp', sql.DateTime, expDate)
+            .query("INSERT INTO auth_refresh_tokens (user_id, token_hash, expires_at) VALUES (@uid, @th, @exp)");
+
+        res.cookie('refreshToken', refreshToken, {
+            httpOnly: true,
+            secure: true,
+            sameSite: 'none',
+            path: '/',
+            maxAge: (decoded.rememberSession ? 7 : 1) * 24 * 60 * 60 * 1000
+        });
+
         await logAudit(decoded.id, 'USER_LOGIN_2FA', { username: decoded.username });
 
         res.json({ token: finalToken, role: decoded.role, username: decoded.username });
     } catch (err) { res.status(401).json({ error: 'Token expired or invalid' }); }
+});
+
+// 1.2 Verify Refresh Token & Issue New Access Token
+app.post('/api/auth/refresh', async (req, res) => {
+    const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) return res.status(401).json({ error: 'No refresh token provided' });
+
+    try {
+        const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET || 'secret');
+        const hashedRefresh = hashData(refreshToken);
+
+        const pool = await connectDB();
+        const checkRes = await pool.request()
+            .input('uid', sql.UniqueIdentifier, decoded.id)
+            .input('th', sql.NVarChar, hashedRefresh)
+            .query("SELECT * FROM auth_refresh_tokens WHERE user_id = @uid AND token_hash = @th AND expires_at > GETDATE()");
+
+        if (checkRes.recordset.length === 0) {
+            // Thông báo bắt đăng nhập lại do Refresh token bị xóa hoặc hết hạn
+            res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
+            return res.status(401).json({ error: 'Invalid refresh session. Please login again.' });
+        }
+
+        // Tạo lại Access Token
+        const userRes = await pool.request().input('id', sql.UniqueIdentifier, decoded.id).query("SELECT username, role FROM system_users WHERE user_id = @id");
+        if (userRes.recordset.length === 0) return res.status(404).json({ error: 'User not found' });
+
+        const user = userRes.recordset[0];
+        let decryptedRole = user.role;
+        let decryptedUsername = user.username;
+        try { decryptedRole = decrypt(user.role) || user.role; } catch (e) { }
+        try { decryptedUsername = decrypt(user.username) || user.username; } catch (e) { }
+
+        const newToken = jwt.sign({ id: decoded.id, role: decryptedRole, username: decryptedUsername }, process.env.JWT_SECRET || 'secret', { expiresIn: '15m' });
+        res.json({ token: newToken });
+    } catch (err) {
+        res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
+        res.status(403).json({ error: 'Refresh token expired or invalid' });
+    }
+});
+
+// 1.3 Logout (Clear Cookies and DB tokens)
+app.post('/api/auth/logout', async (req, res) => {
+    const refreshToken = req.cookies.refreshToken;
+    if (refreshToken) {
+        try {
+            const hashedRefresh = hashData(refreshToken);
+            const pool = await connectDB();
+            await pool.request()
+                .input('th', sql.NVarChar, hashedRefresh)
+                .query("DELETE FROM auth_refresh_tokens WHERE token_hash = @th");
+        } catch (e) { }
+    }
+    res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
+    res.json({ message: 'Logged out successfully' });
 });
 
 app.post('/api/auth/register', async (req, res) => {
@@ -901,7 +1053,7 @@ app.post('/api/auth/register', async (req, res) => {
         const fs = require('fs');
         const data = fs.readFileSync('./settings.json', 'utf8');
         captchaEnabled = JSON.parse(data).captchaEnabled;
-    } catch (e) {}
+    } catch (e) { }
 
     // === Verify reCAPTCHA nếu được bật ===
     if (captchaEnabled) {
@@ -1094,7 +1246,7 @@ app.get('/api/admin/users/pending', authenticateToken, authorizeRole(['Admin']),
     try {
         const pool = await connectDB();
         const result = await pool.request().query("SELECT user_id, username, full_name, email, phone, role FROM system_users");
-        
+
         const pendingUsers = result.recordset.map(u => {
             let role = u.role, username = u.username, full_name = u.full_name, email = u.email, phone = u.phone;
             try { role = decrypt(u.role) || u.role; } catch (e) { }
@@ -1113,19 +1265,19 @@ app.get('/api/admin/users/pending', authenticateToken, authorizeRole(['Admin']),
 
 app.put('/api/admin/users/:id/approve', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
     const { id } = req.params;
-    const { role } = req.body; 
-    
+    const { role } = req.body;
+
     if (!role || role === 'Pending') return res.status(400).json({ error: 'Vui lòng chọn quyền truy cập hợp lệ' });
 
     try {
         const pool = await connectDB();
         const encRole = encrypt(role);
-        
+
         await pool.request()
             .input('role', sql.NVarChar, encRole)
             .input('id', sql.UniqueIdentifier, id)
             .query("UPDATE system_users SET role = @role WHERE user_id = @id");
-        
+
         await logAudit(req.user.id, 'APPROVE_USER', { targetUserId: id, newRole: role });
         res.json({ message: 'Đã phê duyệt và cấp quyền thành công!' });
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -2863,17 +3015,17 @@ try {
         }
     });
 
-// Health check endpoint (for Railway / Render deployment)
-app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+    // Health check endpoint (for Railway / Render deployment)
+    app.get('/api/health', (req, res) => {
+        res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    });
 
-// Catch-all: serve React frontend for any non-API route (SPA support)
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'client', 'dist', 'index.html'));
-});
+    // Catch-all: serve React frontend for any non-API route (SPA support)
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(__dirname, '..', 'client', 'dist', 'index.html'));
+    });
 
-const HTTPS_PORT = parseInt(PORT) + 1; // 5002
+    const HTTPS_PORT = parseInt(PORT) + 1; // 5002
     httpsServer.listen(HTTPS_PORT, () => {
         console.log(`[SECURITY] HTTPS Server Cấu hình TLS Session Resumption đang chạy tại port ${HTTPS_PORT}`);
     });

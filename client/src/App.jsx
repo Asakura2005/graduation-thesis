@@ -141,15 +141,44 @@ const App = () => {
         }
         return response;
       },
-      (error) => {
+      async (error) => {
         if (language && language === 'en' && error.response && error.response.data) {
           if (error.response.data.error && backendTranslations_en[error.response.data.error]) {
             error.response.data.error = backendTranslations_en[error.response.data.error];
           }
-          if (error.response.data.message && backendTranslations_en[error.response.data.message]) {
-            error.response.data.message = backendTranslations_en[error.response.data.message];
-          }
         }
+        
+        const originalRequest = error.config;
+        // Xử lý Refresh Token tự động khi gặp lỗi 401 Unauthorized
+        if (error.response && error.response.status === 401 && !originalRequest._retry) {
+            // Loại trừ route login/refresh để tránh lặp vô hạn
+            if (originalRequest.url.includes('/api/auth/login') || originalRequest.url.includes('/api/auth/refresh')) {
+                return Promise.reject(error);
+            }
+            
+            originalRequest._retry = true;
+            try {
+                // Gọi API refresh token (Cookie HttpOnly sẽ tự động gửi đi)
+                const res = await axios.post('/api/auth/refresh', {}, { withCredentials: true });
+                if (res.data.token) {
+                    // Update token mới vào kho nhớ
+                    if (localStorage.getItem("token")) {
+                        localStorage.setItem("token", res.data.token);
+                    } else {
+                        sessionStorage.setItem("token", res.data.token);
+                    }
+                    // Đính kèm token mới và gọi lại api bị tạch
+                    originalRequest.headers.Authorization = `Bearer ${res.data.token}`;
+                    return axios(originalRequest);
+                }
+            } catch (refreshError) {
+                // Refresh token gãy hoặc hết hạn -> Đăng xuất tận gốc
+                localStorage.removeItem("token");
+                sessionStorage.removeItem("token");
+                window.location.reload();
+            }
+        }
+
         return Promise.reject(error);
       }
     );
@@ -171,7 +200,12 @@ const App = () => {
     };
   }, [user, language]);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await axios.post("/api/auth/logout", {}, { withCredentials: true });
+    } catch (e) {
+      console.error("Logout API error", e);
+    }
     localStorage.removeItem("token");
     sessionStorage.removeItem("token");
     setUser(null);
