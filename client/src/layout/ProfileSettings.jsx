@@ -24,11 +24,16 @@ const ProfileSettings = ({ user }) => {
     const [twoFaSetup, setTwoFaSetup] = useState(null);
     const [twoFaCode, setTwoFaCode] = useState('');
     const [disablePassword, setDisablePassword] = useState('');
+    const [showDisable2FA, setShowDisable2FA] = useState(false);
     const [twoFaLoading, setTwoFaLoading] = useState(false);
+
+    // Email OTP states
+    const [emailOtpPassword, setEmailOtpPassword] = useState('');
+    const [showEmailOtpAction, setShowEmailOtpAction] = useState(false);
+    const [emailOtpLoading, setEmailOtpLoading] = useState(false);
 
     // Admin Settings
     const [captchaEnabled, setCaptchaEnabled] = useState(true);
-    const [emailOtpEnabled, setEmailOtpEnabled] = useState(false);
 
     const [toast, setToast] = useState(null);
 
@@ -55,7 +60,6 @@ const ProfileSettings = ({ user }) => {
             try {
                 const res = await axios.get('/api/settings/captcha');
                 setCaptchaEnabled(res.data.captchaEnabled);
-                setEmailOtpEnabled(!!res.data.emailOtpEnabled);
             } catch (err) {}
         };
 
@@ -151,9 +155,45 @@ const ProfileSettings = ({ user }) => {
             showToast('success', t('twofa.disabled'));
             setProfile(p => ({ ...p, is2FAEnabled: false }));
             setDisablePassword('');
+            setShowDisable2FA(false);
         } catch (e) {
             showToast('error', e.response?.data?.error || t('twofa.passwordError'));
         } finally { setTwoFaLoading(false); }
+    };
+
+    // Email OTP Functions
+    const handleEnableEmailOtp = async () => {
+        if (!emailOtpPassword) return showToast('error', t('profile.errorPassword'));
+        setEmailOtpLoading(true);
+        try {
+            await axios.post('/api/auth/email-otp/enable', {
+                password: emailOtpPassword
+            }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+
+            showToast('success', t('twofa.emailOtpEnabled'));
+            setProfile(p => ({ ...p, isEmailOtpEnabled: true }));
+            setEmailOtpPassword('');
+            setShowEmailOtpAction(false);
+        } catch (e) {
+            showToast('error', e.response?.data?.error || t('twofa.emailOtpEnableError'));
+        } finally { setEmailOtpLoading(false); }
+    };
+
+    const handleDisableEmailOtp = async () => {
+        if (!emailOtpPassword) return showToast('error', t('profile.errorPassword'));
+        setEmailOtpLoading(true);
+        try {
+            await axios.post('/api/auth/email-otp/disable', {
+                password: emailOtpPassword
+            }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+
+            showToast('success', t('twofa.emailOtpDisabled'));
+            setProfile(p => ({ ...p, isEmailOtpEnabled: false }));
+            setEmailOtpPassword('');
+            setShowEmailOtpAction(false);
+        } catch (e) {
+            showToast('error', e.response?.data?.error || t('twofa.emailOtpDisableError'));
+        } finally { setEmailOtpLoading(false); }
     };
 
     const handleToggleCaptcha = async () => {
@@ -170,19 +210,7 @@ const ProfileSettings = ({ user }) => {
         }
     };
 
-    const handleToggleEmailOtp = async () => {
-        try {
-            const newStatus = !emailOtpEnabled;
-            await axios.post('/api/settings/email-otp', {
-                emailOtpEnabled: newStatus
-            }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
-            
-            setEmailOtpEnabled(newStatus);
-            showToast('success', newStatus ? 'Đã bật xác thực Email OTP' : 'Đã tắt xác thực Email OTP');
-        } catch (e) {
-            showToast('error', e.response?.data?.error || 'Lỗi khi thay đổi cài đặt Email OTP');
-        }
-    };
+
 
     const getRoleBadge = (role) => {
         const map = {
@@ -481,36 +509,49 @@ const ProfileSettings = ({ user }) => {
                     {activeSection === 'twofa' && (
                         <div className="d-flex flex-column gap-3">
                             {/* Status banner */}
-                            <div className="p-4 rounded-3 d-flex align-items-center gap-3"
-                                style={{
-                                    background: profile.is2FAEnabled ? 'rgba(16,185,129,0.08)' : 'rgba(234,179,8,0.08)',
-                                    border: `1px solid ${profile.is2FAEnabled ? 'rgba(16,185,129,0.25)' : 'rgba(234,179,8,0.25)'}`
-                                }}>
-                                <div className="p-2 rounded-3" style={{ background: profile.is2FAEnabled ? 'rgba(16,185,129,0.15)' : 'rgba(234,179,8,0.15)' }}>
-                                    <Smartphone size={24} style={{ color: profile.is2FAEnabled ? '#10b981' : '#eab308' }} />
-                                </div>
-                                <div>
-                                    <div className="fw-bold text-white">{t('twofa.title')}</div>
-                                    <small className="text-dim">{t('twofa.subtitle')}</small>
-                                </div>
-                                <span className={`ms-auto badge`} style={{
-                                    background: profile.is2FAEnabled ? 'rgba(16,185,129,0.2)' : 'rgba(234,179,8,0.2)',
-                                    color: profile.is2FAEnabled ? '#10b981' : '#eab308',
-                                    border: `1px solid ${profile.is2FAEnabled ? 'rgba(16,185,129,0.4)' : 'rgba(234,179,8,0.4)'}`,
-                                    padding: '6px 12px', borderRadius: 20
-                                }}>
-                                    {profile.is2FAEnabled ? t('twofa.active') : t('twofa.inactive')}
-                                </span>
-                            </div>
+                            {(() => {
+                                const anyEnabled = profile.is2FAEnabled || profile.isEmailOtpEnabled;
+                                const methodCount = (profile.is2FAEnabled ? 1 : 0) + (profile.isEmailOtpEnabled ? 1 : 0);
+                                return (
+                                    <div className="p-4 rounded-3 d-flex align-items-center gap-3"
+                                        style={{
+                                            background: anyEnabled ? 'rgba(16,185,129,0.08)' : 'rgba(234,179,8,0.08)',
+                                            border: `1px solid ${anyEnabled ? 'rgba(16,185,129,0.25)' : 'rgba(234,179,8,0.25)'}`
+                                        }}>
+                                        <div className="p-2 rounded-3" style={{ background: anyEnabled ? 'rgba(16,185,129,0.15)' : 'rgba(234,179,8,0.15)' }}>
+                                            <Shield size={24} style={{ color: anyEnabled ? '#10b981' : '#eab308' }} />
+                                        </div>
+                                        <div>
+                                            <div className="fw-bold text-white">{t('twofa.title')}</div>
+                                            <small className="text-dim">{t('twofa.subtitle')}</small>
+                                        </div>
+                                        <span className="ms-auto badge" style={{
+                                            background: anyEnabled ? 'rgba(16,185,129,0.2)' : 'rgba(234,179,8,0.2)',
+                                            color: anyEnabled ? '#10b981' : '#eab308',
+                                            border: `1px solid ${anyEnabled ? 'rgba(16,185,129,0.4)' : 'rgba(234,179,8,0.4)'}`,
+                                            padding: '6px 12px', borderRadius: 20
+                                        }}>
+                                            {anyEnabled ? `${methodCount} ${t('twofa.methodsActive')}` : t('twofa.inactive')}
+                                        </span>
+                                    </div>
+                                );
+                            })()}
 
-                            {/* Google Authenticator Card */}
+                            {/* ═══ Google Authenticator Card ═══ */}
                             <div className="p-4 rounded-3" style={cardStyle}>
-                                <div className="d-flex align-items-center gap-3 mb-4">
-                                    <div className="p-2 rounded-3" style={{ background: 'rgba(255,255,255,0.08)', width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <div className="d-flex align-items-center gap-3 mb-3">
+                                    <div className="p-2 rounded-3" style={{ background: profile.is2FAEnabled ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.08)', width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                         <span style={{ fontSize: 24 }}>🔐</span>
                                     </div>
                                     <div className="flex-grow-1">
-                                        <div className="fw-bold text-white">Google Authenticator</div>
+                                        <div className="fw-bold text-white d-flex align-items-center gap-2">
+                                            Google Authenticator
+                                            {profile.is2FAEnabled && (
+                                                <span className="badge" style={{ background: 'rgba(16,185,129,0.2)', color: '#10b981', border: '1px solid rgba(16,185,129,0.4)', fontSize: 10, padding: '3px 8px', borderRadius: 12 }}>
+                                                    <CheckCircle size={10} className="me-1" />{t('twofa.enabled')}
+                                                </span>
+                                            )}
+                                        </div>
                                         <small className="text-dim">{t('twofa.googleAuthDesc')}</small>
                                     </div>
                                     {!profile.is2FAEnabled && !twoFaSetup && (
@@ -520,8 +561,18 @@ const ProfileSettings = ({ user }) => {
                                     )}
                                 </div>
 
-                                {profile.is2FAEnabled && (
-                                    <div className="d-flex flex-column gap-3 p-3 rounded-3" style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                                {/* Disable panel - shown on button click */}
+                                {profile.is2FAEnabled && !showDisable2FA && (
+                                    <div className="d-flex justify-content-end">
+                                        <button className="btn btn-outline-danger btn-sm d-flex align-items-center gap-2"
+                                            onClick={() => { setShowDisable2FA(true); setDisablePassword(''); }}>
+                                            <AlertCircle size={14} /> {t('twofa.disable')}
+                                        </button>
+                                    </div>
+                                )}
+
+                                {profile.is2FAEnabled && showDisable2FA && (
+                                    <div className="d-flex flex-column gap-3 p-3 rounded-3 mt-2" style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)' }}>
                                         <div className="text-danger fw-bold d-flex align-items-center gap-2">
                                             <AlertCircle size={16} /> {t('twofa.disable')}
                                         </div>
@@ -529,12 +580,17 @@ const ProfileSettings = ({ user }) => {
                                             <label className="text-dim x-small text-uppercase mb-1">{t('twofa.disableConfirm')}</label>
                                             <div className="input-group" style={{ maxWidth: 300 }}>
                                                 <span className="input-group-text bg-black border-danger border-opacity-25"><Lock size={16} className="text-dim" /></span>
-                                                <input type="password" placeholder={t('common.passwordPlaceholder')} value={disablePassword} onChange={e => setDisablePassword(e.target.value)} className="form-control bg-black border-danger border-opacity-25 text-white" />
+                                                <input type="password" placeholder={t('common.passwordPlaceholder')} value={disablePassword} onChange={e => setDisablePassword(e.target.value)} className="form-control bg-black border-danger border-opacity-25 text-white" autoFocus />
                                             </div>
                                         </div>
-                                        <button className="btn btn-outline-danger align-self-start btn-sm" disabled={twoFaLoading || !disablePassword} onClick={handleDisable2FA}>
-                                            {twoFaLoading ? t('common.processing') : t('twofa.disableBtn')}
-                                        </button>
+                                        <div className="d-flex gap-2">
+                                            <button className="btn btn-outline-danger btn-sm" disabled={twoFaLoading || !disablePassword} onClick={handleDisable2FA}>
+                                                {twoFaLoading ? t('common.processing') : t('twofa.disableBtn')}
+                                            </button>
+                                            <button className="btn btn-outline-secondary btn-sm" onClick={() => { setShowDisable2FA(false); setDisablePassword(''); }}>
+                                                {t('twofa.cancelBtn')}
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
 
@@ -609,6 +665,93 @@ const ProfileSettings = ({ user }) => {
                                     </>
                                 )}
                             </div>
+
+                            {/* ═══ Email OTP Card ═══ */}
+                            <div className="p-4 rounded-3" style={cardStyle}>
+                                <div className="d-flex align-items-center gap-3 mb-3">
+                                    <div className="p-2 rounded-3" style={{ background: profile.isEmailOtpEnabled ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.08)', width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <Mail size={24} style={{ color: profile.isEmailOtpEnabled ? '#3b82f6' : '#6b7280' }} />
+                                    </div>
+                                    <div className="flex-grow-1">
+                                        <div className="fw-bold text-white d-flex align-items-center gap-2">
+                                            Email OTP
+                                            {profile.isEmailOtpEnabled && (
+                                                <span className="badge" style={{ background: 'rgba(59,130,246,0.2)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.4)', fontSize: 10, padding: '3px 8px', borderRadius: 12 }}>
+                                                    <CheckCircle size={10} className="me-1" />{t('twofa.enabled')}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <small className="text-dim">{t('twofa.emailOtpDesc')}</small>
+                                    </div>
+                                    {!profile.isEmailOtpEnabled && !showEmailOtpAction && (
+                                        <button className="btn btn-sm d-flex align-items-center gap-2"
+                                            style={{ background: 'rgba(59,130,246,0.15)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)' }}
+                                            onClick={() => { setShowEmailOtpAction(true); setEmailOtpPassword(''); }}>
+                                            <Mail size={14} /> {t('twofa.emailOtpSetup')}
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* Enable Email OTP */}
+                                {!profile.isEmailOtpEnabled && showEmailOtpAction && (
+                                    <div className="d-flex flex-column gap-3 p-3 rounded-3" style={{ background: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.2)' }}>
+                                        <div style={{ color: '#60a5fa' }} className="fw-bold d-flex align-items-center gap-2">
+                                            <Mail size={16} /> {t('twofa.emailOtpEnable')}
+                                        </div>
+                                        <div className="text-dim small">{t('twofa.emailOtpEnableDesc')} <span className="text-white fw-semibold">{profile.email}</span> {t('twofa.emailOtpEnableDescSuffix')}</div>
+                                        <div>
+                                            <label className="text-dim x-small text-uppercase mb-1">{t('twofa.emailOtpConfirmPassword')}</label>
+                                            <div className="input-group" style={{ maxWidth: 300 }}>
+                                                <span className="input-group-text bg-black border-secondary border-opacity-25"><Lock size={16} className="text-dim" /></span>
+                                                <input type="password" placeholder={t('common.passwordPlaceholder')} value={emailOtpPassword} onChange={e => setEmailOtpPassword(e.target.value)} className="form-control bg-black border-secondary border-opacity-25 text-white" autoFocus />
+                                            </div>
+                                        </div>
+                                        <div className="d-flex gap-2">
+                                            <button className="btn btn-sm d-flex align-items-center gap-2"
+                                                style={{ background: 'rgba(59,130,246,0.2)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.4)' }}
+                                                disabled={emailOtpLoading || !emailOtpPassword} onClick={handleEnableEmailOtp}>
+                                                {emailOtpLoading ? <span className="spinner-border spinner-border-sm" /> : <CheckCircle size={14} />} {t('twofa.emailOtpActivate')}
+                                            </button>
+                                            <button className="btn btn-outline-secondary btn-sm" onClick={() => { setShowEmailOtpAction(false); setEmailOtpPassword(''); }}>
+                                                {t('twofa.cancelBtn')}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Disable Email OTP */}
+                                {profile.isEmailOtpEnabled && !showEmailOtpAction && (
+                                    <div className="d-flex justify-content-end">
+                                        <button className="btn btn-outline-danger btn-sm d-flex align-items-center gap-2"
+                                            onClick={() => { setShowEmailOtpAction(true); setEmailOtpPassword(''); }}>
+                                            <AlertCircle size={14} /> {t('twofa.emailOtpDisable')}
+                                        </button>
+                                    </div>
+                                )}
+
+                                {profile.isEmailOtpEnabled && showEmailOtpAction && (
+                                    <div className="d-flex flex-column gap-3 p-3 rounded-3 mt-2" style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                                        <div className="text-danger fw-bold d-flex align-items-center gap-2">
+                                            <AlertCircle size={16} /> {t('twofa.emailOtpDisableTitle')}
+                                        </div>
+                                        <div>
+                                            <label className="text-dim x-small text-uppercase mb-1">{t('twofa.emailOtpConfirmPassword')}</label>
+                                            <div className="input-group" style={{ maxWidth: 300 }}>
+                                                <span className="input-group-text bg-black border-danger border-opacity-25"><Lock size={16} className="text-dim" /></span>
+                                                <input type="password" placeholder={t('common.passwordPlaceholder')} value={emailOtpPassword} onChange={e => setEmailOtpPassword(e.target.value)} className="form-control bg-black border-danger border-opacity-25 text-white" autoFocus />
+                                            </div>
+                                        </div>
+                                        <div className="d-flex gap-2">
+                                            <button className="btn btn-outline-danger btn-sm" disabled={emailOtpLoading || !emailOtpPassword} onClick={handleDisableEmailOtp}>
+                                                {emailOtpLoading ? t('twofa.emailOtpProcessing') : t('twofa.emailOtpDisableBtn')}
+                                            </button>
+                                            <button className="btn btn-outline-secondary btn-sm" onClick={() => { setShowEmailOtpAction(false); setEmailOtpPassword(''); }}>
+                                                {t('twofa.cancelBtn')}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
 
@@ -624,7 +767,12 @@ const ProfileSettings = ({ user }) => {
                                         { label: t('security.transport'), value: 'HTTPS / TLS 1.3' },
                                         { label: t('security.tlsResumption'), value: t('security.tlsResumptionValue') },
                                         { label: t('security.sessionAuth'), value: 'JSON Web Token (JWT)' },
-                                        { label: t('security.twoFaStatus'), value: profile.is2FAEnabled ? t('security.twoFaEnabled') : t('security.twoFaDisabled'), highlight: !profile.is2FAEnabled },
+                                        { label: t('security.twoFaStatus'), value: (() => {
+                                            const methods = [];
+                                            if (profile.is2FAEnabled) methods.push('Google Auth');
+                                            if (profile.isEmailOtpEnabled) methods.push('Email OTP');
+                                            return methods.length > 0 ? methods.join(' + ') : t('security.twoFaDisabled');
+                                        })(), highlight: !profile.is2FAEnabled && !profile.isEmailOtpEnabled },
                                         { label: t('security.encryption'), value: 'AES-256-GCM (Envelope Encryption)' },
                                         { label: t('security.passwordProtection'), value: 'Argon2id (Memory-Hard Hash)' },
                                         { label: t('security.blindIndex'), value: 'SHA-256 HMAC' },
@@ -659,18 +807,7 @@ const ProfileSettings = ({ user }) => {
                                         </div>
                                     </div>
 
-                                    {/* Email OTP Toggle */}
-                                    <div className="d-flex align-items-start justify-content-between py-2 gap-3">
-                                        <div className="flex-grow-1">
-                                            <span className="text-white small fw-semibold">📧 Xác thực Email OTP</span>
-                                            <div className="text-dim x-small">Bắt buộc xác thực OTP qua email khi đăng nhập và đăng ký (cần cấu hình SMTP)</div>
-                                        </div>
-                                        <div className="flex-shrink-0 pt-1">
-                                            <div className="form-check form-switch mb-0" style={{ fontSize: '1.25rem' }}>
-                                                <input className="form-check-input" type="checkbox" role="switch" checked={emailOtpEnabled} onChange={handleToggleEmailOtp} style={{ cursor: 'pointer', accentColor: '#D4AF37' }} />
-                                            </div>
-                                        </div>
-                                    </div>
+
                                 </div>
                             )}
 

@@ -1064,10 +1064,10 @@ app.post('/api/auth/login', async (req, res) => {
 
         // 2FA Check - Điều kiện:
         // 1. Có Google Authenticator → bắt buộc 2FA (ưu tiên GG Auth)
-        // 2. Không có GG Auth + Email OTP đã bật → bắt Email OTP
-        // 3. Không có GG Auth + Email OTP tắt → cho đăng nhập thẳng
+        // 2. Có Email OTP per-user bật → bắt Email OTP
+        // 3. Không có cả hai → cho đăng nhập thẳng
         const has2FAApp = !!user.is_two_fa_enabled;
-        const emailOtpEnabled = !!readSettings().emailOtpEnabled;
+        const emailOtpEnabled = !!user.is_email_otp_enabled;
 
         // Nếu KHÔNG có GG Auth VÀ Email OTP chưa bật → login thẳng (không 2FA)
         if (!has2FAApp && !emailOtpEnabled) {
@@ -1794,7 +1794,8 @@ app.get('/api/auth/me/profile', authenticateToken, async (req, res) => {
             full_name: fullName,
             email, phone: phone || '',
             role,
-            is2FAEnabled: !!user.is_two_fa_enabled
+            is2FAEnabled: !!user.is_two_fa_enabled,
+            isEmailOtpEnabled: !!user.is_email_otp_enabled
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1987,6 +1988,67 @@ app.post('/api/auth/2fa/disable', authenticateToken, async (req, res) => {
 
         await logAudit(req.user.id, 'DISABLE_2FA', { status: 'Disabled' });
         res.json({ message: 'Đã tắt xác thực 2 lớp' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Email OTP Per-User Enable/Disable ---
+app.post('/api/auth/email-otp/enable', authenticateToken, async (req, res) => {
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ error: 'Vui lòng nhập mật khẩu để xác nhận' });
+    try {
+        const pool = await connectDB();
+
+        // Kiểm tra SMTP có cấu hình chưa
+        const smtpConfigured = !!(process.env.SMTP_EMAIL && process.env.SMTP_PASSWORD
+            && process.env.SMTP_EMAIL !== 'your-email@gmail.com'
+            && process.env.SMTP_PASSWORD !== 'your-app-password');
+        if (!smtpConfigured) {
+            return res.status(400).json({ error: 'Không thể bật Email OTP: SMTP chưa được cấu hình. Vui lòng liên hệ Admin.' });
+        }
+
+        // Verify password
+        const result = await pool.request()
+            .input('id', sql.UniqueIdentifier, req.user.id)
+            .query("SELECT password_hash, email FROM system_users WHERE user_id = @id");
+        if (!result.recordset.length) return res.status(404).json({ error: 'User not found' });
+
+        const isMatch = await argon2.verify(result.recordset[0].password_hash, password);
+        if (!isMatch) return res.status(401).json({ error: 'Mật khẩu không đúng' });
+
+        // Check user has email
+        let userEmail = '';
+        try { userEmail = decrypt(result.recordset[0].email); } catch (e) { }
+        if (!userEmail) return res.status(400).json({ error: 'Tài khoản chưa có email. Vui lòng cập nhật email trước.' });
+
+        // Enable
+        await pool.request()
+            .input('id', sql.UniqueIdentifier, req.user.id)
+            .query("UPDATE system_users SET is_email_otp_enabled = 1 WHERE user_id = @id");
+
+        await logAudit(req.user.id, 'ENABLE_EMAIL_OTP', { status: 'Enabled' });
+        res.json({ message: 'Đã bật xác thực Email OTP thành công' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/auth/email-otp/disable', authenticateToken, async (req, res) => {
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ error: 'Vui lòng nhập mật khẩu để xác nhận' });
+    try {
+        const pool = await connectDB();
+
+        const result = await pool.request()
+            .input('id', sql.UniqueIdentifier, req.user.id)
+            .query("SELECT password_hash FROM system_users WHERE user_id = @id");
+
+        const isMatch = await argon2.verify(result.recordset[0].password_hash, password);
+        if (!isMatch) return res.status(401).json({ error: 'Mật khẩu không đúng' });
+
+        await pool.request()
+            .input('id', sql.UniqueIdentifier, req.user.id)
+            .query("UPDATE system_users SET is_email_otp_enabled = 0 WHERE user_id = @id");
+
+        await logAudit(req.user.id, 'DISABLE_EMAIL_OTP', { status: 'Disabled' });
+        res.json({ message: 'Đã tắt xác thực Email OTP' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

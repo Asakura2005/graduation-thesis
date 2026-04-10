@@ -153,7 +153,7 @@ const App = () => {
         // Xử lý Refresh Token tự động khi gặp lỗi 401 Unauthorized
         if (error.response && error.response.status === 401 && !originalRequest._retry) {
             // Loại trừ route login/refresh để tránh lặp vô hạn
-            if (originalRequest.url.includes('/api/auth/login') || originalRequest.url.includes('/api/auth/refresh')) {
+            if (originalRequest.url.includes('/api/auth/')) {
                 return Promise.reject(error);
             }
             
