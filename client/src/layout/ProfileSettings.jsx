@@ -28,6 +28,7 @@ const ProfileSettings = ({ user }) => {
 
     // Admin Settings
     const [captchaEnabled, setCaptchaEnabled] = useState(true);
+    const [emailOtpEnabled, setEmailOtpEnabled] = useState(false);
 
     const [toast, setToast] = useState(null);
 
@@ -54,6 +55,7 @@ const ProfileSettings = ({ user }) => {
             try {
                 const res = await axios.get('/api/settings/captcha');
                 setCaptchaEnabled(res.data.captchaEnabled);
+                setEmailOtpEnabled(!!res.data.emailOtpEnabled);
             } catch (err) {}
         };
 
@@ -165,6 +167,20 @@ const ProfileSettings = ({ user }) => {
             showToast('success', newStatus ? t('security.captchaOn') : t('security.captchaOff'));
         } catch (e) {
             showToast('error', e.response?.data?.error || t('security.captchaError'));
+        }
+    };
+
+    const handleToggleEmailOtp = async () => {
+        try {
+            const newStatus = !emailOtpEnabled;
+            await axios.post('/api/settings/email-otp', {
+                emailOtpEnabled: newStatus
+            }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+            
+            setEmailOtpEnabled(newStatus);
+            showToast('success', newStatus ? 'Đã bật xác thực Email OTP' : 'Đã tắt xác thực Email OTP');
+        } catch (e) {
+            showToast('error', e.response?.data?.error || 'Lỗi khi thay đổi cài đặt Email OTP');
         }
     };
 
@@ -639,6 +655,19 @@ const ProfileSettings = ({ user }) => {
                                         <div className="flex-shrink-0 pt-1">
                                             <div className="form-check form-switch mb-0" style={{ fontSize: '1.25rem' }}>
                                                 <input className="form-check-input" type="checkbox" role="switch" checked={captchaEnabled} onChange={handleToggleCaptcha} style={{ cursor: 'pointer', accentColor: '#D4AF37' }} />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Email OTP Toggle */}
+                                    <div className="d-flex align-items-start justify-content-between py-2 gap-3">
+                                        <div className="flex-grow-1">
+                                            <span className="text-white small fw-semibold">📧 Xác thực Email OTP</span>
+                                            <div className="text-dim x-small">Bắt buộc xác thực OTP qua email khi đăng nhập và đăng ký (cần cấu hình SMTP)</div>
+                                        </div>
+                                        <div className="flex-shrink-0 pt-1">
+                                            <div className="form-check form-switch mb-0" style={{ fontSize: '1.25rem' }}>
+                                                <input className="form-check-input" type="checkbox" role="switch" checked={emailOtpEnabled} onChange={handleToggleEmailOtp} style={{ cursor: 'pointer', accentColor: '#D4AF37' }} />
                                             </div>
                                         </div>
                                     </div>

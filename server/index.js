@@ -13,6 +13,9 @@ const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const anomalyDetector = require('./AnomalyDetectionService');
 const cookieParser = require('cookie-parser');
+const emailService = require('./EmailService');
+const otpService = require('./OTPService');
+const deviceService = require('./DeviceService');
 
 const path = require('path');
 
@@ -31,6 +34,8 @@ app.use(helmet({
 const allowedOrigins = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
     'http://localhost:5001',
     'http://127.0.0.1:5001'
 ];
@@ -400,16 +405,121 @@ async function connectDB() {
                 await pool.request().query(`
                     CREATE TABLE auth_refresh_tokens (
                         id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                        session_id UNIQUEIDENTIFIER DEFAULT NEWID(),
                         user_id UNIQUEIDENTIFIER NOT NULL,
                         token_hash NVARCHAR(MAX) NOT NULL,
+                        device_fingerprint NVARCHAR(64) NULL,
+                        ip_address NVARCHAR(MAX) NULL,
                         expires_at DATETIME NOT NULL,
                         created_at DATETIME DEFAULT GETDATE(),
                         FOREIGN KEY (user_id) REFERENCES system_users(user_id) ON DELETE CASCADE
                     )
                 `);
                 console.log("auth_refresh_tokens table created successfully.");
+            } else {
+                // Migration: Add session_id if missing
+                try {
+                    const checkSid = await pool.request().query("SELECT COL_LENGTH('auth_refresh_tokens', 'session_id') as col_len");
+                    if (checkSid.recordset[0].col_len === null) {
+                        await pool.request().query("ALTER TABLE auth_refresh_tokens ADD session_id UNIQUEIDENTIFIER DEFAULT NEWID()");
+                        console.log("Added session_id to auth_refresh_tokens");
+                    }
+                } catch (e) { }
+                // Migration: Add device_fingerprint if missing
+                try {
+                    const checkFp = await pool.request().query("SELECT COL_LENGTH('auth_refresh_tokens', 'device_fingerprint') as col_len");
+                    if (checkFp.recordset[0].col_len === null) {
+                        await pool.request().query("ALTER TABLE auth_refresh_tokens ADD device_fingerprint NVARCHAR(64) NULL");
+                        console.log("Added device_fingerprint to auth_refresh_tokens");
+                    }
+                } catch (e) { }
+                // Migration: Add ip_address if missing
+                try {
+                    const checkIp = await pool.request().query("SELECT COL_LENGTH('auth_refresh_tokens', 'ip_address') as col_len");
+                    if (checkIp.recordset[0].col_len === null) {
+                        await pool.request().query("ALTER TABLE auth_refresh_tokens ADD ip_address NVARCHAR(MAX) NULL");
+                        console.log("Added ip_address to auth_refresh_tokens");
+                    }
+                } catch (e) { }
             }
         } catch (e) { console.log("Migration Warn (auth_refresh_tokens):", e.message); }
+
+        // --- AUTO MIGRATION: OTP_TOKENS TABLE ---
+        try {
+            const checkOtp = await pool.request().query("SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'otp_tokens'");
+            if (checkOtp.recordset.length === 0) {
+                console.log("Migrating: Creating otp_tokens table...");
+                await pool.request().query(`
+                    CREATE TABLE otp_tokens (
+                        id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                        email_hash NVARCHAR(64) NOT NULL,
+                        otp_hash NVARCHAR(64) NOT NULL,
+                        type NVARCHAR(50) NOT NULL,
+                        expires_at DATETIME NOT NULL,
+                        used BIT DEFAULT 0,
+                        created_at DATETIME DEFAULT GETDATE()
+                    )
+                `);
+                console.log("otp_tokens table created.");
+            }
+        } catch (e) { console.log("Migration Warn (otp_tokens):", e.message); }
+
+        // --- AUTO MIGRATION: TRUSTED_DEVICES TABLE ---
+        try {
+            const checkDev = await pool.request().query("SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'trusted_devices'");
+            if (checkDev.recordset.length === 0) {
+                console.log("Migrating: Creating trusted_devices table...");
+                await pool.request().query(`
+                    CREATE TABLE trusted_devices (
+                        id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                        user_id UNIQUEIDENTIFIER NOT NULL,
+                        device_fingerprint NVARCHAR(64) NOT NULL,
+                        ip_address NVARCHAR(MAX) NULL,
+                        user_agent NVARCHAR(MAX) NULL,
+                        browser NVARCHAR(MAX) NULL,
+                        os NVARCHAR(MAX) NULL,
+                        location NVARCHAR(MAX) NULL,
+                        first_seen DATETIME DEFAULT GETDATE(),
+                        last_seen DATETIME DEFAULT GETDATE(),
+                        is_trusted BIT DEFAULT 1,
+                        FOREIGN KEY (user_id) REFERENCES system_users(user_id) ON DELETE CASCADE
+                    )
+                `);
+                console.log("trusted_devices table created.");
+            }
+        } catch (e) { console.log("Migration Warn (trusted_devices):", e.message); }
+
+        // --- AUTO MIGRATION: PENDING_REGISTRATIONS TABLE ---
+        try {
+            const checkPend = await pool.request().query("SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'pending_registrations'");
+            if (checkPend.recordset.length === 0) {
+                console.log("Migrating: Creating pending_registrations table...");
+                await pool.request().query(`
+                    CREATE TABLE pending_registrations (
+                        id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                        username NVARCHAR(MAX) NOT NULL,
+                        username_hash NVARCHAR(64) NOT NULL,
+                        password_hash NVARCHAR(MAX) NOT NULL,
+                        full_name NVARCHAR(MAX) NOT NULL,
+                        email NVARCHAR(MAX) NOT NULL,
+                        email_hash NVARCHAR(64) NOT NULL,
+                        phone NVARCHAR(MAX) NULL,
+                        created_at DATETIME DEFAULT GETDATE(),
+                        expires_at DATETIME NOT NULL
+                    )
+                `);
+                console.log("pending_registrations table created.");
+            }
+        } catch (e) { console.log("Migration Warn (pending_registrations):", e.message); }
+
+        // --- PERIODIC CLEANUP: OTP tokens & expired pending registrations ---
+        setInterval(async () => {
+            try {
+                await otpService.cleanupExpiredOTPs(pool);
+                // Cleanup expired pending registrations (older than 10 minutes)
+                await pool.request().query("DELETE FROM pending_registrations WHERE expires_at < GETDATE()");
+            } catch (e) { }
+        }, 5 * 60 * 1000).unref(); // Every 5 minutes
 
         return pool;
     } catch (err) {
@@ -541,23 +651,65 @@ app.get('/api/audit-logs', authenticateToken, async (req, res) => {
 
 // 1. Auth & Users (Legacy)
 // 1. Auth & Users (System Users - Secure with Argon2 + AI Anomaly Detection)
-app.get('/api/settings/captcha', (req, res) => {
+
+// === SETTINGS APIs ===
+// Helper: Read/Write settings
+function readSettings() {
     try {
         const fs = require('fs');
-        const data = fs.readFileSync('./settings.json', 'utf8');
-        res.json(JSON.parse(data));
+        return JSON.parse(fs.readFileSync('./settings.json', 'utf8'));
     } catch (e) {
-        res.json({ captchaEnabled: true });
+        return { captchaEnabled: true, emailOtpEnabled: false };
     }
+}
+function writeSettings(data) {
+    const fs = require('fs');
+    const current = readSettings();
+    const merged = { ...current, ...data };
+    fs.writeFileSync('./settings.json', JSON.stringify(merged));
+    return merged;
+}
+
+app.get('/api/settings/captcha', (req, res) => {
+    res.json(readSettings());
 });
 
 app.post('/api/settings/captcha', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
     try {
         const { captchaEnabled } = req.body;
-        const fs = require('fs');
-        fs.writeFileSync('./settings.json', JSON.stringify({ captchaEnabled }));
+        const settings = writeSettings({ captchaEnabled });
         await logAudit(req.user.id, 'SETTING_UPDATE', { setting: 'captcha', status: captchaEnabled });
-        res.json({ success: true, captchaEnabled });
+        res.json({ success: true, ...settings });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Email OTP Setting
+app.get('/api/settings/email-otp', (req, res) => {
+    const settings = readSettings();
+    res.json({ emailOtpEnabled: !!settings.emailOtpEnabled });
+});
+
+app.post('/api/settings/email-otp', authenticateToken, authorizeRole(['Admin']), async (req, res) => {
+    try {
+        const { emailOtpEnabled } = req.body;
+
+        // Kiểm tra SMTP có cấu hình chưa trước khi cho bật
+        if (emailOtpEnabled) {
+            const smtpConfigured = !!(process.env.SMTP_EMAIL && process.env.SMTP_PASSWORD
+                && process.env.SMTP_EMAIL !== 'your-email@gmail.com'
+                && process.env.SMTP_PASSWORD !== 'your-app-password');
+            if (!smtpConfigured) {
+                return res.status(400).json({
+                    error: 'Không thể bật xác thực email: SMTP chưa được cấu hình. Vui lòng cập nhật SMTP_EMAIL và SMTP_PASSWORD trong file .env trước.'
+                });
+            }
+        }
+
+        const settings = writeSettings({ emailOtpEnabled });
+        await logAudit(req.user.id, 'SETTING_UPDATE', { setting: 'email_otp', status: emailOtpEnabled });
+        res.json({ success: true, emailOtpEnabled: !!settings.emailOtpEnabled });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -875,84 +1027,203 @@ app.post('/api/auth/login', async (req, res) => {
             });
         } catch (recErr) { console.error('[AI Anomaly] Record error:', recErr.message); }
 
-        // 2FA Check
-        if (user.is_two_fa_enabled) {
-            const tempToken = jwt.sign({ id: user.user_id, role: decryptedRole, username: decryptedUsername, pending2FA: true, rememberSession: !!rememberSession }, process.env.JWT_SECRET || 'secret', { expiresIn: '5m' });
-            return res.json({ requires2FA: true, tempToken, riskScore: fullAnalysis.riskScore });
+        // === DEVICE FINGERPRINTING ===
+        const fingerprint = deviceService.generateDeviceFingerprint(req);
+        const devInfo = deviceService.getDeviceInfo(req);
+        const deviceCheck = await deviceService.checkTrustedDevice(pool, user.user_id, fingerprint);
+        let isNewDevice = !deviceCheck.trusted;
+
+        // Send device alert email if new device
+        if (isNewDevice) {
+            try {
+                let userEmail = '';
+                try { userEmail = decrypt(user.email); } catch (e) { }
+                if (userEmail) {
+                    const location = await deviceService.getIPLocation(clientIP);
+                    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+                    // sessionId sẽ được tạo khi verify 2FA thành công
+                    // → gửi alert trước, rồi sessionId sẽ được nhúng trong email khi cần
+                    console.log(`[Device Alert] ⚠️ New device detected for ${decryptedUsername}: ${devInfo.browser} / ${devInfo.os} from ${clientIP}`);
+
+                    // Gửi notification cho Admin (qua DB) 
+                    try {
+                        const adminNotif = {
+                            type: 'NEW_DEVICE_LOGIN',
+                            username: decryptedUsername,
+                            device: `${devInfo.browser} / ${devInfo.os}`,
+                            ip: clientIP,
+                            location: location,
+                            time: new Date().toLocaleString('vi-VN')
+                        };
+                        await logAudit(user.user_id, 'NEW_DEVICE_DETECTED', adminNotif);
+                    } catch (notifErr) { console.error('[Admin Notif] Error:', notifErr.message); }
+                }
+            } catch (alertErr) { console.error('[Device Alert] Error:', alertErr.message); }
         }
 
-        // Thời hạn access token luôn là ngắn hạn (15 phút)
-        const token = jwt.sign({ id: user.user_id, role: decryptedRole, username: decryptedUsername }, process.env.JWT_SECRET || 'secret', { expiresIn: '15m' });
+        // 2FA Check - Điều kiện:
+        // 1. Có Google Authenticator → bắt buộc 2FA (ưu tiên GG Auth)
+        // 2. Không có GG Auth + Email OTP đã bật → bắt Email OTP
+        // 3. Không có GG Auth + Email OTP tắt → cho đăng nhập thẳng
+        const has2FAApp = !!user.is_two_fa_enabled;
+        const emailOtpEnabled = !!readSettings().emailOtpEnabled;
 
-        // Refresh Token: 7 ngày (hoặc 1 ngày nếu không Remember Session)
-        const refreshTokenExpiry = rememberSession ? '7d' : '1d';
-        const refreshToken = jwt.sign({ id: user.user_id }, process.env.JWT_SECRET || 'secret', { expiresIn: refreshTokenExpiry });
+        // Nếu KHÔNG có GG Auth VÀ Email OTP chưa bật → login thẳng (không 2FA)
+        if (!has2FAApp && !emailOtpEnabled) {
+            console.log('[Login] ⚡ No 2FA required (GG Auth off + Email OTP disabled)');
 
-        // Lưu refresh token hash vào DB
-        const hashedRefresh = hashData(refreshToken);
-        const expDate = new Date();
-        expDate.setDate(expDate.getDate() + (rememberSession ? 7 : 1));
-        await pool.request()
-            .input('uid', sql.UniqueIdentifier, user.user_id)
-            .input('th', sql.NVarChar, hashedRefresh)
-            .input('exp', sql.DateTime, expDate)
-            .query("INSERT INTO auth_refresh_tokens (user_id, token_hash, expires_at) VALUES (@uid, @th, @exp)");
+            const token = jwt.sign({ id: user.user_id, role: decryptedRole, username: decryptedUsername }, process.env.JWT_SECRET || 'secret', { expiresIn: '15m' });
+            const refreshTokenExpiry = rememberSession ? '7d' : '1d';
+            const refreshToken = jwt.sign({ id: user.user_id }, process.env.JWT_SECRET || 'secret', { expiresIn: refreshTokenExpiry });
 
-        res.cookie('refreshToken', refreshToken, {
-            httpOnly: true,
-            secure: true,
-            sameSite: 'none',
-            path: '/', // Chỉ gửi cookie này khi gọi refresh endpoint
-            maxAge: (rememberSession ? 7 : 1) * 24 * 60 * 60 * 1000
-        });
+            const hashedRefresh = hashData(refreshToken);
+            const expDate = new Date();
+            expDate.setDate(expDate.getDate() + (rememberSession ? 7 : 1));
+            const encIP = encrypt(clientIP);
 
-        await logAudit(user.user_id, 'USER_LOGIN', {
-            username: decryptedUsername,
-            riskScore: fullAnalysis.riskScore,
-            aiDecision: fullAnalysis.decision
-        });
+            await pool.request()
+                .input('uid', sql.UniqueIdentifier, user.user_id)
+                .input('th', sql.NVarChar, hashedRefresh)
+                .input('exp', sql.DateTime, expDate)
+                .input('fp', sql.NVarChar, fingerprint)
+                .input('ip', sql.NVarChar, encIP)
+                .query("INSERT INTO auth_refresh_tokens (user_id, token_hash, expires_at, device_fingerprint, ip_address) VALUES (@uid, @th, @exp, @fp, @ip)");
 
-        res.json({
-            token,
+            // Register device as trusted
+            if (isNewDevice && fingerprint) {
+                await deviceService.addTrustedDevice(pool, user.user_id, fingerprint, devInfo, clientIP);
+            }
+
+            res.cookie('refreshToken', refreshToken, {
+                httpOnly: true, secure: true, sameSite: 'none', path: '/',
+                maxAge: (rememberSession ? 7 : 1) * 24 * 60 * 60 * 1000
+            });
+
+            await logAudit(user.user_id, 'USER_LOGIN', {
+                username: decryptedUsername,
+                riskScore: fullAnalysis.riskScore,
+                aiDecision: fullAnalysis.decision,
+                twoFA: 'skipped_no_smtp'
+            });
+
+            return res.json({
+                token, role: decryptedRole, username: decryptedUsername,
+                riskScore: fullAnalysis.riskScore,
+                warnings: fullAnalysis.decision === 'WARN' ? fullAnalysis.riskFactors : []
+            });
+        }
+
+        // Gửi Email OTP sẵn (chỉ khi Email OTP đã bật trong settings)
+        let emailOTPSent = false;
+        if (emailOtpEnabled) {
+            try {
+                let userEmail = '';
+                try { userEmail = decrypt(user.email); } catch (e) { }
+                if (userEmail) {
+                    const otp = otpService.generateOTP();
+                    await otpService.storeOTP(pool, userEmail, otp, 'LOGIN_2FA');
+                    await emailService.sendOTPEmail(userEmail, otp, 'LOGIN_2FA', decryptedUsername);
+                    emailOTPSent = true;
+                }
+            } catch (otpErr) { console.error('[Login 2FA] Email OTP error:', otpErr.message); }
+        }
+
+        const tempToken = jwt.sign({
+            id: user.user_id,
             role: decryptedRole,
             username: decryptedUsername,
+            pending2FA: true,
+            rememberSession: !!rememberSession,
+            fingerprint: fingerprint,
+            isNewDevice: isNewDevice
+        }, process.env.JWT_SECRET || 'secret', { expiresIn: '5m' });
+
+        // Mask email hiển thị
+        let maskedEmail = '';
+        try {
+            let userEmail = decrypt(user.email) || '';
+            if (userEmail) {
+                const parts = userEmail.split('@');
+                maskedEmail = parts[0].substring(0, 2) + '***@' + parts[1];
+            }
+        } catch (e) { }
+
+        return res.json({
+            requires2FA: true,
+            tempToken,
             riskScore: fullAnalysis.riskScore,
-            warnings: fullAnalysis.decision === 'WARN' ? fullAnalysis.riskFactors : []
+            has2FAApp: has2FAApp,
+            emailOTPSent: emailOTPSent,
+            emailOtpEnabled: emailOtpEnabled,
+            maskedEmail: maskedEmail,
+            isNewDevice: isNewDevice,
+            deviceInfo: isNewDevice ? {
+                browser: devInfo.browser,
+                os: devInfo.os,
+                ip: clientIP
+            } : null
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// 1.1 Verify 2FA for Login
+// 1.1 Verify 2FA for Login (Dual Mode: Google Authenticator OR Email OTP)
 app.post('/api/auth/verify-2fa', async (req, res) => {
-    const { tempToken, token } = req.body;
+    const { tempToken, token, method } = req.body;
+    // method: 'authenticator' (Google Auth) hoặc 'email' (Email OTP)
     try {
         if (!tempToken || !token) return res.status(400).json({ error: 'Missing tokens' });
 
-        const decoded = jwt.verify(tempToken, process.env.JWT_SECRET || 'secret');
+        let decoded;
+        try {
+            decoded = jwt.verify(tempToken, process.env.JWT_SECRET || 'secret');
+        } catch (jwtErr) {
+            if (jwtErr.name === 'TokenExpiredError') {
+                return res.status(401).json({ error: 'Phiên xác thực đã hết hạn (expired). Vui lòng đăng nhập lại.', expired: true });
+            }
+            return res.status(400).json({ error: 'Token không hợp lệ. Vui lòng đăng nhập lại.' });
+        }
         if (!decoded.pending2FA) return res.status(400).json({ error: 'Invalid token type' });
 
         const pool = await connectDB();
-        const result = await pool.request()
-            .input('id', sql.UniqueIdentifier, decoded.id)
-            .query("SELECT two_fa_secret FROM system_users WHERE user_id = @id");
 
-        const user = result.recordset[0];
-        if (!user || !user.two_fa_secret) return res.status(400).json({ error: '2FA not setup' });
+        // === Verify OTP theo method ===
+        if (method === 'authenticator') {
+            // Google Authenticator (TOTP)
+            const result = await pool.request()
+                .input('id', sql.UniqueIdentifier, decoded.id)
+                .query("SELECT two_fa_secret FROM system_users WHERE user_id = @id");
 
-        // Decrypt the secret from the DB
-        let decryptedSecret = '';
-        try { decryptedSecret = decrypt(user.two_fa_secret); }
-        catch (e) { decryptedSecret = user.two_fa_secret; } // Fallback for old unencrypted secrets
+            const user = result.recordset[0];
+            if (!user || !user.two_fa_secret) return res.status(400).json({ error: '2FA not setup' });
 
-        const serverTime2FA = new Date();
-        console.log(`[2FA Login] Server Time: ${serverTime2FA.toISOString()} (Unix: ${Math.floor(serverTime2FA.getTime() / 1000)})`);
-        console.log(`[2FA Login] Received: ${token}, Expected: ${speakeasy.totp({ secret: decryptedSecret, encoding: 'base32' })}`);
-        const isValid = speakeasy.totp.verify({ secret: decryptedSecret, encoding: 'base32', token: token, window: 8 });
+            let decryptedSecret = '';
+            try { decryptedSecret = decrypt(user.two_fa_secret); }
+            catch (e) { decryptedSecret = user.two_fa_secret; }
 
-        if (!isValid) return res.status(401).json({ error: 'Mã xác thực không hợp lệ. Hãy kiểm tra lại Google Authenticator.' });
+            const serverTime2FA = new Date();
+            console.log(`[2FA Login] Server Time: ${serverTime2FA.toISOString()} | Method: Authenticator`);
+            const isValid = speakeasy.totp.verify({ secret: decryptedSecret, encoding: 'base32', token: token, window: 8 });
 
-        // Lấy rememberSession từ tempToken (đã được nhúng trước đó khi login)
-        const tokenExpiry2FA = '15m'; // Access Token ngắn hạn
+            if (!isValid) return res.status(401).json({ error: 'Mã xác thực không hợp lệ. Hãy kiểm tra lại Google Authenticator.' });
+        } else {
+            // Email OTP (default)
+            let userEmail = '';
+            const userRes = await pool.request()
+                .input('id', sql.UniqueIdentifier, decoded.id)
+                .query("SELECT email FROM system_users WHERE user_id = @id");
+            try { userEmail = decrypt(userRes.recordset[0]?.email); } catch (e) { }
+
+            if (!userEmail) return res.status(400).json({ error: 'Không tìm thấy email liên kết.' });
+
+            const verification = await otpService.verifyOTP(pool, userEmail, token.trim(), 'LOGIN_2FA');
+            if (!verification.valid) {
+                return res.status(401).json({ error: verification.error });
+            }
+        }
+
+        // === OTP verified → Issue tokens + Device management ===
+        const tokenExpiry2FA = '15m';
         const finalToken = jwt.sign({ id: decoded.id, role: decoded.role, username: decoded.username }, process.env.JWT_SECRET || 'secret', { expiresIn: tokenExpiry2FA });
 
         // Refresh token
@@ -962,11 +1233,50 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
         const hashedRefresh = hashData(refreshToken);
         const expDate = new Date();
         expDate.setDate(expDate.getDate() + (decoded.rememberSession ? 7 : 1));
-        await pool.request()
+
+        // Lưu refresh token + device fingerprint + IP vào DB
+        const fingerprint = decoded.fingerprint || '';
+        const clientIP = resolveClientIP(req);
+        const encIP = encrypt(clientIP);
+
+        const insertResult = await pool.request()
             .input('uid', sql.UniqueIdentifier, decoded.id)
             .input('th', sql.NVarChar, hashedRefresh)
             .input('exp', sql.DateTime, expDate)
-            .query("INSERT INTO auth_refresh_tokens (user_id, token_hash, expires_at) VALUES (@uid, @th, @exp)");
+            .input('fp', sql.NVarChar, fingerprint)
+            .input('ip', sql.NVarChar, encIP)
+            .query("INSERT INTO auth_refresh_tokens (user_id, token_hash, expires_at, device_fingerprint, ip_address) OUTPUT INSERTED.session_id VALUES (@uid, @th, @exp, @fp, @ip)");
+
+        const sessionId = insertResult.recordset[0]?.session_id;
+
+        // === Device trust management ===
+        if (decoded.isNewDevice && fingerprint) {
+            const devInfo = deviceService.getDeviceInfo(req);
+            const addResult = await deviceService.addTrustedDevice(pool, decoded.id, fingerprint, devInfo, clientIP);
+
+            // Gửi Device Alert Email (với sessionId để nút "Không phải tôi" hoạt động)
+            try {
+                let userEmail = '';
+                const emailRes = await pool.request()
+                    .input('id', sql.UniqueIdentifier, decoded.id)
+                    .query("SELECT email FROM system_users WHERE user_id = @id");
+                try { userEmail = decrypt(emailRes.recordset[0]?.email); } catch (e) { }
+
+                if (userEmail && sessionId) {
+                    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+                    const revokeUrl = `${frontendUrl}/security/device-action?action=revoke&sessionId=${sessionId}`;
+                    const changePasswordUrl = `${frontendUrl}/security/forgot-password`;
+
+                    await emailService.sendDeviceAlertEmail(userEmail, decoded.username, {
+                        ip: clientIP,
+                        browser: devInfo.browser,
+                        os: devInfo.os,
+                        location: addResult.location,
+                        time: new Date().toLocaleString('vi-VN')
+                    }, revokeUrl, changePasswordUrl);
+                }
+            } catch (emailErr) { console.error('[Device Alert Email] Error:', emailErr.message); }
+        }
 
         res.cookie('refreshToken', refreshToken, {
             httpOnly: true,
@@ -976,10 +1286,17 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
             maxAge: (decoded.rememberSession ? 7 : 1) * 24 * 60 * 60 * 1000
         });
 
-        await logAudit(decoded.id, 'USER_LOGIN_2FA', { username: decoded.username });
+        await logAudit(decoded.id, 'USER_LOGIN_2FA', {
+            username: decoded.username,
+            method: method || 'email',
+            newDevice: decoded.isNewDevice
+        });
 
         res.json({ token: finalToken, role: decoded.role, username: decoded.username });
-    } catch (err) { res.status(401).json({ error: 'Token expired or invalid' }); }
+    } catch (err) {
+        console.error('[Verify 2FA] Error:', err.message);
+        res.status(401).json({ error: 'Token expired or invalid' });
+    }
 });
 
 // 1.2 Verify Refresh Token & Issue New Access Token
@@ -1103,6 +1420,7 @@ app.post('/api/auth/register', async (req, res) => {
         const emailHash = hashData(email);
         const usernameHash = hashData(username);
 
+        // Check trùng username/email trong system_users
         const checkRes = await pool.request()
             .input('u', sql.NVarChar, usernameHash)
             .input('e', sql.NVarChar, emailHash)
@@ -1112,15 +1430,56 @@ app.post('/api/auth/register', async (req, res) => {
             return res.status(400).json({ error: 'Username or email already exists' });
         }
 
+        // Hash password + encrypt data
         const passHash = await argon2.hash(password);
         const encUsername = encrypt(username);
-        // Force new registrations to 'Pending' state
-        const encRole = encrypt('Pending');
         const encName = encrypt(fullName);
         const encEmail = encrypt(email);
         const encPhone = encrypt(phone || '');
 
-        const r = await pool.request()
+        // Check Email OTP setting
+        const emailOtpEnabled = !!readSettings().emailOtpEnabled;
+
+        if (!emailOtpEnabled) {
+            // Email OTP tắt → đăng ký thẳng (không cần OTP email)
+            console.log('[Register] ⚡ Email OTP disabled → direct registration (no OTP)');
+            const encRole = encrypt('Pending');
+            const r = await pool.request()
+                .input('u', sql.NVarChar, encUsername)
+                .input('uh', sql.NVarChar, usernameHash)
+                .input('p', sql.NVarChar, passHash)
+                .input('f', sql.NVarChar, encName)
+                .input('e', sql.NVarChar, encEmail)
+                .input('eh', sql.NVarChar, emailHash)
+                .input('ph', sql.NVarChar, encPhone)
+                .input('r', sql.NVarChar, encRole)
+                .query(`INSERT INTO system_users (username, username_hash, password_hash, full_name, email, email_hash, phone, role)
+                        OUTPUT INSERTED.user_id
+                        VALUES (@u, @uh, @p, @f, @e, @eh, @ph, @r)`);
+
+            await logAudit(r.recordset[0].user_id, 'USER_REGISTER', { username, smtp: 'not_configured' });
+            return res.status(201).json({ message: 'Đăng ký thành công! Tài khoản đang chờ Admin phê duyệt.' });
+        }
+
+        // === SMTP đã cấu hình → OTP Flow ===
+
+        // Check trùng trong pending_registrations (đang chờ OTP)
+        const checkPending = await pool.request()
+            .input('u', sql.NVarChar, usernameHash)
+            .input('e', sql.NVarChar, emailHash)
+            .query("SELECT * FROM pending_registrations WHERE (username_hash = @u OR email_hash = @e) AND expires_at > GETDATE()");
+
+        // Xóa pending cũ nếu có (cho phép đăng ký lại)
+        if (checkPending.recordset.length > 0) {
+            await pool.request()
+                .input('u', sql.NVarChar, usernameHash)
+                .input('e', sql.NVarChar, emailHash)
+                .query("DELETE FROM pending_registrations WHERE username_hash = @u OR email_hash = @e");
+        }
+
+        // Lưu vào pending_registrations (10 phút hết hạn)
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+        await pool.request()
             .input('u', sql.NVarChar, encUsername)
             .input('uh', sql.NVarChar, usernameHash)
             .input('p', sql.NVarChar, passHash)
@@ -1128,13 +1487,280 @@ app.post('/api/auth/register', async (req, res) => {
             .input('e', sql.NVarChar, encEmail)
             .input('eh', sql.NVarChar, emailHash)
             .input('ph', sql.NVarChar, encPhone)
+            .input('exp', sql.DateTime, expiresAt)
+            .query(`INSERT INTO pending_registrations (username, username_hash, password_hash, full_name, email, email_hash, phone, expires_at)
+                    VALUES (@u, @uh, @p, @f, @e, @eh, @ph, @exp)`);
+
+        // Tạo & gửi OTP qua email
+        const otp = otpService.generateOTP();
+        await otpService.storeOTP(pool, email, otp, 'REGISTER');
+        await emailService.sendOTPEmail(email, otp, 'REGISTER', fullName);
+
+        // Mask email để hiển thị trên frontend
+        const parts = email.split('@');
+        const maskedEmail = parts[0].substring(0, 2) + '***@' + parts[1];
+
+        console.log(`[Register] 📧 OTP sent to ${maskedEmail} for user "${username}"`);
+        res.status(200).json({
+            requiresOTP: true,
+            email: maskedEmail,
+            ttl: otpService.OTP_TTL_SECONDS,
+            message: 'Mã OTP đã được gửi đến email của bạn. Vui lòng kiểm tra và nhập mã để hoàn tất đăng ký.'
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// === VERIFY REGISTRATION OTP ===
+app.post('/api/auth/register/verify-otp', async (req, res) => {
+    const { email, otp } = req.body;
+    if (!email || !otp) return res.status(400).json({ error: 'Thiếu email hoặc mã OTP' });
+
+    try {
+        const pool = await connectDB();
+
+        // 1. Verify OTP
+        const verification = await otpService.verifyOTP(pool, email.trim(), otp.trim(), 'REGISTER');
+        if (!verification.valid) {
+            return res.status(400).json({ error: verification.error });
+        }
+
+        // 2. Lấy dữ liệu pending registration
+        const emailHash = hashData(email.trim());
+        const pendingRes = await pool.request()
+            .input('eh', sql.NVarChar, emailHash)
+            .query("SELECT TOP 1 * FROM pending_registrations WHERE email_hash = @eh AND expires_at > GETDATE() ORDER BY created_at DESC");
+
+        if (pendingRes.recordset.length === 0) {
+            return res.status(400).json({ error: 'Yêu cầu đăng ký đã hết hạn. Vui lòng đăng ký lại.' });
+        }
+
+        const pending = pendingRes.recordset[0];
+
+        // 3. Chuyển từ pending → system_users (role = 'Pending' chờ Admin duyệt)
+        const encRole = encrypt('Pending');
+        const r = await pool.request()
+            .input('u', sql.NVarChar, pending.username)
+            .input('uh', sql.NVarChar, pending.username_hash)
+            .input('p', sql.NVarChar, pending.password_hash)
+            .input('f', sql.NVarChar, pending.full_name)
+            .input('e', sql.NVarChar, pending.email)
+            .input('eh', sql.NVarChar, pending.email_hash)
+            .input('ph', sql.NVarChar, pending.phone)
             .input('r', sql.NVarChar, encRole)
             .query(`INSERT INTO system_users (username, username_hash, password_hash, full_name, email, email_hash, phone, role)
                     OUTPUT INSERTED.user_id
                     VALUES (@u, @uh, @p, @f, @e, @eh, @ph, @r)`);
 
-        await logAudit(r.recordset[0].user_id, 'USER_REGISTER', { username });
-        res.status(201).json({ message: 'User registered' });
+        // 4. Xóa pending record
+        await pool.request()
+            .input('id', sql.UniqueIdentifier, pending.id)
+            .query("DELETE FROM pending_registrations WHERE id = @id");
+
+        await logAudit(r.recordset[0].user_id, 'USER_REGISTER_OTP_VERIFIED', { email: 'ENCRYPTED' });
+        console.log(`[Register] ✅ User activated via OTP verification`);
+
+        res.status(201).json({ message: 'Đăng ký thành công! Tài khoản đang chờ Admin phê duyệt.' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// === RESEND OTP ===
+app.post('/api/auth/otp/resend', async (req, res) => {
+    const { email, type, tempToken } = req.body;
+    if (!type) return res.status(400).json({ error: 'Thiếu thông tin' });
+
+    const validTypes = ['REGISTER', 'LOGIN_2FA', 'FORGOT_PASSWORD'];
+    if (!validTypes.includes(type)) return res.status(400).json({ error: 'Loại OTP không hợp lệ' });
+
+    try {
+        const pool = await connectDB();
+        let targetEmail = email ? email.trim() : '';
+
+        // Nếu là LOGIN_2FA và có tempToken → lấy email từ userId trong token
+        if (type === 'LOGIN_2FA' && tempToken && !targetEmail) {
+            try {
+                const decoded = jwt.verify(tempToken, process.env.JWT_SECRET || 'secret');
+                const userRes = await pool.request()
+                    .input('id', sql.UniqueIdentifier, decoded.id)
+                    .query("SELECT email FROM system_users WHERE user_id = @id");
+                if (userRes.recordset[0]) {
+                    try { targetEmail = decrypt(userRes.recordset[0].email); } catch (e) { }
+                }
+            } catch (jwtErr) {
+                return res.status(401).json({ error: 'Phiên đã hết hạn. Vui lòng đăng nhập lại.', expired: true });
+            }
+        }
+
+        if (!targetEmail) return res.status(400).json({ error: 'Không tìm thấy email' });
+
+        const otp = otpService.generateOTP();
+        await otpService.storeOTP(pool, targetEmail, otp, type);
+        await emailService.sendOTPEmail(targetEmail, otp, type);
+
+        console.log(`[OTP Resend] 📧 ${type} OTP sent to ${targetEmail.substring(0, 3)}***`);
+        res.json({ success: true, ttl: otpService.OTP_TTL_SECONDS, message: 'Mã OTP mới đã được gửi.' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// === FORGOT PASSWORD: Step 1 - Send OTP ===
+app.post('/api/auth/forgot-password', async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Vui lòng nhập email' });
+
+    try {
+        const pool = await connectDB();
+        const emailHash = hashData(email.trim());
+
+        // Kiểm tra email tồn tại
+        const userRes = await pool.request()
+            .input('eh', sql.NVarChar, emailHash)
+            .query("SELECT user_id, username, full_name FROM system_users WHERE email_hash = @eh");
+
+        if (userRes.recordset.length === 0) {
+            // Không tiết lộ email có tồn tại hay không (bảo mật)
+            return res.json({ success: true, message: 'Nếu email tồn tại trong hệ thống, mã OTP sẽ được gửi.' });
+        }
+
+        const user = userRes.recordset[0];
+        let username = user.username;
+        try { username = decrypt(user.username) || user.username; } catch (e) { }
+
+        // Gửi OTP
+        const otp = otpService.generateOTP();
+        await otpService.storeOTP(pool, email.trim(), otp, 'FORGOT_PASSWORD');
+        await emailService.sendOTPEmail(email.trim(), otp, 'FORGOT_PASSWORD', username);
+
+        const parts = email.trim().split('@');
+        const maskedEmail = parts[0].substring(0, 2) + '***@' + parts[1];
+
+        console.log(`[ForgotPassword] 📧 OTP sent to ${maskedEmail}`);
+        res.json({ success: true, email: maskedEmail, ttl: otpService.OTP_TTL_SECONDS, message: 'Mã OTP đã được gửi đến email của bạn.' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// === FORGOT PASSWORD: Step 2 - Verify OTP ===
+app.post('/api/auth/forgot-password/verify', async (req, res) => {
+    const { email, otp } = req.body;
+    if (!email || !otp) return res.status(400).json({ error: 'Thiếu thông tin' });
+
+    try {
+        const pool = await connectDB();
+        const verification = await otpService.verifyOTP(pool, email.trim(), otp.trim(), 'FORGOT_PASSWORD');
+
+        if (!verification.valid) {
+            return res.status(400).json({ error: verification.error });
+        }
+
+        // Tạo temp token (5 phút) để cho phép đặt lại mật khẩu
+        const emailHash = hashData(email.trim());
+        const userRes = await pool.request()
+            .input('eh', sql.NVarChar, emailHash)
+            .query("SELECT user_id FROM system_users WHERE email_hash = @eh");
+
+        if (userRes.recordset.length === 0) {
+            return res.status(404).json({ error: 'Tài khoản không tồn tại' });
+        }
+
+        const resetToken = jwt.sign(
+            { id: userRes.recordset[0].user_id, purpose: 'password_reset' },
+            process.env.JWT_SECRET || 'secret',
+            { expiresIn: '5m' }
+        );
+
+        res.json({ success: true, resetToken, message: 'Xác thực thành công. Vui lòng đặt mật khẩu mới.' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// === FORGOT PASSWORD: Step 3 - Reset Password ===
+app.post('/api/auth/forgot-password/reset', async (req, res) => {
+    const { resetToken, newPassword } = req.body;
+    if (!resetToken || !newPassword) return res.status(400).json({ error: 'Thiếu thông tin' });
+
+    // Password complexity check
+    const passwordRegex = /^(?=.*[A-Z])(?=.*[!@#$&*.,?<>^%\-_\=+~]).{8,}$/;
+    if (!passwordRegex.test(newPassword)) {
+        return res.status(400).json({ error: 'Mật khẩu phải chứa ít nhất 8 ký tự, 1 chữ hoa và 1 ký tự đặc biệt' });
+    }
+
+    try {
+        const decoded = jwt.verify(resetToken, process.env.JWT_SECRET || 'secret');
+        if (decoded.purpose !== 'password_reset') {
+            return res.status(400).json({ error: 'Token không hợp lệ' });
+        }
+
+        const pool = await connectDB();
+        const newHash = await argon2.hash(newPassword);
+
+        // Update password
+        await pool.request()
+            .input('ph', sql.NVarChar, newHash)
+            .input('id', sql.UniqueIdentifier, decoded.id)
+            .query('UPDATE system_users SET password_hash = @ph WHERE user_id = @id');
+
+        // Revoke ALL sessions (đăng xuất toàn bộ thiết bị)
+        await deviceService.revokeAllSessions(pool, decoded.id);
+
+        // Gửi email thông báo đổi mật khẩu thành công
+        try {
+            const userRes = await pool.request()
+                .input('id', sql.UniqueIdentifier, decoded.id)
+                .query("SELECT username, email FROM system_users WHERE user_id = @id");
+            if (userRes.recordset[0]) {
+                let email = '', username = '';
+                try { email = decrypt(userRes.recordset[0].email); } catch (e) { }
+                try { username = decrypt(userRes.recordset[0].username); } catch (e) { }
+                if (email) await emailService.sendPasswordChangedEmail(email, username);
+            }
+        } catch (emailErr) { console.error('[ForgotPassword] Email notification error:', emailErr.message); }
+
+        await logAudit(decoded.id, 'PASSWORD_RESET_VIA_EMAIL', { method: 'forgot_password' });
+        res.json({ success: true, message: 'Mật khẩu đã được đặt lại thành công. Tất cả phiên đăng nhập đã bị đăng xuất.' });
+    } catch (err) {
+        if (err.name === 'TokenExpiredError') {
+            return res.status(400).json({ error: 'Link đặt lại mật khẩu đã hết hạn. Vui lòng thử lại.' });
+        }
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// === DEVICE ALERT: "Không phải tôi" - Revoke session ===
+app.post('/api/auth/device/revoke', async (req, res) => {
+    const { sessionId, token } = req.body;
+
+    // Có thể dùng token hoặc sessionId trực tiếp (từ email link)
+    if (!sessionId) return res.status(400).json({ error: 'Thiếu session ID' });
+
+    try {
+        const pool = await connectDB();
+        const result = await deviceService.revokeSession(pool, sessionId);
+
+        if (result.revoked) {
+            res.json({ success: true, message: 'Phiên đăng nhập của thiết bị lạ đã bị thu hồi thành công.' });
+        } else {
+            res.json({ success: false, message: 'Phiên đăng nhập không tồn tại hoặc đã hết hạn.' });
+        }
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// === DEVICE MANAGEMENT: List trusted devices ===
+app.get('/api/auth/devices', authenticateToken, async (req, res) => {
+    try {
+        const pool = await connectDB();
+        const devices = await deviceService.getTrustedDevices(pool, req.user.id);
+        res.json(devices);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// === DEVICE MANAGEMENT: Remove trusted device ===
+app.delete('/api/auth/devices/:id', authenticateToken, async (req, res) => {
+    try {
+        const pool = await connectDB();
+        const result = await deviceService.removeTrustedDevice(pool, req.params.id, req.user.id);
+        if (result.removed) {
+            await logAudit(req.user.id, 'REMOVE_TRUSTED_DEVICE', { deviceId: req.params.id });
+            res.json({ success: true, message: 'Đã xóa thiết bị tin cậy' });
+        } else {
+            res.status(404).json({ error: 'Thiết bị không tồn tại' });
+        }
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1213,7 +1839,7 @@ app.put('/api/auth/me/profile', authenticateToken, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Change password
+// Change password (+ Logout all sessions + Email notification)
 app.put('/api/auth/me/password', authenticateToken, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Vui lòng nhập đầy đủ thông tin' });
@@ -1222,7 +1848,7 @@ app.put('/api/auth/me/password', authenticateToken, async (req, res) => {
         const pool = await connectDB();
         const result = await pool.request()
             .input('id', sql.UniqueIdentifier, req.user.id)
-            .query('SELECT password_hash FROM system_users WHERE user_id = @id');
+            .query('SELECT password_hash, email, username FROM system_users WHERE user_id = @id');
 
         const user = result.recordset[0];
         if (!user) return res.status(404).json({ error: 'User not found' });
@@ -1236,8 +1862,19 @@ app.put('/api/auth/me/password', authenticateToken, async (req, res) => {
             .input('id', sql.UniqueIdentifier, req.user.id)
             .query('UPDATE system_users SET password_hash = @ph WHERE user_id = @id');
 
-        await logAudit(req.user.id, 'CHANGE_PASSWORD', { userId: req.user.id });
-        res.json({ message: 'Đổi mật khẩu thành công' });
+        // Revoke ALL sessions (đăng xuất tất cả thiết bị)
+        await deviceService.revokeAllSessions(pool, req.user.id);
+
+        // Gửi email thông báo đổi mật khẩu
+        try {
+            let email = '', username = '';
+            try { email = decrypt(user.email); } catch (e) { }
+            try { username = decrypt(user.username); } catch (e) { }
+            if (email) await emailService.sendPasswordChangedEmail(email, username);
+        } catch (emailErr) { console.error('[ChangePassword] Email notification error:', emailErr.message); }
+
+        await logAudit(req.user.id, 'CHANGE_PASSWORD', { userId: req.user.id, allSessionsRevoked: true });
+        res.json({ message: 'Đổi mật khẩu thành công. Tất cả phiên đăng nhập đã bị đăng xuất.', logoutAll: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

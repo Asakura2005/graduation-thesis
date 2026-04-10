@@ -18,6 +18,15 @@ const RegisterPage = ({ onBackToLogin }) => {
     const [showPw, setShowPw] = useState({ password: false, confirm: false });
     const [loading, setLoading] = useState(false);
 
+    // OTP Verification states
+    const [otpStep, setOtpStep] = useState(false); // true = show OTP input screen
+    const [otpCode, setOtpCode] = useState(['', '', '', '', '', '']);
+    const [otpCountdown, setOtpCountdown] = useState(0);
+    const [maskedEmail, setMaskedEmail] = useState('');
+    const [realEmail, setRealEmail] = useState(''); // email thực để gửi verify-otp
+    const [otpResending, setOtpResending] = useState(false);
+    const otpRefs = useRef([]);
+
     // reCAPTCHA states
     const [captchaToken, setCaptchaToken] = useState('');
     const [captchaEnabled, setCaptchaEnabled] = useState(true);
@@ -144,17 +153,112 @@ const RegisterPage = ({ onBackToLogin }) => {
         try {
             const res = await axios.post('/api/auth/register', {
                 ...formData,
-                captchaToken  // gửi captchaToken lên server
+                captchaToken
             });
-            setSuccess(res.data.message || t('register.successMessage'));
-            setTimeout(() => {
-                onBackToLogin();
-            }, 2000);
+
+            if (res.data.requiresOTP) {
+                // Chuyển sang bước nhập OTP
+                setMaskedEmail(res.data.email);
+                setRealEmail(formData.email); // Lưu email thực để gửi verify
+                setOtpCountdown(res.data.ttl || 90);
+                setOtpStep(true);
+                setOtpCode(['', '', '', '', '', '']);
+                setTimeout(() => otpRefs.current[0]?.focus(), 100);
+            } else {
+                setSuccess(res.data.message || t('register.successMessage'));
+                setTimeout(() => onBackToLogin(), 2000);
+            }
         } catch (err) {
             setError(err.response?.data?.error || t('register.errorMessage'));
-            resetCaptcha(); // reset captcha khi có lỗi
+            resetCaptcha();
         } finally {
             setLoading(false);
+        }
+    };
+
+    // OTP Countdown timer
+    useEffect(() => {
+        if (otpCountdown <= 0) return;
+        const timer = setInterval(() => {
+            setOtpCountdown(prev => {
+                if (prev <= 1) { clearInterval(timer); return 0; }
+                return prev - 1;
+            });
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [otpCountdown]);
+
+    // OTP Input handler (auto-focus next)
+    const handleOtpChange = (index, value) => {
+        if (!/^\d*$/.test(value)) return; // Only digits
+        const newOtp = [...otpCode];
+        newOtp[index] = value.slice(-1); // Only last digit
+        setOtpCode(newOtp);
+
+        // Auto-focus next input
+        if (value && index < 5) {
+            otpRefs.current[index + 1]?.focus();
+        }
+    };
+
+    const handleOtpKeyDown = (index, e) => {
+        if (e.key === 'Backspace' && !otpCode[index] && index > 0) {
+            otpRefs.current[index - 1]?.focus();
+        }
+    };
+
+    const handleOtpPaste = (e) => {
+        e.preventDefault();
+        const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+        const newOtp = [...otpCode];
+        for (let i = 0; i < pasted.length; i++) {
+            newOtp[i] = pasted[i];
+        }
+        setOtpCode(newOtp);
+        if (pasted.length >= 6) otpRefs.current[5]?.focus();
+    };
+
+    // Verify OTP
+    const handleVerifyOTP = async () => {
+        const code = otpCode.join('');
+        if (code.length !== 6) return setError('Vui lòng nhập đủ 6 số');
+
+        setLoading(true);
+        setError('');
+        try {
+            const res = await axios.post('/api/auth/register/verify-otp', {
+                email: realEmail,
+                otp: code
+            });
+            setSuccess(res.data.message || 'Đăng ký thành công!');
+            setTimeout(() => onBackToLogin(), 2500);
+        } catch (err) {
+            setError(err.response?.data?.error || 'Xác thực OTP thất bại');
+            setOtpCode(['', '', '', '', '', '']);
+            otpRefs.current[0]?.focus();
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Resend OTP
+    const handleResendOTP = async () => {
+        setOtpResending(true);
+        setError('');
+        try {
+            const res = await axios.post('/api/auth/otp/resend', {
+                email: realEmail,
+                type: 'REGISTER'
+            });
+            setOtpCountdown(res.data.ttl || 90);
+            setOtpCode(['', '', '', '', '', '']);
+            setSuccess('Mã OTP mới đã được gửi!');
+            setTimeout(() => setSuccess(''), 3000);
+            otpRefs.current[0]?.focus();
+        } catch (err) {
+            setError(err.response?.data?.error || 'Không thể gửi lại OTP');
+        } finally {
+            setOtpResending(false);
         }
     };
 
@@ -524,6 +628,121 @@ const RegisterPage = ({ onBackToLogin }) => {
                     </div>
                 )}
 
+                {/* === OTP VERIFICATION STEP === */}
+                {otpStep ? (
+                    <div style={{ animation: 'fadeInUp 0.4s ease' }}>
+                        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                            <div style={{
+                                width: 64, height: 64, borderRadius: 16,
+                                background: 'linear-gradient(135deg, rgba(0,229,160,0.2), rgba(0,229,160,0.05))',
+                                border: '2px solid rgba(0,229,160,0.3)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                margin: '0 auto 16px', fontSize: 28
+                            }}>📧</div>
+                            <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
+                                Xác thực Email
+                            </div>
+                            <div style={{ color: '#5a7a9a', fontSize: 13, lineHeight: 1.6 }}>
+                                Mã OTP 6 số đã được gửi đến<br />
+                                <span style={{ color: '#00e5a0', fontWeight: 600 }}>{maskedEmail}</span>
+                            </div>
+                        </div>
+
+                        {/* OTP Input Boxes */}
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 20 }}>
+                            {otpCode.map((digit, i) => (
+                                <input
+                                    key={i}
+                                    ref={el => otpRefs.current[i] = el}
+                                    type="text"
+                                    inputMode="numeric"
+                                    maxLength={1}
+                                    value={digit}
+                                    onChange={e => handleOtpChange(i, e.target.value)}
+                                    onKeyDown={e => handleOtpKeyDown(i, e)}
+                                    onPaste={i === 0 ? handleOtpPaste : undefined}
+                                    style={{
+                                        width: 48, height: 56, textAlign: 'center',
+                                        fontSize: 22, fontWeight: 700, fontFamily: 'monospace',
+                                        background: digit ? 'rgba(0,229,160,0.08)' : 'rgba(15,23,42,0.8)',
+                                        border: `2px solid ${digit ? 'rgba(0,229,160,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                                        borderRadius: 12, color: '#00e5a0', outline: 'none',
+                                        transition: 'all 0.2s ease',
+                                        caretColor: '#00e5a0'
+                                    }}
+                                    onFocus={e => { e.target.style.borderColor = 'rgba(0,229,160,0.6)'; e.target.style.boxShadow = '0 0 0 3px rgba(0,229,160,0.1)'; }}
+                                    onBlur={e => { e.target.style.borderColor = digit ? 'rgba(0,229,160,0.4)' : 'rgba(255,255,255,0.1)'; e.target.style.boxShadow = 'none'; }}
+                                />
+                            ))}
+                        </div>
+
+                        {/* Countdown Timer */}
+                        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+                            {otpCountdown > 0 ? (
+                                <div style={{ color: '#5a7a9a', fontSize: 13 }}>
+                                    Mã có hiệu lực trong{' '}
+                                    <span style={{
+                                        color: otpCountdown <= 15 ? '#ef4444' : '#00e5a0',
+                                        fontWeight: 700, fontFamily: 'monospace', fontSize: 15
+                                    }}>
+                                        {Math.floor(otpCountdown / 60).toString().padStart(2, '0')}:{(otpCountdown % 60).toString().padStart(2, '0')}
+                                    </span>
+                                </div>
+                            ) : (
+                                <div style={{ color: '#ef4444', fontSize: 13, fontWeight: 600 }}>
+                                    ⚠️ Mã OTP đã hết hạn
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Verify Button */}
+                        <button
+                            onClick={handleVerifyOTP}
+                            disabled={loading || otpCode.join('').length !== 6}
+                            className="reg-submit"
+                            style={{
+                                ...s.submitBtn,
+                                opacity: (loading || otpCode.join('').length !== 6) ? 0.5 : 1,
+                                cursor: (loading || otpCode.join('').length !== 6) ? 'not-allowed' : 'pointer'
+                            }}
+                        >
+                            {loading ? <div style={s.spinner} /> : <>Xác thực & Đăng ký <ShieldCheck size={18} /></>}
+                        </button>
+
+                        {/* Resend */}
+                        <div style={{ textAlign: 'center', marginTop: 16 }}>
+                            {otpCountdown <= 0 ? (
+                                <button
+                                    onClick={handleResendOTP}
+                                    disabled={otpResending}
+                                    style={{
+                                        background: 'none', border: 'none',
+                                        color: '#00e5a0', cursor: 'pointer',
+                                        fontSize: 13, fontWeight: 600,
+                                        textDecoration: 'underline',
+                                        opacity: otpResending ? 0.5 : 1
+                                    }}
+                                >
+                                    {otpResending ? 'Đang gửi...' : '🔄 Gửi lại mã OTP'}
+                                </button>
+                            ) : (
+                                <span style={{ color: '#3a5a7a', fontSize: 12 }}>
+                                    Bạn có thể gửi lại mã khi hết thời gian
+                                </span>
+                            )}
+                        </div>
+
+                        {/* Back to form */}
+                        <div style={{ textAlign: 'center', marginTop: 12 }}>
+                            <button
+                                onClick={() => { setOtpStep(false); setError(''); setSuccess(''); }}
+                                style={{ background: 'none', border: 'none', color: '#5a7a9a', cursor: 'pointer', fontSize: 12 }}
+                            >
+                                ← Quay lại form đăng ký
+                            </button>
+                        </div>
+                    </div>
+                ) : (
                 <form onSubmit={handleRegister}>
                     {/* Full Name */}
                     <label style={s.label}>{t('register.fullname')}</label>
@@ -702,6 +921,7 @@ const RegisterPage = ({ onBackToLogin }) => {
                         )}
                     </button>
                 </form>
+                )}
 
                 {/* Back to login */}
                 <div style={s.backLink}>

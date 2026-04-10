@@ -3,7 +3,7 @@ import { Lock, User, ShieldCheck, Eye, EyeOff, KeyRound } from 'lucide-react';
 import axios from 'axios';
 import { useLanguage } from '../i18n/LanguageContext';
 
-const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
+const LoginPage = ({ onLoginSuccess, onGoToRegister, onForgotPassword }) => {
     const { t, language } = useLanguage();
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -17,10 +17,24 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
     const recaptchaRef = useRef(null);
     const recaptchaWidgetId = useRef(null);
 
-    // 2FA states
+    // 2FA states (Dual Mode: Google Authenticator + Email OTP)
     const [requires2FA, setRequires2FA] = useState(false);
     const [tempToken, setTempToken] = useState('');
     const [otp, setOtp] = useState('');
+    const [authMethod, setAuthMethod] = useState('email'); // 'email' | 'authenticator'
+    const [has2FAApp, setHas2FAApp] = useState(false);
+    const [maskedEmail, setMaskedEmail] = useState('');
+    const [isNewDevice, setIsNewDevice] = useState(false);
+    const [deviceInfo, setDeviceInfo] = useState(null);
+
+    // OTP box states
+    const [otpCode, setOtpCode] = useState(['', '', '', '', '', '']);
+    const [otpCountdown, setOtpCountdown] = useState(0);
+    const [otpResending, setOtpResending] = useState(false);
+    const otpRefs = useRef([]);
+
+    // Forgot Password
+    const [showForgotPassword, setShowForgotPassword] = useState(false);
 
     // System status animation
     const [latency, setLatency] = useState(14);
@@ -126,6 +140,15 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
             if (response.data.requires2FA) {
                 setRequires2FA(true);
                 setTempToken(response.data.tempToken);
+                setHas2FAApp(response.data.has2FAApp || false);
+                setMaskedEmail(response.data.maskedEmail || '');
+                setIsNewDevice(response.data.isNewDevice || false);
+                setDeviceInfo(response.data.deviceInfo || null);
+                setOtpCountdown(90);
+                setOtpCode(['', '', '', '', '', '']);
+                // Default method: nếu có GG Auth → dùng authenticator, không thì email
+                setAuthMethod(response.data.has2FAApp ? 'authenticator' : 'email');
+                setTimeout(() => otpRefs.current[0]?.focus(), 200);
             } else {
                 if (rememberSession) {
                     localStorage.setItem('token', response.data.token);
@@ -156,10 +179,18 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
         setError('');
         setLoading(true);
 
+        const code = authMethod === 'authenticator' ? otp : otpCode.join('');
+        if (!code || code.length < 6) {
+            setError('Vui lòng nhập đủ 6 số');
+            setLoading(false);
+            return;
+        }
+
         try {
             const response = await axios.post('/api/auth/verify-2fa', {
                 tempToken,
-                token: otp
+                token: code,
+                method: authMethod
             });
 
             if (rememberSession) {
@@ -170,11 +201,120 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
             }
             onLoginSuccess(response.data);
         } catch (err) {
-            setError(err.response?.data?.error || t('login.invalidCode'));
+            const errMsg = err.response?.data?.error || t('login.invalidCode');
+            const statusCode = err.response?.status;
+            const isExpired = err.response?.data?.expired;
+            
+            if (isExpired) {
+                // tempToken hết hạn → quay về login sau 3s
+                setError('⏰ Phiên xác thực đã hết hạn. Vui lòng đăng nhập lại.');
+                setTimeout(() => {
+                    setRequires2FA(false);
+                    setOtp('');
+                    setOtpCode(['', '', '', '', '', '']);
+                    setError('');
+                }, 3000);
+            } else if (statusCode === 401) {
+                // Sai mã OTP → giữ nguyên màn hình, chỉ hiện lỗi
+                setError('❌ ' + errMsg + ' — Hãy thử lại!');
+                if (authMethod === 'email') {
+                    setOtpCode(['', '', '', '', '', '']);
+                    setTimeout(() => otpRefs.current[0]?.focus(), 100);
+                } else {
+                    setOtp('');
+                }
+            } else {
+                setError(errMsg);
+            }
         } finally {
             setLoading(false);
         }
     };
+
+    // OTP Countdown for 2FA
+    useEffect(() => {
+        if (!requires2FA || otpCountdown <= 0) return;
+        const timer = setInterval(() => {
+            setOtpCountdown(prev => {
+                if (prev <= 1) { clearInterval(timer); return 0; }
+                return prev - 1;
+            });
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [requires2FA, otpCountdown]);
+
+    // OTP Input handlers for email method
+    const handleOtpChange = (index, value) => {
+        if (!/^\d*$/.test(value)) return;
+        const newOtp = [...otpCode];
+        newOtp[index] = value.slice(-1);
+        setOtpCode(newOtp);
+        if (value && index < 5) otpRefs.current[index + 1]?.focus();
+    };
+
+    const handleOtpKeyDown = (index, e) => {
+        if (e.key === 'Backspace' && !otpCode[index] && index > 0) {
+            otpRefs.current[index - 1]?.focus();
+        }
+    };
+
+    const handleOtpPaste = (e) => {
+        e.preventDefault();
+        const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+        const newOtp = [...otpCode];
+        for (let i = 0; i < pasted.length; i++) newOtp[i] = pasted[i];
+        setOtpCode(newOtp);
+        if (pasted.length >= 6) otpRefs.current[5]?.focus();
+    };
+
+    const handleResendLoginOTP = async () => {
+        if (!tempToken) return;
+        setOtpResending(true);
+        setError('');
+        try {
+            const res = await axios.post('/api/auth/otp/resend', {
+                tempToken: tempToken,
+                type: 'LOGIN_2FA'
+            });
+            setOtpCountdown(res.data.ttl || 90);
+            setOtpCode(['', '', '', '', '', '']);
+            otpRefs.current[0]?.focus();
+        } catch (err) {
+            if (err.response?.data?.expired) {
+                setError('⏰ Phiên đã hết hạn. Vui lòng đăng nhập lại.');
+                setTimeout(() => { setRequires2FA(false); setError(''); }, 3000);
+            } else {
+                setError(err.response?.data?.error || 'Không thể gửi lại OTP.');
+            }
+        } finally {
+            setOtpResending(false);
+        }
+    };
+
+    // Gửi OTP khi chuyển sang Email method
+    const handleSwitchToEmail = async () => {
+        setAuthMethod('email');
+        setError('');
+        setOtpCode(['', '', '', '', '', '']);
+
+        // Gửi OTP email ngay
+        try {
+            const res = await axios.post('/api/auth/otp/resend', {
+                tempToken: tempToken,
+                type: 'LOGIN_2FA'
+            });
+            setOtpCountdown(res.data.ttl || 90);
+            setTimeout(() => otpRefs.current[0]?.focus(), 200);
+        } catch (err) {
+            if (err.response?.data?.expired) {
+                setError('⏰ Phiên đã hết hạn. Vui lòng đăng nhập lại.');
+                setTimeout(() => { setRequires2FA(false); setError(''); }, 3000);
+            } else {
+                setError(err.response?.data?.error || 'Không thể gửi OTP email.');
+            }
+        }
+    };
+
 
     // Inline styles
     const styles = {
@@ -600,7 +740,7 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
                             {/* Password */}
                             <div style={styles.labelRow}>
                                 <label style={{ ...styles.label, marginBottom: 0 }}>{t('login.password')}</label>
-                                <span className="forgot-link" style={styles.forgotLink}>{t('login.forgotPassword')}</span>
+                                <span className="forgot-link" style={{ ...styles.forgotLink, cursor: 'pointer' }} onClick={onForgotPassword}>{t('login.forgotPassword')}</span>
                             </div>
                             <div className="login-input-group" style={styles.inputGroup}>
                                 <KeyRound size={18} style={styles.inputIcon} />
@@ -672,16 +812,73 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
                     </>
                 ) : (
                     <>
-                        {/* 2FA Verification */}
+                        {/* 2FA Verification - Dual Mode */}
                         <div style={{ textAlign: 'center', marginBottom: '8px' }}>
                             <div style={styles.otpBadge}>
                                 <ShieldCheck size={14} />
                                 {t('login.otpBadge')}
                             </div>
                         </div>
-                        <div style={styles.otpTitle}>{t('login.otpTitle')}</div>
+
+                        {/* New Device Warning */}
+                        {isNewDevice && deviceInfo && (
+                            <div style={{
+                                background: 'rgba(245, 158, 11, 0.08)',
+                                border: '1px solid rgba(245, 158, 11, 0.25)',
+                                borderRadius: 10, padding: '12px 14px', marginBottom: 16, fontSize: 12
+                            }}>
+                                <div style={{ color: '#fbbf24', fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    ⚠️ Thiết bị mới được phát hiện
+                                </div>
+                                <div style={{ color: '#a3a3a3', lineHeight: 1.6 }}>
+                                    🌐 {deviceInfo.browser} / {deviceInfo.os}<br/>
+                                    📍 IP: {deviceInfo.ip}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Method Toggle (chỉ hiện khi có GG Auth) */}
+                        {has2FAApp && (
+                            <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+                                <button
+                                    type="button"
+                                    onClick={() => setAuthMethod('authenticator')}
+                                    style={{
+                                        flex: 1, padding: '10px 8px', borderRadius: 10, border: 'none',
+                                        background: authMethod === 'authenticator' ? 'rgba(0,229,160,0.15)' : 'rgba(255,255,255,0.04)',
+                                        color: authMethod === 'authenticator' ? '#00e5a0' : '#5a7a9a',
+                                        fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                        outline: authMethod === 'authenticator' ? '2px solid rgba(0,229,160,0.3)' : '1px solid rgba(255,255,255,0.08)',
+                                        transition: 'all 0.2s ease'
+                                    }}
+                                >
+                                    🔐 Google Authenticator
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSwitchToEmail}
+                                    style={{
+                                        flex: 1, padding: '10px 8px', borderRadius: 10, border: 'none',
+                                        background: authMethod === 'email' ? 'rgba(0,229,160,0.15)' : 'rgba(255,255,255,0.04)',
+                                        color: authMethod === 'email' ? '#00e5a0' : '#5a7a9a',
+                                        fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                        outline: authMethod === 'email' ? '2px solid rgba(0,229,160,0.3)' : '1px solid rgba(255,255,255,0.08)',
+                                        transition: 'all 0.2s ease'
+                                    }}
+                                >
+                                    📧 Email OTP
+                                </button>
+                            </div>
+                        )}
+
+                        <div style={styles.otpTitle}>
+                            {authMethod === 'authenticator' ? t('login.otpTitle') : 'Xác thực qua Email'}
+                        </div>
                         <div style={styles.otpSubtitle}>
-                            {t('login.otpSubtitle')}
+                            {authMethod === 'authenticator'
+                                ? t('login.otpSubtitle')
+                                : <>Mã OTP đã gửi đến <span style={{ color: '#00e5a0', fontWeight: 600 }}>{maskedEmail}</span></>
+                            }
                         </div>
 
                         {error && (
@@ -692,26 +889,73 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
                         )}
 
                         <form onSubmit={handleVerify2FA}>
-                            <label style={styles.label}>{t('login.otpLabel')}</label>
-                            <div className="login-input-group" style={{ ...styles.inputGroup, marginBottom: '24px' }}>
-                                <ShieldCheck size={18} style={styles.inputIcon} />
-                                <input
-                                    type="text"
-                                    maxLength="6"
-                                    style={styles.otpInput}
-                                    placeholder="000000"
-                                    value={otp}
-                                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                                    required
-                                    autoFocus
-                                />
-                            </div>
+                            {authMethod === 'authenticator' ? (
+                                /* Google Authenticator - single input */
+                                <>
+                                    <label style={styles.label}>{t('login.otpLabel')}</label>
+                                    <div className="login-input-group" style={{ ...styles.inputGroup, marginBottom: '24px' }}>
+                                        <ShieldCheck size={18} style={styles.inputIcon} />
+                                        <input
+                                            type="text"
+                                            maxLength="6"
+                                            style={styles.otpInput}
+                                            placeholder="000000"
+                                            value={otp}
+                                            onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                                            required
+                                            autoFocus
+                                        />
+                                    </div>
+                                </>
+                            ) : (
+                                /* Email OTP - 6 separate input boxes */
+                                <>
+                                    <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 16 }}>
+                                        {otpCode.map((digit, i) => (
+                                            <input
+                                                key={i}
+                                                ref={el => otpRefs.current[i] = el}
+                                                type="text"
+                                                inputMode="numeric"
+                                                maxLength={1}
+                                                value={digit}
+                                                onChange={e => handleOtpChange(i, e.target.value)}
+                                                onKeyDown={e => handleOtpKeyDown(i, e)}
+                                                onPaste={i === 0 ? handleOtpPaste : undefined}
+                                                style={{
+                                                    width: 44, height: 52, textAlign: 'center',
+                                                    fontSize: 20, fontWeight: 700, fontFamily: 'monospace',
+                                                    background: digit ? 'rgba(0,229,160,0.08)' : 'rgba(15,23,42,0.8)',
+                                                    border: `2px solid ${digit ? 'rgba(0,229,160,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                                                    borderRadius: 10, color: '#00e5a0', outline: 'none',
+                                                    transition: 'all 0.2s ease'
+                                                }}
+                                                onFocus={e => { e.target.style.borderColor = 'rgba(0,229,160,0.6)'; e.target.style.boxShadow = '0 0 0 3px rgba(0,229,160,0.1)'; }}
+                                                onBlur={e => { e.target.style.borderColor = digit ? 'rgba(0,229,160,0.4)' : 'rgba(255,255,255,0.1)'; e.target.style.boxShadow = 'none'; }}
+                                            />
+                                        ))}
+                                    </div>
+
+                                    {/* Countdown */}
+                                    <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                                        {otpCountdown > 0 ? (
+                                            <span style={{ color: '#5a7a9a', fontSize: 12 }}>
+                                                Hiệu lực: <span style={{ color: otpCountdown <= 15 ? '#ef4444' : '#00e5a0', fontWeight: 700, fontFamily: 'monospace' }}>
+                                                    {Math.floor(otpCountdown / 60).toString().padStart(2, '0')}:{(otpCountdown % 60).toString().padStart(2, '0')}
+                                                </span>
+                                            </span>
+                                        ) : (
+                                            <span style={{ color: '#ef4444', fontSize: 12, fontWeight: 600 }}>⚠️ Mã OTP đã hết hạn</span>
+                                        )}
+                                    </div>
+                                </>
+                            )}
 
                             <button
                                 type="submit"
                                 className="login-submit"
                                 style={styles.submitBtn}
-                                disabled={loading || otp.length < 6}
+                                disabled={loading || (authMethod === 'authenticator' ? otp.length < 6 : otpCode.join('').length < 6)}
                             >
                                 {loading ? (
                                     <div style={styles.spinner} />
@@ -724,11 +968,35 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister }) => {
                             </button>
                         </form>
 
+                        {/* Resend OTP (chỉ cho email method) */}
+                        {authMethod === 'email' && otpCountdown <= 0 && (
+                            <div style={{ textAlign: 'center', marginTop: 12 }}>
+                                <button
+                                    onClick={handleResendLoginOTP}
+                                    disabled={otpResending}
+                                    style={{
+                                        background: 'none', border: 'none', color: '#00e5a0',
+                                        cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                                        textDecoration: 'underline', opacity: otpResending ? 0.5 : 1
+                                    }}
+                                >
+                                    {otpResending ? 'Đang gửi...' : '🔄 Gửi lại mã OTP'}
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Nút chuyển sang phương thức khác (khi không có GG Auth) */}
+                        {!has2FAApp && (
+                            <div style={{ textAlign: 'center', marginTop: 8, fontSize: 11, color: '#3a5a7a' }}>
+                                Mã xác thực được gửi qua email mỗi lần đăng nhập
+                            </div>
+                        )}
+
                         <button
                             type="button"
                             className="back-link"
                             style={styles.backLink}
-                            onClick={() => { setRequires2FA(false); setOtp(''); setPassword(''); setError(''); }}
+                            onClick={() => { setRequires2FA(false); setOtp(''); setOtpCode(['','','','','','']); setPassword(''); setError(''); }}
                         >
                             {t('login.otpBack')}
                         </button>

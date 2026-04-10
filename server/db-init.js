@@ -145,6 +145,76 @@ async function initDatabase() {
             CREATE INDEX IX_login_attempts_user_id ON login_attempts(user_id);
         `);
 
+        // H. OTP TOKENS (Email OTP: Đăng ký, 2FA, Quên mật khẩu)
+        await pool.request().query(`
+            CREATE TABLE otp_tokens (
+                id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                email_hash NVARCHAR(64) NOT NULL,
+                otp_hash NVARCHAR(64) NOT NULL,
+                type NVARCHAR(50) NOT NULL,
+                expires_at DATETIME NOT NULL,
+                used BIT DEFAULT 0,
+                created_at DATETIME DEFAULT GETDATE()
+            );
+            CREATE INDEX IX_otp_email_type ON otp_tokens(email_hash, type);
+            CREATE INDEX IX_otp_expires ON otp_tokens(expires_at);
+        `);
+
+        // I. TRUSTED DEVICES (Device Fingerprinting - Facebook Style)
+        await pool.request().query(`
+            CREATE TABLE trusted_devices (
+                id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                user_id UNIQUEIDENTIFIER NOT NULL,
+                device_fingerprint NVARCHAR(64) NOT NULL,
+                ip_address NVARCHAR(MAX) NULL,
+                user_agent NVARCHAR(MAX) NULL,
+                browser NVARCHAR(MAX) NULL,
+                os NVARCHAR(MAX) NULL,
+                location NVARCHAR(MAX) NULL,
+                first_seen DATETIME DEFAULT GETDATE(),
+                last_seen DATETIME DEFAULT GETDATE(),
+                is_trusted BIT DEFAULT 1,
+                CONSTRAINT FK_trusted_devices_user FOREIGN KEY (user_id) REFERENCES system_users(user_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IX_trusted_devices_user ON trusted_devices(user_id);
+            CREATE INDEX IX_trusted_devices_fp ON trusted_devices(device_fingerprint);
+        `);
+
+        // J. PENDING REGISTRATIONS (Lưu tạm thông tin đăng ký chờ OTP)
+        await pool.request().query(`
+            CREATE TABLE pending_registrations (
+                id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                username NVARCHAR(MAX) NOT NULL,
+                username_hash NVARCHAR(64) NOT NULL,
+                password_hash NVARCHAR(MAX) NOT NULL,
+                full_name NVARCHAR(MAX) NOT NULL,
+                email NVARCHAR(MAX) NOT NULL,
+                email_hash NVARCHAR(64) NOT NULL,
+                phone NVARCHAR(MAX) NULL,
+                created_at DATETIME DEFAULT GETDATE(),
+                expires_at DATETIME NOT NULL
+            );
+            CREATE INDEX IX_pending_reg_email ON pending_registrations(email_hash);
+            CREATE INDEX IX_pending_reg_expires ON pending_registrations(expires_at);
+        `);
+
+        // K. AUTH REFRESH TOKENS (with session tracking)
+        await pool.request().query(`
+            CREATE TABLE auth_refresh_tokens (
+                id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                session_id UNIQUEIDENTIFIER DEFAULT NEWID(),
+                user_id UNIQUEIDENTIFIER NOT NULL,
+                token_hash NVARCHAR(MAX) NOT NULL,
+                device_fingerprint NVARCHAR(64) NULL,
+                ip_address NVARCHAR(MAX) NULL,
+                expires_at DATETIME NOT NULL,
+                created_at DATETIME DEFAULT GETDATE(),
+                CONSTRAINT FK_refresh_tokens_user FOREIGN KEY (user_id) REFERENCES system_users(user_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IX_refresh_tokens_user ON auth_refresh_tokens(user_id);
+            CREATE INDEX IX_refresh_tokens_session ON auth_refresh_tokens(session_id);
+        `);
+
         console.log("Database Schema created perfectly!");
 
         // Seeding initial Admin

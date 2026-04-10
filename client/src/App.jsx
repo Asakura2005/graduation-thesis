@@ -3,6 +3,7 @@ import { Package, ArrowRight, Search, RefreshCcw } from "lucide-react";
 import axios from "axios";
 import LoginPage from "./security/LoginPage";
 import RegisterPage from "./security/RegisterPage";
+import ForgotPasswordPage from "./security/ForgotPasswordPage";
 import ShipmentForm from "./ShipmentForm";
 import ShipmentDetails from "./ShipmentDetails";
 import PartnerForm from "./admin/PartnerForm";
@@ -220,10 +221,14 @@ const App = () => {
   }
 
   if (!user) {
+    if (authMode === "forgot-password") {
+      return <ForgotPasswordPage onBackToLogin={() => setAuthMode("login")} />;
+    }
     return authMode === "login" ? (
       <LoginPage
         onLoginSuccess={(userData) => setUser(userData)}
         onGoToRegister={() => setAuthMode("register")}
+        onForgotPassword={() => setAuthMode("forgot-password")}
       />
     ) : (
       <RegisterPage onBackToLogin={() => setAuthMode("login")} />
