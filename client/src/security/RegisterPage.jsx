@@ -59,7 +59,7 @@ const RegisterPage = ({ onBackToLogin }) => {
         const scriptId = 'recaptcha-script';
         let script = document.getElementById(scriptId);
         if (script) script.remove();
-        
+
         // Clear DOM and global state to force clean render
         if (recaptchaRef.current) recaptchaRef.current.innerHTML = '';
         window.grecaptcha = undefined;
@@ -98,7 +98,7 @@ const RegisterPage = ({ onBackToLogin }) => {
     const resetCaptcha = useCallback(() => {
         setCaptchaToken('');
         if (window.grecaptcha && recaptchaWidgetId.current !== null) {
-            try { window.grecaptcha.reset(recaptchaWidgetId.current); } catch(e) {}
+            try { window.grecaptcha.reset(recaptchaWidgetId.current); } catch (e) { }
         }
     }, []);
 
@@ -153,7 +153,8 @@ const RegisterPage = ({ onBackToLogin }) => {
         try {
             const res = await axios.post('/api/auth/register', {
                 ...formData,
-                captchaToken
+                captchaToken,
+                lang: language
             });
 
             if (res.data.requiresOTP) {
@@ -221,7 +222,7 @@ const RegisterPage = ({ onBackToLogin }) => {
     // Verify OTP
     const handleVerifyOTP = async () => {
         const code = otpCode.join('');
-        if (code.length !== 6) return setError('Vui lòng nhập đủ 6 số');
+        if (code.length !== 6) return setError(t('otp.enterFull6'));
 
         setLoading(true);
         setError('');
@@ -230,10 +231,10 @@ const RegisterPage = ({ onBackToLogin }) => {
                 email: realEmail,
                 otp: code
             });
-            setSuccess(res.data.message || 'Đăng ký thành công!');
+            setSuccess(res.data.message || t('otp.registerSuccess'));
             setTimeout(() => onBackToLogin(), 2500);
         } catch (err) {
-            setError(err.response?.data?.error || 'Xác thực OTP thất bại');
+            setError(err.response?.data?.error || t('otp.verifyFailed'));
             setOtpCode(['', '', '', '', '', '']);
             otpRefs.current[0]?.focus();
         } finally {
@@ -248,15 +249,16 @@ const RegisterPage = ({ onBackToLogin }) => {
         try {
             const res = await axios.post('/api/auth/otp/resend', {
                 email: realEmail,
-                type: 'REGISTER'
+                type: 'REGISTER',
+                lang: language
             });
             setOtpCountdown(res.data.ttl || 90);
             setOtpCode(['', '', '', '', '', '']);
-            setSuccess('Mã OTP mới đã được gửi!');
+            setSuccess(t('otp.newOtpSent'));
             setTimeout(() => setSuccess(''), 3000);
             otpRefs.current[0]?.focus();
         } catch (err) {
-            setError(err.response?.data?.error || 'Không thể gửi lại OTP');
+            setError(err.response?.data?.error || t('otp.cannotResend'));
         } finally {
             setOtpResending(false);
         }
@@ -640,10 +642,10 @@ const RegisterPage = ({ onBackToLogin }) => {
                                 margin: '0 auto 16px', fontSize: 28
                             }}>📧</div>
                             <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
-                                Xác thực Email
+                                {t('otp.verifyTitle')}
                             </div>
                             <div style={{ color: '#5a7a9a', fontSize: 13, lineHeight: 1.6 }}>
-                                Mã OTP 6 số đã được gửi đến<br />
+                                {t('otp.codeSentTo')}<br />
                                 <span style={{ color: '#00e5a0', fontWeight: 600 }}>{maskedEmail}</span>
                             </div>
                         </div>
@@ -680,7 +682,7 @@ const RegisterPage = ({ onBackToLogin }) => {
                         <div style={{ textAlign: 'center', marginBottom: 20 }}>
                             {otpCountdown > 0 ? (
                                 <div style={{ color: '#5a7a9a', fontSize: 13 }}>
-                                    Mã có hiệu lực trong{' '}
+                                    {t('otp.codeValidFor')}{' '}
                                     <span style={{
                                         color: otpCountdown <= 15 ? '#ef4444' : '#00e5a0',
                                         fontWeight: 700, fontFamily: 'monospace', fontSize: 15
@@ -690,7 +692,7 @@ const RegisterPage = ({ onBackToLogin }) => {
                                 </div>
                             ) : (
                                 <div style={{ color: '#ef4444', fontSize: 13, fontWeight: 600 }}>
-                                    ⚠️ Mã OTP đã hết hạn
+                                    {t('otp.codeExpired')}
                                 </div>
                             )}
                         </div>
@@ -706,7 +708,7 @@ const RegisterPage = ({ onBackToLogin }) => {
                                 cursor: (loading || otpCode.join('').length !== 6) ? 'not-allowed' : 'pointer'
                             }}
                         >
-                            {loading ? <div style={s.spinner} /> : <>Xác thực & Đăng ký <ShieldCheck size={18} /></>}
+                            {loading ? <div style={s.spinner} /> : <>{t('otp.verifyAndRegister')} <ShieldCheck size={18} /></>}
                         </button>
 
                         {/* Resend */}
@@ -723,11 +725,11 @@ const RegisterPage = ({ onBackToLogin }) => {
                                         opacity: otpResending ? 0.5 : 1
                                     }}
                                 >
-                                    {otpResending ? 'Đang gửi...' : '🔄 Gửi lại mã OTP'}
+                                    {otpResending ? t('otp.resending') : t('otp.resendOtp')}
                                 </button>
                             ) : (
                                 <span style={{ color: '#3a5a7a', fontSize: 12 }}>
-                                    Bạn có thể gửi lại mã khi hết thời gian
+                                    {t('otp.resendWait')}
                                 </span>
                             )}
                         </div>
@@ -738,189 +740,189 @@ const RegisterPage = ({ onBackToLogin }) => {
                                 onClick={() => { setOtpStep(false); setError(''); setSuccess(''); }}
                                 style={{ background: 'none', border: 'none', color: '#5a7a9a', cursor: 'pointer', fontSize: 12 }}
                             >
-                                ← Quay lại form đăng ký
+                                {t('otp.backToForm')}
                             </button>
                         </div>
                     </div>
                 ) : (
-                <form onSubmit={handleRegister}>
-                    {/* Full Name */}
-                    <label style={s.label}>{t('register.fullname')}</label>
-                    <div className="reg-input-group" style={s.inputGroup}>
-                        <User size={18} style={s.inputIcon} />
-                        <input
-                            type="text"
-                            style={s.input}
-                            placeholder="Nguyen Van A"
-                            value={formData.fullName}
-                            onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                            required
-                        />
-                    </div>
+                    <form onSubmit={handleRegister}>
+                        {/* Full Name */}
+                        <label style={s.label}>{t('register.fullname')}</label>
+                        <div className="reg-input-group" style={s.inputGroup}>
+                            <User size={18} style={s.inputIcon} />
+                            <input
+                                type="text"
+                                style={s.input}
+                                placeholder="Nguyen Van A"
+                                value={formData.fullName}
+                                onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                                required
+                            />
+                        </div>
 
-                    {/* Email & Phone - 2 columns */}
-                    <div style={s.twoColRow}>
-                        <div style={s.twoColItem}>
-                            <label style={s.label}>{t('register.email')}</label>
-                            <div className="reg-input-group" style={s.inputGroup}>
-                                <Mail size={18} style={s.inputIcon} />
-                                <input
-                                    type="email"
-                                    style={s.input}
-                                    placeholder="admin@example.com"
-                                    value={formData.email}
-                                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                    required
-                                />
+                        {/* Email & Phone - 2 columns */}
+                        <div style={s.twoColRow}>
+                            <div style={s.twoColItem}>
+                                <label style={s.label}>{t('register.email')}</label>
+                                <div className="reg-input-group" style={s.inputGroup}>
+                                    <Mail size={18} style={s.inputIcon} />
+                                    <input
+                                        type="email"
+                                        style={s.input}
+                                        placeholder="admin@example.com"
+                                        value={formData.email}
+                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                        required
+                                    />
+                                </div>
+                            </div>
+                            <div style={s.twoColItem}>
+                                <label style={s.label}>{t('register.phone')}</label>
+                                <div className="reg-input-group" style={s.inputGroup}>
+                                    <Phone size={18} style={s.inputIcon} />
+                                    <input
+                                        type="tel"
+                                        style={s.input}
+                                        placeholder="0912345678"
+                                        value={formData.phone}
+                                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                                    />
+                                </div>
                             </div>
                         </div>
-                        <div style={s.twoColItem}>
-                            <label style={s.label}>{t('register.phone')}</label>
-                            <div className="reg-input-group" style={s.inputGroup}>
-                                <Phone size={18} style={s.inputIcon} />
-                                <input
-                                    type="tel"
-                                    style={s.input}
-                                    placeholder="0912345678"
-                                    value={formData.phone}
-                                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                                />
-                            </div>
+
+                        {/* Username */}
+                        <label style={s.label}>{t('register.username')}</label>
+                        <div className="reg-input-group" style={s.inputGroup}>
+                            <ShieldCheck size={18} style={s.inputIcon} />
+                            <input
+                                type="text"
+                                style={s.input}
+                                placeholder="Username or Admin ID"
+                                value={formData.username}
+                                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                                required
+                            />
                         </div>
-                    </div>
 
-                    {/* Username */}
-                    <label style={s.label}>{t('register.username')}</label>
-                    <div className="reg-input-group" style={s.inputGroup}>
-                        <ShieldCheck size={18} style={s.inputIcon} />
-                        <input
-                            type="text"
-                            style={s.input}
-                            placeholder="Username or Admin ID"
-                            value={formData.username}
-                            onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                            required
-                        />
-                    </div>
-
-                    {/* Password */}
-                    <label style={s.label}>{t('register.password')}</label>
-                    <div className="reg-input-group" style={s.inputGroup}>
-                        <KeyRound size={18} style={s.inputIcon} />
-                        <input
-                            type={showPw.password ? 'text' : 'password'}
-                            style={s.input}
-                            placeholder="••••••••••••"
-                            value={formData.password}
-                            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                            required
-                        />
-                        <button
-                            type="button"
-                            className="reg-eye-btn"
-                            style={s.eyeBtn}
-                            onClick={() => setShowPw(p => ({ ...p, password: !p.password }))}
-                            tabIndex={-1}
-                        >
-                            {showPw.password ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
-                    </div>
-
-                    {/* Password Strength Bar */}
-                    {formData.password && (
-                        <>
-                            <div style={s.strengthRow}>
-                                <span style={s.strengthLabel}>{t('register.strength')}</span>
-                                <span style={{ ...s.strengthValue, color: strength.color }}>{strength.label}</span>
-                            </div>
-                            <div style={s.strengthBar}>
-                                <div style={{ ...s.strengthFill, width: `${(strength.level / 5) * 100}%`, background: strength.color }} />
-                            </div>
-                        </>
-                    )}
-
-                    {/* Password rules checklist */}
-                    {formData.password && (
-                        <div style={s.rulesBox}>
-                            <div style={s.rulesTitle}>{t('register.reqTitle')}</div>
-                            {pwRules.map(rule => {
-                                const pass = rule.test(formData.password);
-                                return (
-                                    <div key={rule.label} style={s.ruleItem}>
-                                        {pass
-                                            ? <CheckCircle size={13} style={{ color: '#00e5a0', flexShrink: 0 }} />
-                                            : <AlertCircle size={13} style={{ color: '#4a5568', flexShrink: 0 }} />}
-                                        <span style={{ color: pass ? '#00e5a0' : '#4a5568' }}>{rule.label}</span>
-                                    </div>
-                                );
-                            })}
+                        {/* Password */}
+                        <label style={s.label}>{t('register.password')}</label>
+                        <div className="reg-input-group" style={s.inputGroup}>
+                            <KeyRound size={18} style={s.inputIcon} />
+                            <input
+                                type={showPw.password ? 'text' : 'password'}
+                                style={s.input}
+                                placeholder="••••••••••••"
+                                value={formData.password}
+                                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                required
+                            />
+                            <button
+                                type="button"
+                                className="reg-eye-btn"
+                                style={s.eyeBtn}
+                                onClick={() => setShowPw(p => ({ ...p, password: !p.password }))}
+                                tabIndex={-1}
+                            >
+                                {showPw.password ? <EyeOff size={18} /> : <Eye size={18} />}
+                            </button>
                         </div>
-                    )}
 
-                    {/* Confirm Password */}
-                    <label style={s.label}>{t('register.confirmTitle')}</label>
-                    <div className="reg-input-group" style={s.inputGroup}>
-                        <Lock size={18} style={s.inputIcon} />
-                        <input
-                            type={showPw.confirm ? 'text' : 'password'}
-                            style={s.input}
-                            placeholder="••••••••••••"
-                            value={formData.confirmPassword}
-                            onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                            required
-                        />
-                        <button
-                            type="button"
-                            className="reg-eye-btn"
-                            style={s.eyeBtn}
-                            onClick={() => setShowPw(p => ({ ...p, confirm: !p.confirm }))}
-                            tabIndex={-1}
-                        >
-                            {showPw.confirm ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
-                    </div>
-
-                    {/* Password match status */}
-                    {formData.confirmPassword && (
-                        <div style={s.matchStatus}>
-                            {formData.password === formData.confirmPassword ? (
-                                <>
-                                    <CheckCircle size={13} style={{ color: '#00e5a0' }} />
-                                    <span style={{ color: '#00e5a0' }}>{t('register.match')}</span>
-                                </>
-                            ) : (
-                                <>
-                                    <AlertCircle size={13} style={{ color: '#f87171' }} />
-                                    <span style={{ color: '#f87171' }}>{t('register.noMatch')}</span>
-                                </>
-                            )}
-                        </div>
-                    )}
-
-                    {/* reCAPTCHA Widget */}
-                    {captchaEnabled && (
-                        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px', marginTop: '4px' }}>
-                            <div key={language} ref={recaptchaRef}></div>
-                        </div>
-                    )}
-
-                    {/* Submit */}
-                    <button
-                        type="submit"
-                        className="reg-submit"
-                        style={s.submitBtn}
-                        disabled={loading || (captchaEnabled && !captchaToken)}
-                    >
-                        {loading ? (
-                            <div style={s.spinner} />
-                        ) : (
+                        {/* Password Strength Bar */}
+                        {formData.password && (
                             <>
-                                {t('register.submit')}
-                                <ShieldCheck size={18} />
+                                <div style={s.strengthRow}>
+                                    <span style={s.strengthLabel}>{t('register.strength')}</span>
+                                    <span style={{ ...s.strengthValue, color: strength.color }}>{strength.label}</span>
+                                </div>
+                                <div style={s.strengthBar}>
+                                    <div style={{ ...s.strengthFill, width: `${(strength.level / 5) * 100}%`, background: strength.color }} />
+                                </div>
                             </>
                         )}
-                    </button>
-                </form>
+
+                        {/* Password rules checklist */}
+                        {formData.password && (
+                            <div style={s.rulesBox}>
+                                <div style={s.rulesTitle}>{t('register.reqTitle')}</div>
+                                {pwRules.map(rule => {
+                                    const pass = rule.test(formData.password);
+                                    return (
+                                        <div key={rule.label} style={s.ruleItem}>
+                                            {pass
+                                                ? <CheckCircle size={13} style={{ color: '#00e5a0', flexShrink: 0 }} />
+                                                : <AlertCircle size={13} style={{ color: '#4a5568', flexShrink: 0 }} />}
+                                            <span style={{ color: pass ? '#00e5a0' : '#4a5568' }}>{rule.label}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {/* Confirm Password */}
+                        <label style={s.label}>{t('register.confirmTitle')}</label>
+                        <div className="reg-input-group" style={s.inputGroup}>
+                            <Lock size={18} style={s.inputIcon} />
+                            <input
+                                type={showPw.confirm ? 'text' : 'password'}
+                                style={s.input}
+                                placeholder="••••••••••••"
+                                value={formData.confirmPassword}
+                                onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                                required
+                            />
+                            <button
+                                type="button"
+                                className="reg-eye-btn"
+                                style={s.eyeBtn}
+                                onClick={() => setShowPw(p => ({ ...p, confirm: !p.confirm }))}
+                                tabIndex={-1}
+                            >
+                                {showPw.confirm ? <EyeOff size={18} /> : <Eye size={18} />}
+                            </button>
+                        </div>
+
+                        {/* Password match status */}
+                        {formData.confirmPassword && (
+                            <div style={s.matchStatus}>
+                                {formData.password === formData.confirmPassword ? (
+                                    <>
+                                        <CheckCircle size={13} style={{ color: '#00e5a0' }} />
+                                        <span style={{ color: '#00e5a0' }}>{t('register.match')}</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <AlertCircle size={13} style={{ color: '#f87171' }} />
+                                        <span style={{ color: '#f87171' }}>{t('register.noMatch')}</span>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
+                        {/* reCAPTCHA Widget */}
+                        {captchaEnabled && (
+                            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px', marginTop: '4px' }}>
+                                <div key={language} ref={recaptchaRef}></div>
+                            </div>
+                        )}
+
+                        {/* Submit */}
+                        <button
+                            type="submit"
+                            className="reg-submit"
+                            style={s.submitBtn}
+                            disabled={loading || (captchaEnabled && !captchaToken)}
+                        >
+                            {loading ? (
+                                <div style={s.spinner} />
+                            ) : (
+                                <>
+                                    {t('register.submit')}
+                                    <ShieldCheck size={18} />
+                                </>
+                            )}
+                        </button>
+                    </form>
                 )}
 
                 {/* Back to login */}

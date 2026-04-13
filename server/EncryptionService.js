@@ -83,4 +83,56 @@ function hashData(text) {
     return crypto.createHash('sha256').update(text).digest('hex');
 }
 
-module.exports = { encrypt, decrypt, hashData };
+// --- Integrity-aware decryption helpers ---
+// Hằng số đánh dấu dữ liệu bị can thiệp (tampered)
+const TAMPERED_DATA = '⚠ Dữ liệu bị can thiệp';
+
+/**
+ * Giải mã an toàn: nếu decrypt thất bại (dữ liệu bị sửa trực tiếp trong DB),
+ * trả về thông báo lỗi thân thiện thay vì chuỗi mã hóa thô.
+ * @param {string} envelope - Dữ liệu mã hóa từ DB
+ * @param {string} [fallbackLabel] - Nhãn lỗi tùy chỉnh (mặc định: TAMPERED_DATA) 
+ * @returns {string|null} - Dữ liệu gốc hoặc thông báo lỗi
+ */
+function safeDecrypt(envelope, fallbackLabel) {
+    if (!envelope || typeof envelope !== 'string') return null;
+    const result = decrypt(envelope);
+    if (result !== null) return result;
+    // Nếu chuỗi có dạng hex:hex:hex (envelope format) nhưng decrypt trả null → dữ liệu bị tampered
+    if (envelope.includes(':')) {
+        return fallbackLabel || TAMPERED_DATA;
+    }
+    // Dữ liệu plaintext (chưa được encrypt) → trả nguyên
+    return envelope;
+}
+
+/**
+ * Giải mã số nguyên an toàn: trả về 0 nếu dữ liệu bị can thiệp
+ */
+function safeDecryptInt(envelope, defaultVal = 0) {
+    if (!envelope) return defaultVal;
+    const result = decrypt(envelope);
+    if (result !== null) {
+        const num = parseInt(result);
+        return isNaN(num) ? defaultVal : num;
+    }
+    // Dữ liệu bị tampered → trả giá trị mặc định
+    if (typeof envelope === 'string' && envelope.includes(':')) return -1; // -1 = tampered marker
+    return parseInt(envelope) || defaultVal;
+}
+
+/**
+ * Giải mã số thực an toàn: trả về 0 nếu dữ liệu bị can thiệp
+ */
+function safeDecryptFloat(envelope, defaultVal = 0) {
+    if (!envelope) return defaultVal;
+    const result = decrypt(envelope);
+    if (result !== null) {
+        const num = parseFloat(result);
+        return isNaN(num) ? defaultVal : num;
+    }
+    if (typeof envelope === 'string' && envelope.includes(':')) return -1;
+    return parseFloat(envelope) || defaultVal;
+}
+
+module.exports = { encrypt, decrypt, hashData, safeDecrypt, safeDecryptInt, safeDecryptFloat, TAMPERED_DATA };

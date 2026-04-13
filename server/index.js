@@ -8,7 +8,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const argon2 = require('argon2');
-const { encrypt, decrypt, hashData } = require('./EncryptionService');
+const { encrypt, decrypt, hashData, safeDecrypt, safeDecryptInt, safeDecryptFloat, TAMPERED_DATA } = require('./EncryptionService');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const anomalyDetector = require('./AnomalyDetectionService');
@@ -517,7 +517,7 @@ async function connectDB() {
             try {
                 await otpService.cleanupExpiredOTPs(pool);
                 // Cleanup expired pending registrations (older than 10 minutes)
-                await pool.request().query("DELETE FROM pending_registrations WHERE expires_at < GETDATE()");
+                await pool.request().query("DELETE FROM pending_registrations WHERE expires_at < GETUTCDATE()");
             } catch (e) { }
         }, 5 * 60 * 1000).unref(); // Every 5 minutes
 
@@ -568,12 +568,11 @@ async function syncItemTotalStock(itemId) {
         // 2. Sum decrypted quantities
         let total = 0;
         stockRes.recordset.forEach(row => {
-            try {
-                const qty = parseInt(decrypt(row.quantity));
-                if (!isNaN(qty)) total += qty;
-            } catch (e) {
-                // Fallback to raw if not encrypted integer (legacy)
-                total += (parseInt(row.quantity) || 0);
+            const qty = safeDecryptInt(row.quantity);
+            if (qty === -1) {
+                console.warn(`[INTEGRITY] Tampered quantity detected in inventory_stock for item ${itemId}`);
+            } else {
+                total += qty;
             }
         });
 
@@ -589,6 +588,56 @@ async function syncItemTotalStock(itemId) {
     }
 }
 
+// === FORCE LOGOUT: In-memory set of user IDs that must be logged out immediately ===
+// When a session is revoked (e.g., "This wasn't me" button), the user's access token
+// (JWT, valid for 15 min) would still work. This set forces immediate logout.
+const forceLogoutUsers = new Map(); // Map<userId, expireTimestamp>
+const forceLogoutTokens = new Map(); // Map<tokenHash, expireTimestamp>
+
+function addForceLogout(userId) {
+    // Auto-expire after 20 minutes (enough for any JWT access token to expire)
+    forceLogoutUsers.set(userId, Date.now() + 20 * 60 * 1000);
+    console.log(`[ForceLogout] 🚫 User ${userId} added to force-logout list (all devices)`);
+}
+
+function addForceLogoutToken(tokenHash) {
+    forceLogoutTokens.set(tokenHash, Date.now() + 20 * 60 * 1000);
+    console.log(`[ForceLogout] 🚫 Revoked specific session token`);
+}
+
+function isForceLogout(userId, tokenHash = null) {
+    const expiry = forceLogoutUsers.get(userId);
+    if (expiry) {
+        if (Date.now() > expiry) forceLogoutUsers.delete(userId); // Cleanup expired entry
+        else return true;
+    }
+
+    if (tokenHash) {
+        const tokenExpiry = forceLogoutTokens.get(tokenHash);
+        if (tokenExpiry) {
+            if (Date.now() > tokenExpiry) forceLogoutTokens.delete(tokenHash);
+            else return true;
+        }
+    }
+
+    return false;
+}
+
+function clearForceLogout(userId) {
+    if (forceLogoutUsers.has(userId)) {
+        forceLogoutUsers.delete(userId);
+        console.log(`[ForceLogout] ✅ Cleared force-logout for user ${userId} (re-authenticated)`);
+    }
+}
+
+// Cleanup expired entries every 5 minutes
+setInterval(() => {
+    const now = Date.now();
+    for (const [uid, expiry] of forceLogoutUsers) {
+        if (now > expiry) forceLogoutUsers.delete(uid);
+    }
+}, 5 * 60 * 1000);
+
 // Middleware
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
@@ -596,6 +645,18 @@ const authenticateToken = (req, res, next) => {
     if (!token) return res.sendStatus(401);
     jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, user) => {
         if (err) return res.sendStatus(403);
+        
+        let tokenHash = null;
+        if (req.cookies && req.cookies.refreshToken) {
+            tokenHash = hashData(req.cookies.refreshToken);
+        }
+
+        // Check if user or specific session is force-logged-out
+        if (isForceLogout(user.id, tokenHash)) {
+            console.log(`[ForceLogout] ⛔ Blocked request from force-logged-out session or user ${user.id}`);
+            return res.status(401).json({ error: 'Session revoked', forceLogout: true });
+        }
+        
         req.user = user;
         next();
     });
@@ -610,6 +671,31 @@ const authorizeRole = (roles) => {
 
 // --- ROUTES ---
 
+// Session Heartbeat: Lightweight endpoint for real-time force-logout detection
+// Frontend polls this every 5s to detect if session was revoked (e.g., "Không phải tôi" button)
+app.get('/api/auth/session-check', (req, res) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) return res.status(401).json({ valid: false });
+    
+    jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, user) => {
+        if (err) return res.status(401).json({ valid: false });
+        
+        // Extract tokenHash from refresh token cookie (same logic as authenticateToken)
+        let tokenHash = null;
+        if (req.cookies && req.cookies.refreshToken) {
+            tokenHash = hashData(req.cookies.refreshToken);
+        }
+        
+        if (isForceLogout(user.id, tokenHash)) {
+            console.log(`[Heartbeat] ⛔ Force-logout detected for user ${user.id} — pushing to login page`);
+            return res.status(401).json({ valid: false, forceLogout: true, reason: 'session_revoked' });
+        }
+        
+        return res.json({ valid: true });
+    });
+});
+
 // 0. Audit Logs
 app.get('/api/audit-logs', authenticateToken, async (req, res) => {
     try {
@@ -617,15 +703,13 @@ app.get('/api/audit-logs', authenticateToken, async (req, res) => {
         const result = await pool.request().query("SELECT a.*, u.username FROM audit_logs a LEFT JOIN system_users u ON a.user_id = u.user_id");
 
         const logs = result.recordset.map(log => {
-            let uName = log.username;
-            let act = log.action;
+            let uName = safeDecrypt(log.username) || log.username;
+            let act = safeDecrypt(log.action) || log.action;
             let time = log.timestamp;
             let details = log.details;
 
-            try { uName = decrypt(log.username) || log.username; } catch (e) { }
-            try { act = decrypt(log.action) || log.action; } catch (e) { }
             try {
-                const rawTime = decrypt(log.timestamp) || log.timestamp;
+                const rawTime = safeDecrypt(log.timestamp) || log.timestamp;
                 // Convert any date format (including SQL Server 'Mar 6 2026 1:36PM') to ISO string
                 const parsed = new Date(rawTime);
                 time = !isNaN(parsed) ? parsed.toISOString() : rawTime;
@@ -636,7 +720,10 @@ app.get('/api/audit-logs', authenticateToken, async (req, res) => {
                 if (decryptedStr) details = JSON.parse(decryptedStr);
                 else details = JSON.parse(log.details);
             } catch (e) {
-                try { details = JSON.parse(log.details); } catch (ex) { details = log.details; }
+                // Nếu dữ liệu bị tampered, hiển thị thông báo lỗi
+                const safeDetails = safeDecrypt(log.details);
+                if (safeDetails === TAMPERED_DATA) details = { error: TAMPERED_DATA };
+                else { try { details = JSON.parse(log.details); } catch (ex) { details = log.details; } }
             }
 
             return { ...log, username: uName, action: act, timestamp: time, details };
@@ -716,7 +803,8 @@ app.post('/api/settings/email-otp', authenticateToken, authorizeRole(['Admin']),
 });
 
 app.post('/api/auth/login', async (req, res) => {
-    let { username, password, captchaToken, rememberSession } = req.body;
+    let { username, password, captchaToken, rememberSession, lang } = req.body;
+    lang = lang || 'vi';
 
     username = (username || '').trim();
     password = (password || '').trim();
@@ -1074,6 +1162,7 @@ app.post('/api/auth/login', async (req, res) => {
             console.log('[Login] ⚡ No 2FA required (GG Auth off + Email OTP disabled)');
 
             const token = jwt.sign({ id: user.user_id, role: decryptedRole, username: decryptedUsername }, process.env.JWT_SECRET || 'secret', { expiresIn: '15m' });
+            clearForceLogout(user.user_id); // Xóa force-logout khi đăng nhập lại thành công
             const refreshTokenExpiry = rememberSession ? '7d' : '1d';
             const refreshToken = jwt.sign({ id: user.user_id }, process.env.JWT_SECRET || 'secret', { expiresIn: refreshTokenExpiry });
 
@@ -1114,16 +1203,17 @@ app.post('/api/auth/login', async (req, res) => {
             });
         }
 
-        // Gửi Email OTP sẵn (chỉ khi Email OTP đã bật trong settings)
+        // Gửi Email OTP sẵn (chỉ khi Email OTP bật VÀ KHÔNG có Google Authenticator)
+        // Nếu có cả 2 method → đợi user chọn "Email OTP" tab rồi mới gửi (qua /otp/resend)
         let emailOTPSent = false;
-        if (emailOtpEnabled) {
+        if (emailOtpEnabled && !has2FAApp) {
             try {
                 let userEmail = '';
                 try { userEmail = decrypt(user.email); } catch (e) { }
                 if (userEmail) {
                     const otp = otpService.generateOTP();
                     await otpService.storeOTP(pool, userEmail, otp, 'LOGIN_2FA');
-                    await emailService.sendOTPEmail(userEmail, otp, 'LOGIN_2FA', decryptedUsername);
+                    await emailService.sendOTPEmail(userEmail, otp, 'LOGIN_2FA', decryptedUsername, lang);
                     emailOTPSent = true;
                 }
             } catch (otpErr) { console.error('[Login 2FA] Email OTP error:', otpErr.message); }
@@ -1169,7 +1259,8 @@ app.post('/api/auth/login', async (req, res) => {
 
 // 1.1 Verify 2FA for Login (Dual Mode: Google Authenticator OR Email OTP)
 app.post('/api/auth/verify-2fa', async (req, res) => {
-    const { tempToken, token, method } = req.body;
+    const { tempToken, token, method, lang } = req.body;
+    const emailLang = lang || 'vi';
     // method: 'authenticator' (Google Auth) hoặc 'email' (Email OTP)
     try {
         if (!tempToken || !token) return res.status(400).json({ error: 'Missing tokens' });
@@ -1225,6 +1316,7 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
         // === OTP verified → Issue tokens + Device management ===
         const tokenExpiry2FA = '15m';
         const finalToken = jwt.sign({ id: decoded.id, role: decoded.role, username: decoded.username }, process.env.JWT_SECRET || 'secret', { expiresIn: tokenExpiry2FA });
+        clearForceLogout(decoded.id); // Xóa force-logout khi 2FA xác thực thành công
 
         // Refresh token
         const refreshTokenExpiry = decoded.rememberSession ? '7d' : '1d';
@@ -1265,15 +1357,22 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
                 if (userEmail && sessionId) {
                     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
                     const revokeUrl = `${frontendUrl}/security/device-action?action=revoke&sessionId=${sessionId}`;
-                    const changePasswordUrl = `${frontendUrl}/security/forgot-password`;
+                    
+                    // Generate a secure token for direct password change (30 min expiry)
+                    const changePwToken = jwt.sign(
+                        { id: decoded.id, purpose: 'email_change_password' },
+                        process.env.JWT_SECRET || 'secret',
+                        { expiresIn: '30m' }
+                    );
+                    const changePasswordUrl = `${frontendUrl}/security/change-password?token=${changePwToken}`;
 
                     await emailService.sendDeviceAlertEmail(userEmail, decoded.username, {
                         ip: clientIP,
                         browser: devInfo.browser,
                         os: devInfo.os,
                         location: addResult.location,
-                        time: new Date().toLocaleString('vi-VN')
-                    }, revokeUrl, changePasswordUrl);
+                        time: new Date().toLocaleString(emailLang === 'en' ? 'en-US' : 'vi-VN')
+                    }, revokeUrl, changePasswordUrl, emailLang);
                 }
             } catch (emailErr) { console.error('[Device Alert Email] Error:', emailErr.message); }
         }
@@ -1312,7 +1411,7 @@ app.post('/api/auth/refresh', async (req, res) => {
         const checkRes = await pool.request()
             .input('uid', sql.UniqueIdentifier, decoded.id)
             .input('th', sql.NVarChar, hashedRefresh)
-            .query("SELECT * FROM auth_refresh_tokens WHERE user_id = @uid AND token_hash = @th AND expires_at > GETDATE()");
+            .query("SELECT * FROM auth_refresh_tokens WHERE user_id = @uid AND token_hash = @th AND expires_at > GETUTCDATE()");
 
         if (checkRes.recordset.length === 0) {
             // Thông báo bắt đăng nhập lại do Refresh token bị xóa hoặc hết hạn
@@ -1354,8 +1453,11 @@ app.post('/api/auth/logout', async (req, res) => {
     res.json({ message: 'Logged out successfully' });
 });
 
+// [REMOVED] Old device/revoke endpoint moved to consolidated endpoint below (with addForceLogout support)
+
 app.post('/api/auth/register', async (req, res) => {
-    let { username, password, fullName, email, phone, role, captchaToken } = req.body;
+    let { username, password, fullName, email, phone, role, captchaToken, lang } = req.body;
+    lang = lang || 'vi';
 
     // Trim inputs to prevent accidental trailing spaces
     username = (username || '').trim();
@@ -1467,7 +1569,7 @@ app.post('/api/auth/register', async (req, res) => {
         const checkPending = await pool.request()
             .input('u', sql.NVarChar, usernameHash)
             .input('e', sql.NVarChar, emailHash)
-            .query("SELECT * FROM pending_registrations WHERE (username_hash = @u OR email_hash = @e) AND expires_at > GETDATE()");
+            .query("SELECT * FROM pending_registrations WHERE (username_hash = @u OR email_hash = @e) AND expires_at > GETUTCDATE()");
 
         // Xóa pending cũ nếu có (cho phép đăng ký lại)
         if (checkPending.recordset.length > 0) {
@@ -1494,7 +1596,7 @@ app.post('/api/auth/register', async (req, res) => {
         // Tạo & gửi OTP qua email
         const otp = otpService.generateOTP();
         await otpService.storeOTP(pool, email, otp, 'REGISTER');
-        await emailService.sendOTPEmail(email, otp, 'REGISTER', fullName);
+        await emailService.sendOTPEmail(email, otp, 'REGISTER', fullName, lang);
 
         // Mask email để hiển thị trên frontend
         const parts = email.split('@');
@@ -1528,7 +1630,7 @@ app.post('/api/auth/register/verify-otp', async (req, res) => {
         const emailHash = hashData(email.trim());
         const pendingRes = await pool.request()
             .input('eh', sql.NVarChar, emailHash)
-            .query("SELECT TOP 1 * FROM pending_registrations WHERE email_hash = @eh AND expires_at > GETDATE() ORDER BY created_at DESC");
+            .query("SELECT TOP 1 * FROM pending_registrations WHERE email_hash = @eh AND expires_at > GETUTCDATE() ORDER BY created_at DESC");
 
         if (pendingRes.recordset.length === 0) {
             return res.status(400).json({ error: 'Yêu cầu đăng ký đã hết hạn. Vui lòng đăng ký lại.' });
@@ -1594,7 +1696,8 @@ app.post('/api/auth/otp/resend', async (req, res) => {
 
         const otp = otpService.generateOTP();
         await otpService.storeOTP(pool, targetEmail, otp, type);
-        await emailService.sendOTPEmail(targetEmail, otp, type);
+        const emailLang = req.body.lang || 'vi';
+        await emailService.sendOTPEmail(targetEmail, otp, type, '', emailLang);
 
         console.log(`[OTP Resend] 📧 ${type} OTP sent to ${targetEmail.substring(0, 3)}***`);
         res.json({ success: true, ttl: otpService.OTP_TTL_SECONDS, message: 'Mã OTP mới đã được gửi.' });
@@ -1627,7 +1730,8 @@ app.post('/api/auth/forgot-password', async (req, res) => {
         // Gửi OTP
         const otp = otpService.generateOTP();
         await otpService.storeOTP(pool, email.trim(), otp, 'FORGOT_PASSWORD');
-        await emailService.sendOTPEmail(email.trim(), otp, 'FORGOT_PASSWORD', username);
+        const emailLang = req.body.lang || 'vi';
+        await emailService.sendOTPEmail(email.trim(), otp, 'FORGOT_PASSWORD', username, emailLang);
 
         const parts = email.trim().split('@');
         const maskedEmail = parts[0].substring(0, 2) + '***@' + parts[1];
@@ -1708,7 +1812,8 @@ app.post('/api/auth/forgot-password/reset', async (req, res) => {
                 let email = '', username = '';
                 try { email = decrypt(userRes.recordset[0].email); } catch (e) { }
                 try { username = decrypt(userRes.recordset[0].username); } catch (e) { }
-                if (email) await emailService.sendPasswordChangedEmail(email, username);
+                const emailLang = req.body.lang || 'vi';
+                if (email) await emailService.sendPasswordChangedEmail(email, username, emailLang);
             }
         } catch (emailErr) { console.error('[ForgotPassword] Email notification error:', emailErr.message); }
 
@@ -1734,6 +1839,14 @@ app.post('/api/auth/device/revoke', async (req, res) => {
         const result = await deviceService.revokeSession(pool, sessionId);
 
         if (result.revoked) {
+            // Force logout: đảm bảo thiết bị bị đăng xuất ngay lập tức
+            // (không cần đợi access token hết hạn)
+            // CHỈ blacklist token cụ thể → chỉ thiết bị bị revoke mới bị đẩy ra
+            // KHÔNG dùng addForceLogout(userId) vì sẽ đẩy TẤT CẢ thiết bị ra
+            if (result.tokenHash) {
+                addForceLogoutToken(result.tokenHash);
+                console.log(`[Revoke] 🎯 Blacklisted specific token for session, only that device will be forced out`);
+            }
             res.json({ success: true, message: 'Phiên đăng nhập của thiết bị lạ đã bị thu hồi thành công.' });
         } else {
             res.json({ success: false, message: 'Phiên đăng nhập không tồn tại hoặc đã hết hạn.' });
@@ -1781,12 +1894,11 @@ app.get('/api/auth/me/profile', authenticateToken, async (req, res) => {
         const user = result.recordset[0];
         if (!user) return res.status(404).json({ error: 'User not found' });
 
-        let username = user.username, fullName = user.full_name, email = user.email, phone = user.phone, role = user.role;
-        try { username = decrypt(user.username) || user.username; } catch (e) { }
-        try { fullName = decrypt(user.full_name) || user.full_name; } catch (e) { }
-        try { email = decrypt(user.email) || user.email; } catch (e) { }
-        try { phone = decrypt(user.phone) || user.phone; } catch (e) { }
-        try { role = decrypt(user.role) || user.role; } catch (e) { }
+        let username = safeDecrypt(user.username) || user.username;
+        let fullName = safeDecrypt(user.full_name) || user.full_name;
+        let email = safeDecrypt(user.email) || user.email;
+        let phone = safeDecrypt(user.phone) || user.phone;
+        let role = safeDecrypt(user.role) || user.role;
 
         res.json({
             user_id: user.user_id,
@@ -1871,12 +1983,117 @@ app.put('/api/auth/me/password', authenticateToken, async (req, res) => {
             let email = '', username = '';
             try { email = decrypt(user.email); } catch (e) { }
             try { username = decrypt(user.username); } catch (e) { }
-            if (email) await emailService.sendPasswordChangedEmail(email, username);
+            const emailLang = req.body.lang || 'vi';
+            if (email) await emailService.sendPasswordChangedEmail(email, username, emailLang);
         } catch (emailErr) { console.error('[ChangePassword] Email notification error:', emailErr.message); }
 
         await logAudit(req.user.id, 'CHANGE_PASSWORD', { userId: req.user.id, allSessionsRevoked: true });
         res.json({ message: 'Đổi mật khẩu thành công. Tất cả phiên đăng nhập đã bị đăng xuất.', logoutAll: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Change password from email security alert (token-based, no login required)
+app.post('/api/auth/email-change-password', async (req, res) => {
+    const { token, currentPassword, newPassword } = req.body;
+    if (!token || !currentPassword || !newPassword) {
+        return res.status(400).json({ error: 'Vui lòng nhập đầy đủ thông tin' });
+    }
+
+    // Password complexity check
+    const passwordRegex = /^(?=.*[A-Z])(?=.*[!@#$&*.,?<>^%\-_\=+~]).{8,}$/;
+    if (!passwordRegex.test(newPassword)) {
+        return res.status(400).json({ error: 'Mật khẩu mới phải chứa ít nhất 8 ký tự, 1 chữ hoa và 1 ký tự đặc biệt' });
+    }
+
+    try {
+        // Verify the token from email
+        let decoded;
+        try {
+            decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+        } catch (jwtErr) {
+            if (jwtErr.name === 'TokenExpiredError') {
+                return res.status(400).json({ error: 'Link đổi mật khẩu đã hết hạn (30 phút). Vui lòng đăng nhập lại để nhận email mới.' });
+            }
+            return res.status(400).json({ error: 'Link không hợp lệ hoặc đã bị sử dụng.' });
+        }
+
+        if (decoded.purpose !== 'email_change_password') {
+            return res.status(400).json({ error: 'Token không hợp lệ' });
+        }
+
+        const pool = await connectDB();
+        const result = await pool.request()
+            .input('id', sql.UniqueIdentifier, decoded.id)
+            .query('SELECT password_hash, email, username FROM system_users WHERE user_id = @id');
+
+        const user = result.recordset[0];
+        if (!user) return res.status(404).json({ error: 'Tài khoản không tồn tại' });
+
+        // Verify current password
+        const isMatch = await argon2.verify(user.password_hash, currentPassword);
+        if (!isMatch) return res.status(401).json({ error: 'Mật khẩu hiện tại không đúng' });
+
+        // Check new password is different from current
+        const isSame = await argon2.verify(user.password_hash, newPassword);
+        if (isSame) return res.status(400).json({ error: 'Mật khẩu mới phải khác mật khẩu hiện tại' });
+
+        // Update password
+        const newHash = await argon2.hash(newPassword);
+        await pool.request()
+            .input('ph', sql.NVarChar, newHash)
+            .input('id', sql.UniqueIdentifier, decoded.id)
+            .query('UPDATE system_users SET password_hash = @ph WHERE user_id = @id');
+
+        // Revoke ALL sessions
+        await deviceService.revokeAllSessions(pool, decoded.id);
+
+        // Send email notification
+        try {
+            let email = '', username = '';
+            try { email = decrypt(user.email); } catch (e) { }
+            try { username = decrypt(user.username); } catch (e) { }
+            const emailLang = req.body.lang || 'vi';
+            if (email) await emailService.sendPasswordChangedEmail(email, username, emailLang);
+        } catch (emailErr) { console.error('[EmailChangePassword] Email notification error:', emailErr.message); }
+
+        await logAudit(decoded.id, 'CHANGE_PASSWORD_VIA_EMAIL_ALERT', { method: 'security_email', allSessionsRevoked: true });
+        console.log(`[EmailChangePassword] ✅ Password changed successfully for user ${decoded.id}`);
+        res.json({ success: true, message: 'Đổi mật khẩu thành công! Tất cả phiên đăng nhập đã bị đăng xuất.' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Verify email change password token (check if token is still valid)
+app.post('/api/auth/email-change-password/verify-token', async (req, res) => {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Missing token' });
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+        if (decoded.purpose !== 'email_change_password') {
+            return res.status(400).json({ error: 'Invalid token' });
+        }
+
+        // Get masked username for display
+        const pool = await connectDB();
+        const result = await pool.request()
+            .input('id', sql.UniqueIdentifier, decoded.id)
+            .query('SELECT username FROM system_users WHERE user_id = @id');
+
+        let username = '';
+        if (result.recordset[0]) {
+            try { username = decrypt(result.recordset[0].username); } catch (e) { }
+        }
+
+        // Mask username: show first 2 chars + ***
+        const maskedUsername = username ? username.substring(0, 2) + '***' : '***';
+
+        res.json({ valid: true, maskedUsername });
+    } catch (err) {
+        if (err.name === 'TokenExpiredError') {
+            return res.status(400).json({ error: 'Token expired', expired: true });
+        }
+        res.status(400).json({ error: 'Invalid token' });
+    }
 });
 
 // --- ADMIN: User Management ---
@@ -1886,14 +2103,13 @@ app.get('/api/admin/users/pending', authenticateToken, authorizeRole(['Admin']),
         const result = await pool.request().query("SELECT user_id, username, full_name, email, phone, role FROM system_users");
 
         const pendingUsers = result.recordset.map(u => {
-            let role = u.role, username = u.username, full_name = u.full_name, email = u.email, phone = u.phone;
-            try { role = decrypt(u.role) || u.role; } catch (e) { }
+            let role = safeDecrypt(u.role) || u.role;
             if (role !== 'Pending') return null;
 
-            try { username = decrypt(u.username) || u.username; } catch (e) { }
-            try { full_name = decrypt(u.full_name) || u.full_name; } catch (e) { }
-            try { email = decrypt(u.email) || u.email; } catch (e) { }
-            try { phone = decrypt(u.phone) || u.phone; } catch (e) { }
+            let username = safeDecrypt(u.username) || u.username;
+            let full_name = safeDecrypt(u.full_name) || u.full_name;
+            let email = safeDecrypt(u.email) || u.email;
+            let phone = safeDecrypt(u.phone) || u.phone;
             return { user_id: u.user_id, username, full_name, email, phone, role };
         }).filter(u => u !== null);
 
@@ -2059,21 +2275,16 @@ app.get('/api/items', authenticateToken, async (req, res) => {
         const result = await pool.request().query("SELECT * FROM supply_items");
 
         const decryptedItems = result.recordset.map(item => {
-            let dName = item.item_name;
-            let dCat = item.category;
-            let dQty = item.quantity_in_stock;
-            let dCost = item.unit_cost;
-
-            try { dName = decrypt(item.item_name) || item.item_name; } catch (e) { }
-            try { dCat = decrypt(item.category) || item.category; } catch (e) { }
-            try { dQty = parseInt(decrypt(item.quantity_in_stock)); } catch (e) { dQty = item.quantity_in_stock; }
-            try { dCost = decrypt(item.unit_cost) || item.unit_cost; } catch (e) { }
+            let dName = safeDecrypt(item.item_name) || item.item_name;
+            let dCat = safeDecrypt(item.category) || item.category;
+            let dQty = safeDecryptInt(item.quantity_in_stock);
+            let dCost = safeDecrypt(item.unit_cost) || item.unit_cost;
 
             return {
                 ...item,
                 item_name: dName,
                 category: dCat,
-                quantity_in_stock: isNaN(dQty) ? 0 : dQty,
+                quantity_in_stock: dQty === -1 ? TAMPERED_DATA : (isNaN(dQty) ? 0 : dQty),
                 unit_cost: dCost
             };
         });
@@ -2261,16 +2472,13 @@ app.get('/api/items/:id/inventory', authenticateToken, async (req, res) => {
             `);
 
         const decryptedStock = result.recordset.map(stock => {
-            let qty = 0;
-            let bin = '';
-            let wName = stock.warehouse_name;
-            try { qty = parseInt(decrypt(stock.quantity)); } catch (e) { qty = stock.quantity; }
-            try { bin = decrypt(stock.bin_location); } catch (e) { bin = stock.bin_location; }
-            try { wName = decrypt(stock.warehouse_name) || stock.warehouse_name; } catch (e) { }
+            let qty = safeDecryptInt(stock.quantity);
+            let bin = safeDecrypt(stock.bin_location) || '';
+            let wName = safeDecrypt(stock.warehouse_name) || stock.warehouse_name;
 
             return {
                 ...stock,
-                quantity: isNaN(qty) ? 0 : qty,
+                quantity: qty === -1 ? TAMPERED_DATA : (isNaN(qty) ? 0 : qty),
                 bin_location: bin,
                 warehouse_name: wName
             };
@@ -2288,11 +2496,10 @@ app.get('/api/warehouses', authenticateToken, async (req, res) => {
         const pool = await connectDB();
         const result = await pool.request().query("SELECT * FROM warehouses");
         const decryptedWarehouses = result.recordset.map(w => {
-            let name = w.name, location = w.location, type = w.type, total_shelves = w.total_shelves;
-            try { name = decrypt(w.name) || w.name; } catch (e) { }
-            try { location = decrypt(w.location) || w.location; } catch (e) { }
-            try { type = decrypt(w.type) || w.type; } catch (e) { }
-            try { total_shelves = decrypt(w.total_shelves) || w.total_shelves; } catch (e) { }
+            let name = safeDecrypt(w.name) || w.name;
+            let location = safeDecrypt(w.location) || w.location;
+            let type = safeDecrypt(w.type) || w.type;
+            let total_shelves = safeDecrypt(w.total_shelves) || w.total_shelves;
             return { ...w, name, location, type, total_shelves };
         });
         res.json(decryptedWarehouses);
@@ -2355,23 +2562,19 @@ app.get('/api/warehouses/:id/inventory', authenticateToken, async (req, res) => 
 
         // Decrypt sensitive inventory data
         const decryptedInventory = result.recordset.map(item => {
-            let decryptedQty = 0;
-            let decryptedBin = '';
-            let decryptedName = item.item_name;
-            let decryptedCat = item.category;
-
-            try { decryptedQty = parseInt(decrypt(item.quantity)); } catch (e) { decryptedQty = item.quantity; }
-            try { decryptedBin = decrypt(item.bin_location); } catch (e) { decryptedBin = item.bin_location; }
-            try { decryptedName = decrypt(item.item_name) || item.item_name; } catch (e) { }
-            try { decryptedCat = decrypt(item.category) || item.category; } catch (e) { }
+            let decryptedQty = safeDecryptInt(item.quantity);
+            let decryptedBin = safeDecrypt(item.bin_location) || '';
+            let decryptedName = safeDecrypt(item.item_name) || item.item_name;
+            let decryptedCat = safeDecrypt(item.category) || item.category;
+            let decryptedCost = safeDecrypt(item.unit_cost);
 
             return {
                 ...item,
                 item_name: decryptedName,
                 category: decryptedCat,
-                quantity: isNaN(decryptedQty) ? 0 : decryptedQty,
+                quantity: decryptedQty === -1 ? TAMPERED_DATA : (isNaN(decryptedQty) ? 0 : decryptedQty),
                 bin_location: decryptedBin,
-                unit_cost: decrypt(item.unit_cost)
+                unit_cost: decryptedCost
             };
         });
 
@@ -2497,18 +2700,13 @@ app.get('/api/shipments', authenticateToken, async (req, res) => {
 
         // Decrypt Partner Names & Shipment Details
         const decryptedShipments = result.recordset.map(s => {
-            let tracking = s.tracking_number, origin = s.origin_address, dest = s.destination_address, status = s.status, val = s.total_value;
-            let logName = s.logistics_name;
-            try { tracking = decrypt(s.tracking_number) || s.tracking_number; } catch (e) { }
-            try { origin = decrypt(s.origin_address) || s.origin_address; } catch (e) { }
-            try { dest = decrypt(s.destination_address) || s.destination_address; } catch (e) { }
-            try {
-                val = decrypt(s.total_value) || s.total_value;
-                val = decrypt(s.total_value);
-                if (!val || val === "NaN") val = "0";
-            } catch (e) { val = s.total_value; } // Fallback to original if decryption fails
-            try { status = decrypt(s.status) || s.status; } catch (e) { }
-            try { logName = decrypt(s.logistics_name) || s.logistics_name; } catch (e) { }
+            let tracking = safeDecrypt(s.tracking_number) || s.tracking_number;
+            let origin = safeDecrypt(s.origin_address) || s.origin_address;
+            let dest = safeDecrypt(s.destination_address) || s.destination_address;
+            let val = safeDecrypt(s.total_value);
+            if (!val || val === "NaN") val = "0";
+            let status = safeDecrypt(s.status) || s.status;
+            let logName = safeDecrypt(s.logistics_name) || s.logistics_name;
 
             // Handle shipment_date (might be DATETIME or encrypted NVARCHAR)
             let shipDate = s.shipment_date;
@@ -2516,10 +2714,13 @@ app.get('/api/shipments', authenticateToken, async (req, res) => {
                 if (s.shipment_date instanceof Date) {
                     shipDate = s.shipment_date.toISOString();
                 } else {
-                    try {
-                        const decDate = decrypt(s.shipment_date);
-                        if (decDate) shipDate = new Date(decDate).toISOString();
-                    } catch (e) { }
+                    const decDate = safeDecrypt(s.shipment_date);
+                    if (decDate && decDate !== TAMPERED_DATA) {
+                        const parsed = new Date(decDate);
+                        shipDate = !isNaN(parsed) ? parsed.toISOString() : TAMPERED_DATA;
+                    } else if (decDate === TAMPERED_DATA) {
+                        shipDate = TAMPERED_DATA;
+                    }
                 }
             }
 
@@ -2557,19 +2758,12 @@ app.get('/api/shipments/:id/items', authenticateToken, async (req, res) => {
             `);
 
         const decryptedItems = result.recordset.map(item => {
-            let name = item.item_name;
-            let cat = item.category;
-            let wName = item.warehouse_name;
-            let qty = item.quantity;
-            let sub = item.subtotal;
-            let batch = item.batch_number;
-
-            try { name = decrypt(item.item_name) || item.item_name; } catch (e) { }
-            try { cat = decrypt(item.category) || item.category; } catch (e) { }
-            try { wName = decrypt(item.warehouse_name) || item.warehouse_name; } catch (e) { }
-            try { qty = decrypt(item.quantity) || item.quantity; } catch (e) { }
-            try { sub = decrypt(item.subtotal) || item.subtotal; } catch (e) { }
-            try { batch = decrypt(item.batch_number) || item.batch_number; } catch (e) { }
+            let name = safeDecrypt(item.item_name) || item.item_name;
+            let cat = safeDecrypt(item.category) || item.category;
+            let wName = safeDecrypt(item.warehouse_name) || item.warehouse_name;
+            let qty = safeDecrypt(item.quantity) || item.quantity;
+            let sub = safeDecrypt(item.subtotal) || item.subtotal;
+            let batch = safeDecrypt(item.batch_number) || item.batch_number;
 
             return {
                 ...item,
@@ -2602,18 +2796,12 @@ app.get('/api/tracking/:trackingNumber', async (req, res) => {
 
         let foundShipment = null;
         for (const s of result.recordset) {
-            let tracking = s.tracking_number;
-            try { tracking = decrypt(s.tracking_number) || s.tracking_number; } catch (e) { }
+            let tracking = safeDecrypt(s.tracking_number) || s.tracking_number;
             if (tracking === trackingQuery) {
-                let logName = s.logistics_name;
-                let origin = s.origin_address;
-                let dest = s.destination_address;
-                let status = s.status;
-
-                try { logName = decrypt(s.logistics_name) || s.logistics_name; } catch (e) { }
-                try { origin = decrypt(s.origin_address) || s.origin_address; } catch (e) { }
-                try { dest = decrypt(s.destination_address) || s.destination_address; } catch (e) { }
-                try { status = decrypt(s.status) || s.status; } catch (e) { }
+                let logName = safeDecrypt(s.logistics_name) || s.logistics_name;
+                let origin = safeDecrypt(s.origin_address) || s.origin_address;
+                let dest = safeDecrypt(s.destination_address) || s.destination_address;
+                let status = safeDecrypt(s.status) || s.status;
 
                 foundShipment = {
                     ...s,
@@ -3063,8 +3251,7 @@ app.delete('/api/shipments/:id', authenticateToken, authorizeRole(['Admin', 'Man
         // Security check: Only allow if pending approval
         const checkRes = await pool.request().input('id', sql.UniqueIdentifier, req.params.id).query("SELECT status FROM shipments WHERE shipment_id = @id");
         if (checkRes.recordset.length === 0) return res.status(404).json({ error: 'Shipment not found' });
-        let decodedStatus = checkRes.recordset[0].status;
-        try { decodedStatus = decrypt(decodedStatus) || decodedStatus; } catch (e) { }
+        let decodedStatus = safeDecrypt(checkRes.recordset[0].status) || checkRes.recordset[0].status;
         if (decodedStatus !== 'Pending Approval') {
             return res.status(400).json({ error: 'Không thể xóa đơn hàng đã xử lý (Không còn ở trạng thái Chờ duyệt).' });
         }
@@ -3143,13 +3330,12 @@ app.get('/api/partners', authenticateToken, async (req, res) => {
         const result = await pool.request().query("SELECT * FROM partners");
 
         const partners = result.recordset.map(p => {
-            // Try to decrypt fields, fallback to original if fail
-            let name = p.partner_name, contact = p.contact_person, phone = p.contact_phone, email = p.email, type = p.type;
-            try { name = decrypt(p.partner_name) || p.partner_name; } catch (e) { }
-            try { contact = decrypt(p.contact_person) || p.contact_person; } catch (e) { }
-            try { phone = decrypt(p.contact_phone) || p.contact_phone; } catch (e) { }
-            try { email = decrypt(p.email) || p.email; } catch (e) { }
-            try { type = decrypt(p.type) || p.type; } catch (e) { }
+            // Try to decrypt fields, show tamper warning if data corrupted
+            let name = safeDecrypt(p.partner_name) || p.partner_name;
+            let contact = safeDecrypt(p.contact_person) || p.contact_person;
+            let phone = safeDecrypt(p.contact_phone) || p.contact_phone;
+            let email = safeDecrypt(p.email) || p.email;
+            let type = safeDecrypt(p.type) || p.type;
 
             return { ...p, partner_name: name, contact_person: contact, contact_phone: phone, email: email, type: type };
         });
@@ -3219,12 +3405,11 @@ app.put('/api/partners/:id', authenticateToken, authorizeRole(['Admin', 'Manager
         if (oldRes.recordset.length === 0) return res.status(404).json({ error: 'Partner not found' });
 
         const old = oldRes.recordset[0];
-        let oldName = old.partner_name, oldContact = old.contact_person, oldPhone = old.contact_phone, oldEmail = old.email, oldType = old.type;
-        try { oldName = decrypt(old.partner_name) || oldName; } catch (e) { }
-        try { oldContact = decrypt(old.contact_person) || oldContact; } catch (e) { }
-        try { oldPhone = decrypt(old.contact_phone) || oldPhone; } catch (e) { }
-        try { oldEmail = decrypt(old.email) || oldEmail; } catch (e) { }
-        try { oldType = decrypt(old.type) || oldType; } catch (e) { }
+        let oldName = safeDecrypt(old.partner_name) || old.partner_name;
+        let oldContact = safeDecrypt(old.contact_person) || old.contact_person;
+        let oldPhone = safeDecrypt(old.contact_phone) || old.contact_phone;
+        let oldEmail = safeDecrypt(old.email) || old.email;
+        let oldType = safeDecrypt(old.type) || old.type;
 
         const encName = encrypt(name);
         const encContact = encrypt(contact);
@@ -3311,12 +3496,12 @@ app.get('/api/security/login-history/:userId', authenticateToken, authorizeRole(
             let ua = row.user_agent;
             let factors = row.risk_factors;
             let successVal = row.success, riskVal = row.risk_score, blockedVal = row.blocked;
-            try { ip = decrypt(row.ip_address); } catch (e) { }
-            try { ua = decrypt(row.user_agent); } catch (e) { }
-            try { factors = JSON.parse(decrypt(row.risk_factors)); } catch (e) { }
-            try { successVal = parseInt(decrypt(row.success)) || 0; } catch (e) { }
-            try { riskVal = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { }
-            try { blockedVal = parseInt(decrypt(row.blocked)) || 0; } catch (e) { }
+            ip = safeDecrypt(row.ip_address) || ip;
+            ua = safeDecrypt(row.user_agent) || ua;
+            try { const df = decrypt(row.risk_factors); if (df) factors = JSON.parse(df); } catch (e) { const sf = safeDecrypt(row.risk_factors); if (sf === TAMPERED_DATA) factors = TAMPERED_DATA; }
+            successVal = safeDecryptInt(row.success);
+            riskVal = safeDecryptFloat(row.risk_score);
+            blockedVal = safeDecryptInt(row.blocked);
             return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, success: successVal, risk_score: riskVal, blocked: blockedVal, attempt_time: fixLocalTime(row.attempt_time) };
         });
 
@@ -3340,9 +3525,8 @@ app.get('/api/ai/analytics', authenticateToken, authorizeRole(['Admin']), async 
         `);
         let bannedUsersCount = 0;
         for (const u of allUsers.recordset) {
-            let bu = u.banned_until;
-            try { bu = decrypt(u.banned_until); } catch (e) { }
-            if (new Date(bu) > new Date()) bannedUsersCount++;
+            let bu = safeDecrypt(u.banned_until);
+            if (bu && bu !== TAMPERED_DATA && new Date(bu) > new Date()) bannedUsersCount++;
         }
 
         // Thống kê 7 ngày gần nhất (decrypt in-memory)
@@ -3356,10 +3540,12 @@ app.get('/api/ai/analytics', authenticateToken, authorizeRole(['Admin']), async 
             const dateKey = new Date(row.attempt_time).toISOString().split('T')[0];
             if (!weeklyMap[dateKey]) weeklyMap[dateKey] = { date: dateKey, totalAttempts: 0, successCount: 0, failCount: 0, blockedCount: 0, riskSum: 0, riskCount: 0 };
             weeklyMap[dateKey].totalAttempts++;
-            let s = 0, b = 0, r = 0;
-            try { s = parseInt(decrypt(row.success)) || 0; } catch (e) { s = row.success ? 1 : 0; }
-            try { b = parseInt(decrypt(row.blocked)) || 0; } catch (e) { b = row.blocked ? 1 : 0; }
-            try { r = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { r = row.risk_score || 0; }
+            let s = safeDecryptInt(row.success);
+            let b = safeDecryptInt(row.blocked);
+            let r = safeDecryptFloat(row.risk_score);
+            if (s === -1) s = 0; // tampered → treat as unknown
+            if (b === -1) b = 0;
+            if (r === -1) r = 0;
             if (s === 1) weeklyMap[dateKey].successCount++;
             else weeklyMap[dateKey].failCount++;
             if (b === 1) weeklyMap[dateKey].blockedCount++;
@@ -3380,11 +3566,9 @@ app.get('/api/ai/analytics', authenticateToken, authorizeRole(['Admin']), async 
         `);
         const ipBlockMap = {};
         for (const row of allBlocked7d.recordset) {
-            let b = row.blocked;
-            try { b = decrypt(row.blocked); } catch (e) { }
+            let b = safeDecrypt(row.blocked);
             if (b === '1' || b === 1) {
-                let ip = row.ip_address;
-                try { ip = decrypt(row.ip_address); } catch (e) { }
+                let ip = safeDecrypt(row.ip_address) || row.ip_address;
                 ipBlockMap[ip] = (ipBlockMap[ip] || 0) + 1;
             }
         }
@@ -3396,8 +3580,8 @@ app.get('/api/ai/analytics', authenticateToken, authorizeRole(['Admin']), async 
         // Phân bố risk score (decrypt in-memory)
         const riskDist = { SAFE: 0, LOW: 0, MEDIUM: 0, HIGH: 0 };
         for (const row of weeklyRaw.recordset) {
-            let r = 0;
-            try { r = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { r = row.risk_score || 0; }
+            let r = safeDecryptFloat(row.risk_score);
+            if (r === -1) r = 0;
             if (r < 20) riskDist.SAFE++;
             else if (r < 40) riskDist.LOW++;
             else if (r < 70) riskDist.MEDIUM++;
@@ -3472,13 +3656,13 @@ app.get('/api/ai/user-activity/:userId', authenticateToken, authorizeRole(['Admi
             let factors = row.risk_factors;
             let uname = row.username;
             let successVal = row.success, riskVal = row.risk_score, blockedVal = row.blocked;
-            try { ip = decrypt(row.ip_address); } catch (e) { }
-            try { ua = decrypt(row.user_agent); } catch (e) { }
-            try { factors = JSON.parse(decrypt(row.risk_factors)); } catch (e) { }
-            try { uname = decrypt(row.username); } catch (e) { }
-            try { successVal = parseInt(decrypt(row.success)) || 0; } catch (e) { }
-            try { riskVal = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { }
-            try { blockedVal = parseInt(decrypt(row.blocked)) || 0; } catch (e) { }
+            ip = safeDecrypt(row.ip_address) || ip;
+            ua = safeDecrypt(row.user_agent) || ua;
+            try { const df = decrypt(row.risk_factors); if (df) factors = JSON.parse(df); } catch (e) { const sf = safeDecrypt(row.risk_factors); if (sf === TAMPERED_DATA) factors = TAMPERED_DATA; }
+            uname = safeDecrypt(row.username) || uname;
+            successVal = safeDecryptInt(row.success);
+            riskVal = safeDecryptFloat(row.risk_score);
+            blockedVal = safeDecryptInt(row.blocked);
             return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname, success: successVal, risk_score: riskVal, blocked: blockedVal };
         });
 
@@ -3515,12 +3699,12 @@ app.get('/api/ai/alerts', authenticateToken, authorizeRole(['Admin']), async (re
             let uname = row.username;
             let riskVal = 0;
             let successVal = 0;
-            try { ip = decrypt(row.ip_address); } catch (e) { }
-            try { ua = decrypt(row.user_agent); } catch (e) { }
-            try { factors = JSON.parse(decrypt(row.risk_factors)); } catch (e) { }
-            try { uname = decrypt(row.username); } catch (e) { }
-            try { riskVal = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { riskVal = row.risk_score || 0; }
-            try { successVal = parseInt(decrypt(row.success)) || 0; } catch (e) { successVal = row.success ? 1 : 0; }
+            ip = safeDecrypt(row.ip_address) || ip;
+            ua = safeDecrypt(row.user_agent) || ua;
+            try { const df = decrypt(row.risk_factors); if (df) factors = JSON.parse(df); } catch (e) { const sf = safeDecrypt(row.risk_factors); if (sf === TAMPERED_DATA) factors = TAMPERED_DATA; }
+            uname = safeDecrypt(row.username) || uname;
+            riskVal = safeDecryptFloat(row.risk_score); if (riskVal === -1) riskVal = 0;
+            successVal = safeDecryptInt(row.success); if (successVal === -1) successVal = 0;
             return { ...row, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname, risk_score: riskVal, success: successVal, attempt_time: fixLocalTime(row.attempt_time) };
         }).filter(r => r.risk_score >= 40 || r.success === 0).slice(0, 50);
 
@@ -3554,8 +3738,7 @@ app.post('/api/ai/manual-ban/:userId', authenticateToken, authorizeRole(['Admin'
         const currentUser = await pool.request()
             .input('uid', sql.UniqueIdentifier, userId)
             .query('SELECT ban_count FROM system_users WHERE user_id = @uid');
-        let currentBanCount = 0;
-        try { currentBanCount = parseInt(decrypt(currentUser.recordset[0]?.ban_count)) || 0; } catch (e) { currentBanCount = parseInt(currentUser.recordset[0]?.ban_count) || 0; }
+        let currentBanCount = safeDecryptInt(currentUser.recordset[0]?.ban_count);
 
         await pool.request()
             .input('userId', sql.UniqueIdentifier, userId)
@@ -3603,25 +3786,20 @@ app.get('/api/ai/all-users', authenticateToken, authorizeRole(['Admin']), async 
             if (!uid) continue;
             if (!userStats[uid]) userStats[uid] = { attempts: 0, blocked: 0, riskSum: 0, riskCount: 0 };
             userStats[uid].attempts++;
-            let b = 0, r = 0;
-            try { b = parseInt(decrypt(row.blocked)) || 0; } catch (e) { b = row.blocked ? 1 : 0; }
-            try { r = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { r = row.risk_score || 0; }
+            let b = safeDecryptInt(row.blocked); if (b === -1) b = 0;
+            let r = safeDecryptFloat(row.risk_score); if (r === -1) r = 0;
             if (b === 1) userStats[uid].blocked++;
             userStats[uid].riskSum += r;
             userStats[uid].riskCount++;
         }
 
         const users = result.recordset.map(u => {
-            let username = u.username;
-            let role = u.role;
+            let username = safeDecrypt(u.username) || u.username;
+            let role = safeDecrypt(u.role) || u.role;
             let banReason = u.ban_reason;
-            let bannedUntil = u.banned_until;
-            let banCount = 0;
-            try { username = decrypt(u.username); } catch (e) { }
-            try { role = decrypt(u.role); } catch (e) { }
-            try { banReason = JSON.parse(decrypt(u.ban_reason)); } catch (e) { }
-            try { bannedUntil = decrypt(u.banned_until); } catch (e) { }
-            try { banCount = parseInt(decrypt(u.ban_count)) || 0; } catch (e) { banCount = parseInt(u.ban_count) || 0; }
+            let bannedUntil = safeDecrypt(u.banned_until);
+            let banCount = safeDecryptInt(u.ban_count);
+            try { const df = decrypt(u.ban_reason); if (df) banReason = JSON.parse(df); } catch (e) { const sf = safeDecrypt(u.ban_reason); if (sf === TAMPERED_DATA) banReason = TAMPERED_DATA; }
 
             const stats = userStats[u.user_id] || { attempts: 0, blocked: 0, riskSum: 0, riskCount: 0 };
 

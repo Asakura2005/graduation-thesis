@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Lock, Mail, ShieldCheck, KeyRound, CheckCircle, AlertCircle, ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const ForgotPasswordPage = ({ onBackToLogin }) => {
+    const { t, language } = useLanguage();
     const [step, setStep] = useState(1); // 1: Email, 2: OTP, 3: New Password
     const [email, setEmail] = useState('');
     const [maskedEmail, setMaskedEmail] = useState('');
@@ -44,24 +46,24 @@ const ForgotPasswordPage = ({ onBackToLogin }) => {
     // Step 1: Send OTP
     const handleSendOTP = async (e) => {
         e.preventDefault();
-        if (!email.trim()) return setError('Vui lòng nhập email');
+        if (!email.trim()) return setError(t('forgotPassword.emailRequired'));
         setLoading(true); setError('');
         try {
-            const res = await axios.post('/api/auth/forgot-password', { email: email.trim() });
+            const res = await axios.post('/api/auth/forgot-password', { email: email.trim(), lang: language });
             if (res.data.email) setMaskedEmail(res.data.email);
             setOtpCountdown(res.data.ttl || 90);
             setOtpCode(['', '', '', '', '', '']);
             setStep(2);
             setTimeout(() => otpRefs.current[0]?.focus(), 100);
         } catch (err) {
-            setError(err.response?.data?.error || 'Có lỗi xảy ra');
+            setError(err.response?.data?.error || t('forgotPassword.genericError'));
         } finally { setLoading(false); }
     };
 
     // Step 2: Verify OTP
     const handleVerifyOTP = async () => {
         const code = otpCode.join('');
-        if (code.length !== 6) return setError('Vui lòng nhập đủ 6 số');
+        if (code.length !== 6) return setError(t('otp.enterFull6'));
         setLoading(true); setError('');
         try {
             const res = await axios.post('/api/auth/forgot-password/verify', {
@@ -70,7 +72,7 @@ const ForgotPasswordPage = ({ onBackToLogin }) => {
             setResetToken(res.data.resetToken);
             setStep(3);
         } catch (err) {
-            setError(err.response?.data?.error || 'Xác thực OTP thất bại');
+            setError(err.response?.data?.error || t('otp.verifyFailed'));
             setOtpCode(['', '', '', '', '', '']);
             otpRefs.current[0]?.focus();
         } finally { setLoading(false); }
@@ -79,22 +81,22 @@ const ForgotPasswordPage = ({ onBackToLogin }) => {
     // Step 3: Reset Password
     const handleResetPassword = async (e) => {
         e.preventDefault();
-        if (newPassword !== confirmPassword) return setError('Mật khẩu xác nhận không khớp');
+        if (newPassword !== confirmPassword) return setError(t('forgotPassword.passwordMismatch'));
 
         const passwordRegex = /^(?=.*[A-Z])(?=.*[!@#$&*.,?<>^%\-_\=+~]).{8,}$/;
         if (!passwordRegex.test(newPassword)) {
-            return setError('Mật khẩu phải có ít nhất 8 ký tự, 1 chữ hoa và 1 ký tự đặc biệt');
+            return setError(t('forgotPassword.passwordWeak'));
         }
 
         setLoading(true); setError('');
         try {
             const res = await axios.post('/api/auth/forgot-password/reset', {
-                resetToken, newPassword
+                resetToken, newPassword, lang: language
             });
-            setSuccess(res.data.message || 'Đặt lại mật khẩu thành công!');
+            setSuccess(res.data.message || t('forgotPassword.resetSuccess'));
             setTimeout(() => onBackToLogin(), 3000);
         } catch (err) {
-            setError(err.response?.data?.error || 'Không thể đặt lại mật khẩu');
+            setError(err.response?.data?.error || t('forgotPassword.resetError'));
         } finally { setLoading(false); }
     };
 
@@ -125,12 +127,12 @@ const ForgotPasswordPage = ({ onBackToLogin }) => {
     const handleResendOTP = async () => {
         setOtpResending(true); setError('');
         try {
-            const res = await axios.post('/api/auth/otp/resend', { email: email.trim(), type: 'FORGOT_PASSWORD' });
+            const res = await axios.post('/api/auth/otp/resend', { email: email.trim(), type: 'FORGOT_PASSWORD', lang: language });
             setOtpCountdown(res.data.ttl || 90);
             setOtpCode(['', '', '', '', '', '']);
             otpRefs.current[0]?.focus();
         } catch (err) {
-            setError(err.response?.data?.error || 'Không thể gửi lại OTP');
+            setError(err.response?.data?.error || t('otp.cannotResend'));
         } finally { setOtpResending(false); }
     };
 
@@ -143,13 +145,14 @@ const ForgotPasswordPage = ({ onBackToLogin }) => {
         if (/[A-Z]/.test(pw)) score++;
         if (/[0-9]/.test(pw)) score++;
         if (/[^A-Za-z0-9]/.test(pw)) score++;
+        const labels = t('forgotPassword.strengthLabels');
         const map = [
             { level: 0, color: '', label: '' },
-            { level: 1, color: '#ef4444', label: 'Rất yếu' },
-            { level: 2, color: '#f97316', label: 'Yếu' },
-            { level: 3, color: '#eab308', label: 'Trung bình' },
-            { level: 4, color: '#22c55e', label: 'Mạnh' },
-            { level: 5, color: '#00e5a0', label: 'Rất mạnh' },
+            { level: 1, color: '#ef4444', label: Array.isArray(labels) ? labels[1] : 'Rất yếu' },
+            { level: 2, color: '#f97316', label: Array.isArray(labels) ? labels[2] : 'Yếu' },
+            { level: 3, color: '#eab308', label: Array.isArray(labels) ? labels[3] : 'Trung bình' },
+            { level: 4, color: '#22c55e', label: Array.isArray(labels) ? labels[4] : 'Mạnh' },
+            { level: 5, color: '#00e5a0', label: Array.isArray(labels) ? labels[5] : 'Rất mạnh' },
         ];
         return map[score] || map[4];
     };
@@ -286,11 +289,11 @@ const ForgotPasswordPage = ({ onBackToLogin }) => {
                 {/* Step 1: Email Input */}
                 {step === 1 && (
                     <div style={{ animation: 'fadeInUp 0.4s ease' }}>
-                        <div style={s.title}>Quên mật khẩu?</div>
-                        <div style={s.subtitle}>Nhập email đã đăng ký để nhận mã xác thực</div>
+                        <div style={s.title}>{t('forgotPassword.title')}</div>
+                        <div style={s.subtitle}>{t('forgotPassword.subtitle')}</div>
 
                         <form onSubmit={handleSendOTP}>
-                            <label style={s.label}>EMAIL</label>
+                            <label style={s.label}>{t('forgotPassword.emailLabel')}</label>
                             <div className="fp-input" style={s.inputGroup}>
                                 <Mail size={18} style={s.inputIcon} />
                                 <input
@@ -304,7 +307,7 @@ const ForgotPasswordPage = ({ onBackToLogin }) => {
                             </div>
 
                             <button type="submit" className="fp-submit" style={s.submitBtn} disabled={loading || !email.trim()}>
-                                {loading ? <div style={s.spinner} /> : <>Gửi mã xác thực <Mail size={18} /></>}
+                                {loading ? <div style={s.spinner} /> : <>{t('forgotPassword.sendOtp')} <Mail size={18} /></>}
                             </button>
                         </form>
                     </div>
@@ -315,9 +318,9 @@ const ForgotPasswordPage = ({ onBackToLogin }) => {
                     <div style={{ animation: 'fadeInUp 0.4s ease' }}>
                         <div style={{ textAlign: 'center', marginBottom: 20 }}>
                             <div style={{ fontSize: 28, marginBottom: 12 }}>🔐</div>
-                            <div style={s.title}>Nhập mã xác thực</div>
+                            <div style={s.title}>{t('forgotPassword.otpTitle')}</div>
                             <div style={s.subtitle}>
-                                Mã OTP 6 số đã gửi đến <span style={{ color: '#00e5a0', fontWeight: 600 }}>{maskedEmail}</span>
+                                {t('forgotPassword.otpSentTo')} <span style={{ color: '#00e5a0', fontWeight: 600 }}>{maskedEmail}</span>
                             </div>
                         </div>
 
@@ -350,13 +353,13 @@ const ForgotPasswordPage = ({ onBackToLogin }) => {
                         <div style={{ textAlign: 'center', marginBottom: 20 }}>
                             {otpCountdown > 0 ? (
                                 <span style={{ color: '#5a7a9a', fontSize: 13 }}>
-                                    Hiệu lực:{' '}
+                                    {t('otp.validity')}{' '}
                                     <span style={{ color: otpCountdown <= 15 ? '#ef4444' : '#00e5a0', fontWeight: 700, fontFamily: 'monospace', fontSize: 15 }}>
                                         {Math.floor(otpCountdown / 60).toString().padStart(2, '0')}:{(otpCountdown % 60).toString().padStart(2, '0')}
                                     </span>
                                 </span>
                             ) : (
-                                <span style={{ color: '#ef4444', fontSize: 13, fontWeight: 600 }}>⚠️ Mã OTP đã hết hạn</span>
+                                <span style={{ color: '#ef4444', fontSize: 13, fontWeight: 600 }}>{t('otp.codeExpired')}</span>
                             )}
                         </div>
 
@@ -365,7 +368,7 @@ const ForgotPasswordPage = ({ onBackToLogin }) => {
                             className="fp-submit" style={s.submitBtn}
                             disabled={loading || otpCode.join('').length !== 6}
                         >
-                            {loading ? <div style={s.spinner} /> : <>Xác thực <ShieldCheck size={18} /></>}
+                            {loading ? <div style={s.spinner} /> : <>{t('otp.verify')} <ShieldCheck size={18} /></>}
                         </button>
 
                         {/* Resend */}
@@ -373,10 +376,10 @@ const ForgotPasswordPage = ({ onBackToLogin }) => {
                             {otpCountdown <= 0 ? (
                                 <button onClick={handleResendOTP} disabled={otpResending}
                                     style={{ background: 'none', border: 'none', color: '#00e5a0', cursor: 'pointer', fontSize: 13, fontWeight: 600, textDecoration: 'underline', opacity: otpResending ? 0.5 : 1 }}>
-                                    {otpResending ? 'Đang gửi...' : '🔄 Gửi lại mã OTP'}
+                                    {otpResending ? t('otp.resending') : t('otp.resendOtp')}
                                 </button>
                             ) : (
-                                <span style={{ color: '#3a5a7a', fontSize: 12 }}>Gửi lại khi hết thời gian</span>
+                                <span style={{ color: '#3a5a7a', fontSize: 12 }}>{t('otp.resendWhenExpired')}</span>
                             )}
                         </div>
                     </div>
@@ -387,18 +390,18 @@ const ForgotPasswordPage = ({ onBackToLogin }) => {
                     <div style={{ animation: 'fadeInUp 0.4s ease' }}>
                         <div style={{ textAlign: 'center', marginBottom: 20 }}>
                             <div style={{ fontSize: 28, marginBottom: 12 }}>🔑</div>
-                            <div style={s.title}>Đặt mật khẩu mới</div>
-                            <div style={s.subtitle}>Tạo mật khẩu mới an toàn cho tài khoản của bạn</div>
+                            <div style={s.title}>{t('forgotPassword.newPasswordTitle')}</div>
+                            <div style={s.subtitle}>{t('forgotPassword.newPasswordSubtitle')}</div>
                         </div>
 
                         <form onSubmit={handleResetPassword}>
-                            <label style={s.label}>MẬT KHẨU MỚI</label>
+                            <label style={s.label}>{t('forgotPassword.newPasswordLabel')}</label>
                             <div className="fp-input" style={s.inputGroup}>
                                 <Lock size={18} style={s.inputIcon} />
                                 <input
                                     type={showPw.pw ? 'text' : 'password'}
                                     style={s.input}
-                                    placeholder="Nhập mật khẩu mới"
+                                    placeholder={t('forgotPassword.newPasswordPlaceholder')}
                                     value={newPassword}
                                     onChange={e => setNewPassword(e.target.value)}
                                     required autoFocus
@@ -420,13 +423,13 @@ const ForgotPasswordPage = ({ onBackToLogin }) => {
                                 </div>
                             )}
 
-                            <label style={s.label}>XÁC NHẬN MẬT KHẨU</label>
+                            <label style={s.label}>{t('forgotPassword.confirmPasswordLabel')}</label>
                             <div className="fp-input" style={s.inputGroup}>
                                 <Lock size={18} style={s.inputIcon} />
                                 <input
                                     type={showPw.confirm ? 'text' : 'password'}
                                     style={s.input}
-                                    placeholder="Nhập lại mật khẩu mới"
+                                    placeholder={t('forgotPassword.confirmPasswordPlaceholder')}
                                     value={confirmPassword}
                                     onChange={e => setConfirmPassword(e.target.value)}
                                     required
@@ -439,16 +442,16 @@ const ForgotPasswordPage = ({ onBackToLogin }) => {
                             {confirmPassword && (
                                 <div style={{ marginBottom: 16, fontSize: 12 }}>
                                     {newPassword === confirmPassword ? (
-                                        <span style={{ color: '#00e5a0' }}>✓ Mật khẩu khớp</span>
+                                        <span style={{ color: '#00e5a0' }}>{t('forgotPassword.passwordMatch')}</span>
                                     ) : (
-                                        <span style={{ color: '#f87171' }}>✗ Mật khẩu không khớp</span>
+                                        <span style={{ color: '#f87171' }}>{t('forgotPassword.passwordNoMatch')}</span>
                                     )}
                                 </div>
                             )}
 
                             <button type="submit" className="fp-submit" style={s.submitBtn}
                                 disabled={loading || !newPassword || newPassword !== confirmPassword}>
-                                {loading ? <div style={s.spinner} /> : <>Đặt lại mật khẩu <ShieldCheck size={18} /></>}
+                                {loading ? <div style={s.spinner} /> : <>{t('forgotPassword.resetBtn')} <ShieldCheck size={18} /></>}
                             </button>
                         </form>
                     </div>
@@ -460,7 +463,7 @@ const ForgotPasswordPage = ({ onBackToLogin }) => {
                         onClick={onBackToLogin}
                         style={{ background: 'none', border: 'none', color: '#5a7a9a', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, margin: '0 auto' }}
                     >
-                        <ArrowLeft size={16} /> Quay lại đăng nhập
+                        <ArrowLeft size={16} /> {t('forgotPassword.backToLogin')}
                     </button>
                 </div>
             </div>

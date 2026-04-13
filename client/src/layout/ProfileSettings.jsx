@@ -103,7 +103,8 @@ const ProfileSettings = ({ user }) => {
         try {
             await axios.put('/api/auth/me/password', {
                 currentPassword: pwForm.currentPassword,
-                newPassword: pwForm.newPassword
+                newPassword: pwForm.newPassword,
+                lang: language
             }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
             showToast('success', t('password.success'));
             setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' });

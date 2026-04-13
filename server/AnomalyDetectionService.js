@@ -13,7 +13,7 @@
  */
 
 const sql = require('mssql');
-const { encrypt, decrypt, hashData } = require('./EncryptionService');
+const { encrypt, decrypt, hashData, safeDecrypt, safeDecryptInt, safeDecryptFloat, TAMPERED_DATA } = require('./EncryptionService');
 const synaptic = require('synaptic');
 const fs = require('fs');
 const path = require('path');
@@ -785,15 +785,14 @@ class AnomalyDetectionService {
             `);
 
             const decryptedAll = allAttempts.recordset.map(row => {
-                let successVal = 0, riskVal = 0, blockedVal = 0;
-                try { successVal = parseInt(decrypt(row.success)) || 0; } catch (e) { successVal = row.success ? 1 : 0; }
-                try { riskVal = parseFloat(decrypt(row.risk_score)) || 0; } catch (e) { riskVal = row.risk_score || 0; }
-                try { blockedVal = parseInt(decrypt(row.blocked)) || 0; } catch (e) { blockedVal = row.blocked ? 1 : 0; }
-                let ip = row.ip_address, ua = row.user_agent, factors = row.risk_factors, uname = row.username;
-                try { ip = decrypt(row.ip_address); } catch (e) { }
-                try { ua = decrypt(row.user_agent); } catch (e) { }
-                try { factors = JSON.parse(decrypt(row.risk_factors)); } catch (e) { }
-                try { uname = decrypt(row.username); } catch (e) { }
+                let successVal = safeDecryptInt(row.success); if (successVal === -1) successVal = 0;
+                let riskVal = safeDecryptFloat(row.risk_score); if (riskVal === -1) riskVal = 0;
+                let blockedVal = safeDecryptInt(row.blocked); if (blockedVal === -1) blockedVal = 0;
+                let ip = safeDecrypt(row.ip_address) || row.ip_address;
+                let ua = safeDecrypt(row.user_agent) || row.user_agent;
+                let factors = row.risk_factors;
+                let uname = safeDecrypt(row.username) || row.username;
+                try { const df = decrypt(row.risk_factors); if (df) factors = JSON.parse(df); } catch (e) { const sf = safeDecrypt(row.risk_factors); if (sf === TAMPERED_DATA) factors = TAMPERED_DATA; }
                 return { ...row, success: successVal, risk_score: riskVal, blocked: blockedVal, ip_address: ip, user_agent: ua, risk_factors: factors, username: uname };
             });
 

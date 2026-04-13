@@ -166,14 +166,38 @@ async function getTrustedDevices(pool, userId) {
 /**
  * Thu hồi phiên đăng nhập cụ thể (Nút "Không phải tôi")
  * @param {string} sessionId - session_id trong auth_refresh_tokens
+ * 
+ * Flow: 
+ * 1. Lấy user_id + device_fingerprint từ session
+ * 2. Xóa refresh token (đăng xuất)
+ * 3. Xóa thiết bị khỏi trusted_devices (để lần đăng nhập sau sẽ gửi cảnh báo lại)
  */
 async function revokeSession(pool, sessionId) {
+    // 1. Get user_id + device_fingerprint before deleting
+    const lookup = await pool.request()
+        .input('sid', sql.UniqueIdentifier, sessionId)
+        .query("SELECT user_id, device_fingerprint, token_hash FROM auth_refresh_tokens WHERE session_id = @sid");
+    
+    const userId = lookup.recordset[0]?.user_id || null;
+    const fingerprint = lookup.recordset[0]?.device_fingerprint || null;
+    const tokenHash = lookup.recordset[0]?.token_hash || null;
+
+    // 2. Delete the refresh token (revoke session)
     const result = await pool.request()
         .input('sid', sql.UniqueIdentifier, sessionId)
         .query("DELETE FROM auth_refresh_tokens WHERE session_id = @sid");
 
-    console.log(`[DeviceService] 🚫 Revoked session ${sessionId} (${result.rowsAffected[0]} rows)`);
-    return { revoked: result.rowsAffected[0] > 0 };
+    // 3. Remove device from trusted list so next login triggers alert again
+    if (fingerprint && userId) {
+        await pool.request()
+            .input('uid', sql.UniqueIdentifier, userId)
+            .input('fp', sql.NVarChar, fingerprint)
+            .query("DELETE FROM trusted_devices WHERE user_id = @uid AND device_fingerprint = @fp");
+        console.log(`[DeviceService] 🗑️ Removed trusted device (fingerprint: ${fingerprint.substring(0, 8)}...) for user ${userId}`);
+    }
+
+    console.log(`[DeviceService] 🚫 Revoked session ${sessionId} (${result.rowsAffected[0]} rows, userId: ${userId})`);
+    return { revoked: result.rowsAffected[0] > 0, userId, tokenHash };
 }
 
 /**

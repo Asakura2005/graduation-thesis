@@ -4,6 +4,7 @@ import axios from "axios";
 import LoginPage from "./security/LoginPage";
 import RegisterPage from "./security/RegisterPage";
 import ForgotPasswordPage from "./security/ForgotPasswordPage";
+import ChangePasswordPage from "./security/ChangePasswordPage";
 import ShipmentForm from "./ShipmentForm";
 import ShipmentDetails from "./ShipmentDetails";
 import PartnerForm from "./admin/PartnerForm";
@@ -152,7 +153,16 @@ const App = () => {
         const originalRequest = error.config;
         // Xử lý Refresh Token tự động khi gặp lỗi 401 Unauthorized
         if (error.response && error.response.status === 401 && !originalRequest._retry) {
-            // Loại trừ route login/refresh để tránh lặp vô hạn
+            // Force logout: phiên bị thu hồi từ email cảnh báo bảo mật
+            if (error.response.data?.forceLogout) {
+                console.warn('[Security] ⛔ Session was revoked remotely. Logging out immediately.');
+                localStorage.removeItem("token");
+                sessionStorage.removeItem("token");
+                setUser(null);
+                return Promise.reject(error);
+            }
+
+            // Loại trừ route login/refresh/session-check để tránh lặp vô hạn
             if (originalRequest.url.includes('/api/auth/')) {
                 return Promise.reject(error);
             }
@@ -176,7 +186,7 @@ const App = () => {
                 // Refresh token gãy hoặc hết hạn -> Đăng xuất tận gốc
                 localStorage.removeItem("token");
                 sessionStorage.removeItem("token");
-                window.location.reload();
+                setUser(null);
             }
         }
 
@@ -194,10 +204,32 @@ const App = () => {
       }, 30000);
     }
 
+    // Session Heartbeat: Kiểm tra mỗi 5 giây xem phiên có bị thu hồi không
+    // Khi admin/chủ tài khoản bấm "Không phải tôi" → thiết bị kia bị đẩy ra login ngay lập tức
+    let heartbeatInterval;
+    if (user) {
+      heartbeatInterval = setInterval(async () => {
+        try {
+          const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+          if (!token) return;
+          await axios.get('/api/auth/session-check', { withCredentials: true });
+        } catch (err) {
+          if (err.response?.data?.forceLogout) {
+            console.warn('[Heartbeat] ⛔ Session revoked! Redirecting to login...');
+            localStorage.removeItem("token");
+            sessionStorage.removeItem("token");
+            setUser(null);
+            clearInterval(heartbeatInterval);
+          }
+        }
+      }, 5000);
+    }
+
     return () => {
       axios.interceptors.request.eject(reqInterceptor);
       axios.interceptors.response.eject(resInterceptor);
       if (refreshInterval) clearInterval(refreshInterval);
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
     };
   }, [user, language]);
 
@@ -487,11 +519,76 @@ const App = () => {
   );
 };
 
+const DeviceActionPage = () => {
+  const { t } = useLanguage();
+  const [status, setStatus] = React.useState('loading'); // loading, success, error
+  const [message, setMessage] = React.useState('');
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const action = params.get('action');
+    const sessionId = params.get('sessionId');
+
+    if (action === 'revoke' && sessionId) {
+      axios.post('/api/auth/device/revoke', { sessionId })
+        .then(res => {
+          setStatus('success');
+          setMessage(t('deviceAction.revokeSuccess') || 'Device session has been revoked successfully.');
+        })
+        .catch(err => {
+          setStatus('error');
+          setMessage(err.response?.data?.error || t('deviceAction.revokeError') || 'Failed to revoke session. It may have already expired.');
+        });
+    } else {
+      setStatus('error');
+      setMessage(t('deviceAction.invalidAction') || 'Invalid action.');
+    }
+  }, []);
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#0a0e1a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Segoe UI', Arial, sans-serif" }}>
+      <div style={{ maxWidth: 440, width: '100%', padding: 40, textAlign: 'center' }}>
+        <div style={{ width: 64, height: 64, borderRadius: 16, background: status === 'success' ? 'rgba(16,185,129,0.15)' : status === 'error' ? 'rgba(239,68,68,0.15)' : 'rgba(212,175,55,0.15)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, marginBottom: 20 }}>
+          {status === 'loading' ? '⏳' : status === 'success' ? '✅' : '❌'}
+        </div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: '#00e5a0', letterSpacing: 3, marginBottom: 8 }}>SECURE CHAIN</div>
+        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '32px 28px', marginTop: 24 }}>
+          {status === 'loading' ? (
+            <div style={{ color: '#e2e8f0' }}>
+              <div className="spinner-border text-warning mb-3" />
+              <div>{t('deviceAction.processing') || 'Processing your request...'}</div>
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: 18, fontWeight: 700, color: status === 'success' ? '#10b981' : '#ef4444', marginBottom: 12 }}>
+                {status === 'success' ? (t('deviceAction.successTitle') || 'Action Completed') : (t('deviceAction.errorTitle') || 'Action Failed')}
+              </div>
+              <div style={{ fontSize: 14, color: '#5a7a9a', lineHeight: 1.7 }}>{message}</div>
+              <a href="/" style={{ display: 'inline-block', marginTop: 24, padding: '12px 32px', background: 'linear-gradient(135deg,#00e5a0,#00b880)', color: '#0a0e1a', textDecoration: 'none', borderRadius: 10, fontWeight: 700, fontSize: 13 }}>
+                {t('deviceAction.backToLogin') || '← Back to Login'}
+              </a>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const AppWrapper = () => {
   const currentPath = window.location.pathname;
   if (currentPath.startsWith("/tracking/")) {
     const trackingNumber = currentPath.split("/")[2];
     return <TrackingPage trackingNumber={trackingNumber} />;
+  }
+  if (currentPath === "/security/forgot-password") {
+    return <ForgotPasswordPage onBackToLogin={() => { window.location.href = '/'; }} />;
+  }
+  if (currentPath === "/security/change-password") {
+    return <ChangePasswordPage />;
+  }
+  if (currentPath === "/security/device-action") {
+    return <DeviceActionPage />;
   }
   return <App />;
 };

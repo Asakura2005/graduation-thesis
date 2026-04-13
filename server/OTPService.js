@@ -129,7 +129,7 @@ async function verifyOTP(pool, email, otp, type) {
 async function cleanupExpiredOTPs(pool) {
     try {
         const result = await pool.request()
-            .query("DELETE FROM otp_tokens WHERE expires_at < DATEADD(MINUTE, -5, GETDATE()) OR used = 1");
+            .query("DELETE FROM otp_tokens WHERE expires_at < DATEADD(MINUTE, -5, GETUTCDATE()) OR used = 1");
         if (result.rowsAffected[0] > 0) {
             console.log(`[OTPService] Cleaned up ${result.rowsAffected[0]} expired/used OTP records`);
         }
