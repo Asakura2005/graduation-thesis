@@ -45,7 +45,8 @@ app.use(cors({
         // - !origin: Cho phép Postman hoặc Server-to-server request
         // - allowedOrigins: Cho phép client dev local
         // - ngrok regex: Cho phép tất cả subdomain của ngrok
-        if (!origin || allowedOrigins.includes(origin) || /ngrok(-free)?\.(app|io|dev)$/i.test(origin) || origin.includes('web.app') || origin.includes('firebaseapp.com')) {
+        if (!origin || allowedOrigins.includes(origin) || /ngrok(-free)?\.(app|io|dev)$/i.test(origin) || origin.includes('web.app') || origin.includes('firebaseapp.com') || origin.includes('onrender.com')) {
+            callback(null, true);
         } else {
             console.log('[SECURITY ALERT] Blocked CORS Origin:', origin);
             callback(new Error('CORS Policy: Access Denied. Lỗi bảo mật: Domain của bạn không được cấp phép truy cập hệ thống này.'));
