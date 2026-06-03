@@ -1021,11 +1021,38 @@ app.post('/api/auth/login', async (req, res) => {
 
         let isMatch = false;
         try {
-            if (await argon2.verify(user.password_hash, password)) {
-                isMatch = true;
+            const storedHash = user.password_hash;
+            if (storedHash.startsWith('$argon2')) {
+                isMatch = await argon2.verify(storedHash, password);
+            } else if (storedHash.startsWith('$2')) {
+                isMatch = await bcrypt.compare(password, storedHash);
+            } else {
+                try {
+                    const decryptedHash = decrypt(storedHash);
+                    if (decryptedHash.startsWith('$argon2')) {
+                        isMatch = await argon2.verify(decryptedHash, password);
+                    } else if (decryptedHash.startsWith('$2')) {
+                        isMatch = await bcrypt.compare(password, decryptedHash);
+                    }
+                } catch (decErr) {
+                    console.error("Password hash format unknown:", storedHash.substring(0, 20) + '...');
+                }
+            }
+            // Auto-migrate to argon2 on successful login
+            if (isMatch && !storedHash.startsWith('$argon2')) {
+                try {
+                    const newHash = await argon2.hash(password);
+                    await pool.request()
+                        .input('ph', sql.NVarChar, newHash)
+                        .input('id', sql.UniqueIdentifier, user.user_id)
+                        .query('UPDATE system_users SET password_hash = @ph WHERE user_id = @id');
+                    console.log('[Auth] Auto-migrated password to Argon2 for user:', user.user_id);
+                } catch (migrateErr) {
+                    console.error('[Auth] Auto-migrate error:', migrateErr.message);
+                }
             }
         } catch (err) {
-            console.error("Argon2 Verify Error:", err);
+            console.error("Password Verify Error:", err);
             return res.status(500).json({ error: 'Authentication service error' });
         }
 
