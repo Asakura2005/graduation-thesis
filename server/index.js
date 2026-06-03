@@ -3908,9 +3908,14 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Catch-all: serve React frontend for any non-API route (SPA support)
+// Catch-all: return 404 for unknown routes (Frontend is hosted on Firebase, not here)
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'client', 'dist', 'index.html'));
+    const indexPath = path.join(__dirname, '..', 'client', 'dist', 'index.html');
+    if (require('fs').existsSync(indexPath)) {
+        res.sendFile(indexPath);
+    } else {
+        res.status(404).json({ error: 'Route not found', message: 'API endpoint does not exist.' });
+    }
 });
 
 // Disable local HTTPS for Render completely
