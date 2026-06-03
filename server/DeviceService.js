@@ -5,7 +5,7 @@
 const crypto = require('crypto');
 const sql = require('mssql');
 const UAParser = require('ua-parser-js');
-const { encrypt, decrypt, hashData } = require('./EncryptionService');
+const { encrypt, decrypt, hashData, safeDecrypt } = require('./EncryptionService');
 
 /**
  * Tạo device fingerprint từ thông tin request
@@ -64,7 +64,7 @@ function resolveIP(req) {
 async function getIPLocation(ip) {
     // Skip private/local IPs
     if (!ip || ip === 'unknown' || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.') || ip === '127.0.0.1') {
-        return 'Mạng nội bộ (Local Network)';
+        return 'Local Network';
     }
 
     try {
@@ -80,12 +80,12 @@ async function getIPLocation(ip) {
         });
 
         if (data.status === 'success') {
-            return `${data.city || ''}, ${data.regionName || ''}, ${data.country || ''}`.replace(/(^, |, $)/g, '').trim() || 'Không xác định';
+            return `${data.city || ''}, ${data.regionName || ''}, ${data.country || ''}`.replace(/(^, |, $)/g, '').trim() || 'Unknown';
         }
     } catch (err) {
         console.warn(`[DeviceService] IP Geolocation failed for ${ip}:`, err.message);
     }
-    return 'Không xác định';
+    return 'Unknown';
 }
 
 /**
@@ -97,15 +97,21 @@ async function checkTrustedDevice(pool, userId, fingerprint) {
         .input('fp', sql.NVarChar, fingerprint)
         .query(`
             SELECT * FROM trusted_devices 
-            WHERE user_id = @uid AND device_fingerprint = @fp AND is_trusted = 1
+            WHERE user_id = @uid AND device_fingerprint = @fp
         `);
 
-    if (result.recordset.length > 0) {
+    const validDevices = result.recordset.filter(d => {
+        let trusted = safeDecrypt(d.is_trusted) || d.is_trusted;
+        return trusted === '1' || trusted === 'true' || trusted === 1 || trusted === true;
+    });
+
+    if (validDevices.length > 0) {
         // Update last_seen
         await pool.request()
-            .input('id', sql.UniqueIdentifier, result.recordset[0].id)
-            .query("UPDATE trusted_devices SET last_seen = GETDATE() WHERE id = @id");
-        return { trusted: true, device: result.recordset[0] };
+            .input('nLastSeen', sql.NVarChar, encrypt(new Date().toISOString()))
+            .input('id', sql.UniqueIdentifier, validDevices[0].id)
+            .query("UPDATE trusted_devices SET last_seen = @nLastSeen WHERE id = @id");
+        return { trusted: true, device: validDevices[0] };
     }
 
     return { trusted: false };
@@ -125,10 +131,13 @@ async function addTrustedDevice(pool, userId, fingerprint, deviceInfo, ip) {
         .input('browser', sql.NVarChar, encrypt(deviceInfo.browser || 'Unknown'))
         .input('os', sql.NVarChar, encrypt(deviceInfo.os || 'Unknown'))
         .input('loc', sql.NVarChar, encrypt(location))
+        .input('nFirstSeen', sql.NVarChar, encrypt(new Date().toISOString()))
+        .input('nLastSeen', sql.NVarChar, encrypt(new Date().toISOString()))
+        .input('nIsTrusted', sql.NVarChar, encrypt('1'))
         .query(`
             INSERT INTO trusted_devices 
-            (user_id, device_fingerprint, ip_address, user_agent, browser, os, location) 
-            VALUES (@uid, @fp, @ip, @ua, @browser, @os, @loc)
+            (user_id, device_fingerprint, ip_address, user_agent, browser, os, location, first_seen, last_seen, is_trusted) 
+            VALUES (@uid, @fp, @ip, @ua, @browser, @os, @loc, @nFirstSeen, @nLastSeen, @nIsTrusted)
         `);
 
     console.log(`[DeviceService] ✅ Added trusted device for user ${userId} (${deviceInfo.browser} / ${deviceInfo.os})`);
@@ -141,26 +150,30 @@ async function addTrustedDevice(pool, userId, fingerprint, deviceInfo, ip) {
 async function getTrustedDevices(pool, userId) {
     const result = await pool.request()
         .input('uid', sql.UniqueIdentifier, userId)
-        .query("SELECT * FROM trusted_devices WHERE user_id = @uid AND is_trusted = 1 ORDER BY last_seen DESC");
+        .query("SELECT * FROM trusted_devices WHERE user_id = @uid");
 
-    return result.recordset.map(d => {
-        let ip = d.ip_address, browser = d.browser, os = d.os, location = d.location;
-        try { ip = decrypt(d.ip_address) || d.ip_address; } catch (e) { }
-        try { browser = decrypt(d.browser) || d.browser; } catch (e) { }
-        try { os = decrypt(d.os) || d.os; } catch (e) { }
-        try { location = decrypt(d.location) || d.location; } catch (e) { }
+    let devices = result.recordset.map(d => {
+        let ip = safeDecrypt(d.ip_address) || d.ip_address;
+        let browser = safeDecrypt(d.browser) || d.browser;
+        let os = safeDecrypt(d.os) || d.os;
+        let location = safeDecrypt(d.location) || d.location;
+        let isTrusted = safeDecrypt(d.is_trusted) || d.is_trusted;
+        let firstSeen = safeDecrypt(d.first_seen) || d.first_seen;
+        let lastSeen = safeDecrypt(d.last_seen) || d.last_seen;
 
         return {
             id: d.id,
             fingerprint: d.device_fingerprint,
-            ip,
-            browser,
-            os,
-            location,
-            firstSeen: d.first_seen,
-            lastSeen: d.last_seen
+            ip, browser, os, location,
+            isTrusted, firstSeen, lastSeen
         };
     });
+
+    // Handle filtering by trusted and sorting
+    devices = devices.filter(d => d.isTrusted === '1' || d.isTrusted === 'true' || d.isTrusted === 1 || d.isTrusted === true);
+    devices.sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen));
+
+    return devices;
 }
 
 /**

@@ -112,8 +112,7 @@ Double-click file **`start.bat`** tại thư mục gốc để tự động bậ
 
 | Vai trò | Username | Password |
 |---------|----------|----------|
-| Admin | `admin` | *(liên hệ tác giả)* |
-| Staff | `staff01` | *(liên hệ tác giả)* |
+| Admin | `admin` | 123456 |
 
 ---
 

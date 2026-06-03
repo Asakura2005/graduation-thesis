@@ -12,12 +12,20 @@ export const LanguageProvider = ({ children }) => {
         localStorage.setItem('app_language', language);
     }, [language]);
 
-    const t = (key) => {
+    const t = (key, params = {}) => {
         const keys = key.split('.');
         let result = translations[language];
         for (const k of keys) {
             result = result?.[k];
         }
+        
+        if (result && typeof result === 'string') {
+            Object.keys(params).forEach(p => {
+                result = result.replace(new RegExp(`{{${p}}}`, 'g'), params[p]);
+            });
+            return result;
+        }
+        
         return result || key;
     };
 

@@ -78,7 +78,7 @@ const RegisterPage = ({ onBackToLogin }) => {
             if (window.grecaptcha && window.grecaptcha.render && recaptchaRef.current && recaptchaWidgetId.current === null) {
                 try {
                     recaptchaWidgetId.current = window.grecaptcha.render(recaptchaRef.current, {
-                        sitekey: '6Lcu1ZUsAAAAAOnPdO-IbcS8mRC6R7nGIRuKEDOo',
+                        sitekey: '6LfbFQstAAAAANK4Rb7zrDIrP5psl-fRyooE8rZe',
                         callback: (token) => setCaptchaToken(token),
                         'expired-callback': () => setCaptchaToken(''),
                         theme: 'dark',

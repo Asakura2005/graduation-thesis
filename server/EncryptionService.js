@@ -84,8 +84,8 @@ function hashData(text) {
 }
 
 // --- Integrity-aware decryption helpers ---
-// Hằng số đánh dấu dữ liệu bị can thiệp (tampered)
-const TAMPERED_DATA = '⚠ Dữ liệu bị can thiệp';
+// Constant to mark tampered data
+const TAMPERED_DATA = '⚠ Data has been tampered with';
 
 /**
  * Giải mã an toàn: nếu decrypt thất bại (dữ liệu bị sửa trực tiếp trong DB),

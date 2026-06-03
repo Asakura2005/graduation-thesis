@@ -359,10 +359,10 @@ class AnomalyDetectionService {
                 // Hoàn toàn chệch ra khỏi phân phối đám mây bình thường của hệ thống.
                 if (gaussProb < 0.0001) {
                     gaussianPenalty = 60; // Gần như Block ngay lập tức
-                    riskFactors.push({ type: 'UNSUPERVISED_OUTLIER', severity: 'critical', message: 'Hành vi vô cùng kì dị (Probability < 0.01%!' });
+                    riskFactors.push({ type: 'UNSUPERVISED_OUTLIER', severity: 'critical', message: 'Extremely anomalous behavior (Probability < 0.01%)' });
                 } else if (gaussProb < 0.01) {
                     gaussianPenalty = 30; // Đáng ngờ dị biệt
-                    riskFactors.push({ type: 'UNSUPERVISED_ANOMALY', severity: 'warning', message: 'Thuật toán Unsupervised phát hiện điểm bất thường so với đám đông' });
+                    riskFactors.push({ type: 'UNSUPERVISED_ANOMALY', severity: 'warning', message: 'Unsupervised algorithm detected deviation from normal patterns' });
                 }
             }
 
@@ -379,13 +379,13 @@ class AnomalyDetectionService {
             }
 
             // Ghi lại chi tiết (Explanations) để lưu vào DB cho Admin đọc hiểu vì sao AI chọn điểm này
-            if (bScore > 0) riskFactors.push({ type: 'BRUTE_FORCE', severity: bScore >= 40 ? 'critical' : 'warning', message: 'Phát hiện nhiều đăng nhập thất bại trước đó' });
-            if (tScore > 0) riskFactors.push({ type: 'UNUSUAL_TIME', severity: 'warning', message: `Đăng nhập ngoài giờ làm việc (${new Date().getHours()}:00)` });
-            if (ipScore > 0) riskFactors.push({ type: 'NEW_IP', severity: 'warning', message: 'Đăng nhập từ địa chỉ IP hoàn toàn mới' });
-            if (uaScore > 0) riskFactors.push({ type: 'NEW_DEVICE', severity: 'info', message: 'Đăng nhập từ thiết bị/trình duyệt lạ' });
-            if (rapidScore > 0) riskFactors.push({ type: 'RAPID_LOGIN', severity: 'warning', message: 'Tần suất đăng nhập quá nhanh' });
-            if (ipRateScore > 0) riskFactors.push({ type: 'IP_RATE_LIMIT', severity: ipRateScore >= 40 ? 'critical' : 'warning', message: `IP này đã gửi ${this._getIPAttemptCount(ipAddress)} yêu cầu trong 5 phút (Credential Stuffing?)` });
-            if (sprayScore > 0) riskFactors.push({ type: 'PASSWORD_SPRAY', severity: 'critical', message: `Phát hiện thử ${this._getIPUniqueUsernames(ipAddress)} tài khoản khác nhau từ cùng 1 IP (Password Spray!)` });
+            if (bScore > 0) riskFactors.push({ type: 'BRUTE_FORCE', severity: bScore >= 40 ? 'critical' : 'warning', message: 'Multiple previous failed login attempts detected' });
+            if (tScore > 0) riskFactors.push({ type: 'UNUSUAL_TIME', severity: 'warning', message: `Login outside of regular work hours (${new Date().getHours()}:00)` });
+            if (ipScore > 0) riskFactors.push({ type: 'NEW_IP', severity: 'warning', message: 'Login from a completely new IP address' });
+            if (uaScore > 0) riskFactors.push({ type: 'NEW_DEVICE', severity: 'info', message: 'Login from an unrecognized device/browser' });
+            if (rapidScore > 0) riskFactors.push({ type: 'RAPID_LOGIN', severity: 'warning', message: 'Login frequency is too high' });
+            if (ipRateScore > 0) riskFactors.push({ type: 'IP_RATE_LIMIT', severity: ipRateScore >= 40 ? 'critical' : 'warning', message: `This IP has sent ${this._getIPAttemptCount(ipAddress)} requests in 5 minutes (Possible Credential Stuffing)` });
+            if (sprayScore > 0) riskFactors.push({ type: 'PASSWORD_SPRAY', severity: 'critical', message: `Detected ${this._getIPUniqueUsernames(ipAddress)} different usernames attempted from same IP (Password Spray!)` });
 
         } catch (err) {
             console.error('[AI Anomaly] Analysis error:', err.message);
@@ -1008,7 +1008,7 @@ class AnomalyDetectionService {
                 threshold: this.MAX_FAILED_BEFORE_BAN,
                 ip: ipAddress,
                 time: new Date().toISOString(),
-                message: `Sai mật khẩu ${consecutiveFailCount} lần liên tiếp → Khoá 15 phút`
+                message: `${consecutiveFailCount} consecutive failed password attempts → Locked for 15 minutes`
             };
 
             await pool.request()
@@ -1022,12 +1022,12 @@ class AnomalyDetectionService {
                     WHERE user_id = @userId
                 `);
 
-            console.log(`[AutoBan] 🚫 User BANNED 15 phút | Until: ${bannedUntil.toISOString()}`);
+            console.log(`[AutoBan] 🚫 User BANNED for 15 minutes | Until: ${bannedUntil.toISOString()}`);
 
             return {
                 banned: true,
                 bannedUntil: bannedUntil,
-                duration: '15 phút',
+                duration: '15 minutes',
                 banLevel: 1,
                 isPermanent: false
             };

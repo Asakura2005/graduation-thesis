@@ -82,7 +82,7 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister, onForgotPassword }) => {
             if (window.grecaptcha && window.grecaptcha.render && recaptchaRef.current && recaptchaWidgetId.current === null) {
                 try {
                     recaptchaWidgetId.current = window.grecaptcha.render(recaptchaRef.current, {
-                        sitekey: '6Lcu1ZUsAAAAAOnPdO-IbcS8mRC6R7nGIRuKEDOo',
+                        sitekey: '6LfbFQstAAAAANK4Rb7zrDIrP5psl-fRyooE8rZe',
                         callback: (token) => setCaptchaToken(token),
                         'expired-callback': () => setCaptchaToken(''),
                         theme: 'dark',
@@ -162,12 +162,21 @@ const LoginPage = ({ onLoginSuccess, onGoToRegister, onForgotPassword }) => {
         } catch (err) {
             // Xử lý trường hợp bị AI block
             if (err.response?.status === 403 && err.response?.data?.blocked) {
-                setError(`🛡️ ${err.response.data.error} (Risk Score: ${err.response.data.riskScore})`);
+                const msg = err.response.data.errorKey 
+                    ? t(err.response.data.errorKey, err.response.data.errorParams)
+                    : err.response.data.error;
+                setError(`🛡️ ${msg} (Risk Score: ${err.response.data.riskScore})`);
             } else if (err.response?.status === 403 && err.response?.data?.banned) {
-                // Xử lý trường hợp bị AI tự động ban (sai mật khẩu 7 lần)
-                setError(`🚫 ${err.response.data.error}`);
+                // Xử lý trường hợp bị AI tự động ban
+                const msg = err.response.data.errorKey
+                    ? t(err.response.data.errorKey, err.response.data.errorParams)
+                    : err.response.data.error;
+                setError(`🚫 ${msg}`);
             } else {
-                setError(err.response?.data?.error || t('login.error'));
+                const msg = err.response?.data?.errorKey
+                    ? t(err.response.data.errorKey, err.response.data.errorParams)
+                    : (err.response?.data?.error || t('login.error'));
+                setError(msg);
             }
             resetCaptcha();
         } finally {

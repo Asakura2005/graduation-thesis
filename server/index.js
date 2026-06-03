@@ -45,8 +45,7 @@ app.use(cors({
         // - !origin: Cho phép Postman hoặc Server-to-server request
         // - allowedOrigins: Cho phép client dev local
         // - ngrok regex: Cho phép tất cả subdomain của ngrok
-        if (!origin || allowedOrigins.includes(origin) || /ngrok(-free)?\.(app|io|dev)$/i.test(origin)) {
-            callback(null, true);
+        if (!origin || allowedOrigins.includes(origin) || /ngrok(-free)?\.(app|io|dev)$/i.test(origin) || origin.includes('web.app') || origin.includes('firebaseapp.com')) {
         } else {
             console.log('[SECURITY ALERT] Blocked CORS Origin:', origin);
             callback(new Error('CORS Policy: Access Denied. Lỗi bảo mật: Domain của bạn không được cấp phép truy cập hệ thống này.'));
@@ -957,9 +956,12 @@ app.post('/api/auth/login', async (req, res) => {
                 }
 
                 return res.status(403).json({
-                    error: 'Tài khoản đã bị Tự động Khóa do hành vi đáng ngờ. Xin vui lòng liên hệ Admin.',
+                    error: `Access denied from IP ${clientIP} due to critical risk factors. Please contact admin.`,
+                    errorKey: 'login.accessDeniedRisk',
+                    errorParams: { ip: clientIP },
+                    blocked: true,
                     riskScore: preAnalysis.riskScore,
-                    blocked: true
+                    riskFactors: preAnalysis.riskFactors
                 });
             } // end else (currentlyBanned)
         }
@@ -975,10 +977,13 @@ app.post('/api/auth/login', async (req, res) => {
                 });
                 // Tạo thông báo cảnh báo cho Admin
                 await pool.request()
-                    .input('nTitle', sql.NVarChar, '⚠️ Đăng nhập thất bại')
-                    .input('nMsg', sql.NVarChar, `Tài khoản "${username}" không tồn tại nhưng có người cố đăng nhập. Risk Score: ${preAnalysis.riskScore}. IP: ${clientIP}`)
-                    .input('nType', sql.NVarChar, 'security')
-                    .query(`INSERT INTO notifications (target_role, title, message, type) VALUES ('Admin', @nTitle, @nMsg, @nType)`);
+                    .input('nRole', sql.NVarChar, encrypt('Admin'))
+                    .input('nTitle', sql.NVarChar, encrypt('⚠️ Login Failed'))
+                    .input('nMsg', sql.NVarChar, encrypt(`Account "${username}" does not exist but someone tried to login. Risk Score: ${preAnalysis.riskScore}. IP: ${clientIP}`))
+                    .input('nType', sql.NVarChar, encrypt('security'))
+                    .input('nIsRead', sql.NVarChar, encrypt('0'))
+                    .input('nCreatedAt', sql.NVarChar, encrypt(new Date().toISOString()))
+                    .query(`INSERT INTO notifications (notification_id, target_role, title, message, type, is_read, created_at) VALUES (NEWID(), @nRole, @nTitle, @nMsg, @nType, @nIsRead, @nCreatedAt)`);
             } catch (recErr) { console.error('[AI Anomaly] Record error:', recErr.message); }
             return res.status(401).json({ error: 'User not found' });
         }
@@ -997,10 +1002,12 @@ app.post('/api/auth/login', async (req, res) => {
 
                 const timeRemaining = banStatus.isPermanent
                     ? 'permanently'
-                    : `until ${banStatus.bannedUntil.toLocaleString('vi-VN')}`;
+                    : `until ${banStatus.bannedUntil.toLocaleString('en-US')}`;
 
                 return res.status(403).json({
-                    error: `Tài khoản đã bị khóa ${banStatus.isPermanent ? 'vĩnh viễn' : 'đến ' + banStatus.bannedUntil.toLocaleString('vi-VN')} do hoạt động bất thường (Lần ${banStatus.banCount}).`,
+                    error: `Account has been locked ${banStatus.isPermanent ? 'permanently' : 'until ' + banStatus.bannedUntil.toLocaleString('en-US')} due to unusual activity (Ban #${banStatus.banCount}).`,
+                    errorKey: 'login.accountLockedHistory',
+                    errorParams: { duration: timeRemaining, count: banStatus.banCount },
                     banned: true,
                     bannedUntil: banStatus.bannedUntil,
                     isPermanent: banStatus.isPermanent,
@@ -1033,10 +1040,13 @@ app.post('/api/auth/login', async (req, res) => {
                 let decryptedUsernameForNotif = username;
                 try { decryptedUsernameForNotif = decrypt(user.username) || username; } catch (e) { }
                 await pool.request()
-                    .input('nTitle', sql.NVarChar, '⚠️ Đăng nhập thất bại')
-                    .input('nMsg', sql.NVarChar, `Tài khoản "${decryptedUsernameForNotif}" đăng nhập sai mật khẩu. Risk Score: ${preAnalysis.riskScore}. IP: ${clientIP}`)
-                    .input('nType', sql.NVarChar, 'security')
-                    .query(`INSERT INTO notifications (target_role, title, message, type) VALUES ('Admin', @nTitle, @nMsg, @nType)`);
+                    .input('nRole', sql.NVarChar, encrypt('Admin'))
+                    .input('nTitle', sql.NVarChar, encrypt('⚠️ Login Failed'))
+                    .input('nMsg', sql.NVarChar, encrypt(`Account "${decryptedUsernameForNotif}" failed password verification. Risk Score: ${preAnalysis.riskScore}. IP: ${clientIP}`))
+                    .input('nType', sql.NVarChar, encrypt('security'))
+                    .input('nIsRead', sql.NVarChar, encrypt('0'))
+                    .input('nCreatedAt', sql.NVarChar, encrypt(new Date().toISOString()))
+                    .query(`INSERT INTO notifications (notification_id, target_role, title, message, type, is_read, created_at) VALUES (NEWID(), @nRole, @nTitle, @nMsg, @nType, @nIsRead, @nCreatedAt)`);
             } catch (recErr) { console.error('[AI Anomaly] Record error:', recErr.message); }
 
             // === AUTO-BAN: Kiểm tra sai mật khẩu >= 3 lần liên tiếp → tự động ban ===
@@ -1060,13 +1070,18 @@ app.post('/api/auth/login', async (req, res) => {
 
                     // Gửi notification cho Admin
                     await pool.request()
-                        .input('nTitle2', sql.NVarChar, '🚫 AI tự động khoá tài khoản')
-                        .input('nMsg2', sql.NVarChar, `Tài khoản "${decryptedUsernameForBan}" đã bị AI tự động khoá do sai mật khẩu ≥ ${anomalyDetector.MAX_FAILED_BEFORE_BAN} lần liên tiếp. Thời gian khoá: ${banResult.duration}. Ban level: ${banResult.banLevel}. IP: ${clientIP}`)
-                        .input('nType2', sql.NVarChar, 'security')
-                        .query(`INSERT INTO notifications (target_role, title, message, type) VALUES ('Admin', @nTitle2, @nMsg2, @nType2)`);
+                        .input('nRole', sql.NVarChar, encrypt('Admin'))
+                        .input('nTitle2', sql.NVarChar, encrypt('🚫 AI Auto-lock Account'))
+                        .input('nMsg2', sql.NVarChar, encrypt(`Account "${decryptedUsernameForBan}" has been auto-locked by AI due to ${anomalyDetector.MAX_FAILED_BEFORE_BAN} consecutive failed password attempts. Duration: ${banResult.duration}. Level: ${banResult.banLevel}. IP: ${clientIP}`))
+                        .input('nType2', sql.NVarChar, encrypt('security'))
+                        .input('nIsRead', sql.NVarChar, encrypt('0'))
+                        .input('nCreatedAt', sql.NVarChar, encrypt(new Date().toISOString()))
+                        .query(`INSERT INTO notifications (notification_id, target_role, title, message, type, is_read, created_at) VALUES (NEWID(), @nRole, @nTitle2, @nMsg2, @nType2, @nIsRead, @nCreatedAt)`);
 
                     return res.status(403).json({
-                        error: `Tài khoản đã bị AI tự động khoá do sai mật khẩu ${anomalyDetector.MAX_FAILED_BEFORE_BAN} lần liên tiếp. Thời gian khoá: ${banResult.duration === 'PERMANENT' ? 'Vĩnh viễn' : banResult.duration}. Vui lòng liên hệ Admin.`,
+                        error: `Account has been auto-locked by AI due to ${anomalyDetector.MAX_FAILED_BEFORE_BAN} consecutive failed password attempts. Duration: ${banResult.duration === 'PERMANENT' ? 'Permanent' : banResult.duration}. Please contact admin.`,
+                        errorKey: 'login.bannedByAI',
+                        errorParams: { count: anomalyDetector.MAX_FAILED_BEFORE_BAN, duration: banResult.duration === 'PERMANENT' ? 'Permanent' : banResult.duration },
                         banned: true,
                         bannedUntil: banResult.bannedUntil,
                         isPermanent: banResult.isPermanent,
@@ -1103,7 +1118,11 @@ app.post('/api/auth/login', async (req, res) => {
                     blocked: false, captchaVerified: true
                 });
             } catch (recErr) { }
-            return res.status(403).json({ error: 'Tài khoản của bạn đang chờ quản lý phê duyệt. Vui lòng liên hệ Admin.', isPending: true });
+            return res.status(403).json({ 
+                error: 'Your account is pending manager approval. Please contact admin.', 
+                errorKey: 'login.pendingApproval',
+                isPending: true 
+            });
         }
 
         // Ghi nhận login thành công
@@ -1142,7 +1161,7 @@ app.post('/api/auth/login', async (req, res) => {
                             device: `${devInfo.browser} / ${devInfo.os}`,
                             ip: clientIP,
                             location: location,
-                            time: new Date().toLocaleString('vi-VN')
+                            time: new Date().toLocaleString('en-US')
                         };
                         await logAudit(user.user_id, 'NEW_DEVICE_DETECTED', adminNotif);
                     } catch (notifErr) { console.error('[Admin Notif] Error:', notifErr.message); }
@@ -1174,10 +1193,11 @@ app.post('/api/auth/login', async (req, res) => {
             await pool.request()
                 .input('uid', sql.UniqueIdentifier, user.user_id)
                 .input('th', sql.NVarChar, hashedRefresh)
-                .input('exp', sql.DateTime, expDate)
+                .input('exp', sql.NVarChar, encrypt(expDate.toISOString()))
+                .input('createdAt', sql.NVarChar, encrypt(new Date().toISOString()))
                 .input('fp', sql.NVarChar, fingerprint)
                 .input('ip', sql.NVarChar, encIP)
-                .query("INSERT INTO auth_refresh_tokens (user_id, token_hash, expires_at, device_fingerprint, ip_address) VALUES (@uid, @th, @exp, @fp, @ip)");
+                .query("INSERT INTO auth_refresh_tokens (user_id, token_hash, expires_at, created_at, device_fingerprint, ip_address) VALUES (@uid, @th, @exp, @createdAt, @fp, @ip)");
 
             // Register device as trusted
             if (isNewDevice && fingerprint) {
@@ -1193,7 +1213,8 @@ app.post('/api/auth/login', async (req, res) => {
                 username: decryptedUsername,
                 riskScore: fullAnalysis.riskScore,
                 aiDecision: fullAnalysis.decision,
-                twoFA: 'skipped_no_smtp'
+                twoFA: 'skipped_no_smtp',
+                time: new Date().toLocaleString('en-US')
             });
 
             return res.json({
@@ -1334,10 +1355,11 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
         const insertResult = await pool.request()
             .input('uid', sql.UniqueIdentifier, decoded.id)
             .input('th', sql.NVarChar, hashedRefresh)
-            .input('exp', sql.DateTime, expDate)
+            .input('exp', sql.NVarChar, encrypt(expDate.toISOString()))
+            .input('createdAt', sql.NVarChar, encrypt(new Date().toISOString()))
             .input('fp', sql.NVarChar, fingerprint)
             .input('ip', sql.NVarChar, encIP)
-            .query("INSERT INTO auth_refresh_tokens (user_id, token_hash, expires_at, device_fingerprint, ip_address) OUTPUT INSERTED.session_id VALUES (@uid, @th, @exp, @fp, @ip)");
+            .query("INSERT INTO auth_refresh_tokens (user_id, token_hash, expires_at, created_at, device_fingerprint, ip_address) OUTPUT INSERTED.session_id VALUES (@uid, @th, @exp, @createdAt, @fp, @ip)");
 
         const sessionId = insertResult.recordset[0]?.session_id;
 
@@ -1388,7 +1410,8 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
         await logAudit(decoded.id, 'USER_LOGIN_2FA', {
             username: decoded.username,
             method: method || 'email',
-            newDevice: decoded.isNewDevice
+            newDevice: decoded.isNewDevice,
+            time: new Date().toLocaleString('en-US')
         });
 
         res.json({ token: finalToken, role: decoded.role, username: decoded.username });
@@ -1411,9 +1434,14 @@ app.post('/api/auth/refresh', async (req, res) => {
         const checkRes = await pool.request()
             .input('uid', sql.UniqueIdentifier, decoded.id)
             .input('th', sql.NVarChar, hashedRefresh)
-            .query("SELECT * FROM auth_refresh_tokens WHERE user_id = @uid AND token_hash = @th AND expires_at > GETUTCDATE()");
+            .query("SELECT * FROM auth_refresh_tokens WHERE user_id = @uid AND token_hash = @th");
 
-        if (checkRes.recordset.length === 0) {
+        const validTokens = checkRes.recordset.filter(t => {
+            const expDate = new Date(safeDecrypt(t.expires_at) || t.expires_at);
+            return expDate > new Date(); // still valid?
+        });
+
+        if (validTokens.length === 0) {
             // Thông báo bắt đăng nhập lại do Refresh token bị xóa hoặc hết hạn
             res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
             return res.status(401).json({ error: 'Invalid refresh session. Please login again.' });
@@ -1433,7 +1461,10 @@ app.post('/api/auth/refresh', async (req, res) => {
         res.json({ token: newToken });
     } catch (err) {
         res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
-        res.status(403).json({ error: 'Refresh token expired or invalid' });
+        res.status(403).json({ 
+            error: 'Refresh token expired or invalid',
+            errorKey: 'login.sessionInvalid'
+        });
     }
 });
 
@@ -2912,12 +2943,14 @@ app.post('/api/shipments', authenticateToken, authorizeRole(['Admin', 'Manager',
         // Create notification for Warehouse role
         try {
             await pool.request()
-                .input('role', sql.NVarChar, 'Warehouse')
-                .input('title', sql.NVarChar, 'Yêu cầu duyệt vận đơn mới')
-                .input('msg', sql.NVarChar, `Vận đơn ${trackingNumber} vừa được tạo bởi ${req.user.username}. Vui lòng xem xét và phê duyệt.`)
-                .input('type', sql.NVarChar, 'shipment_approval')
-                .input('relId', sql.NVarChar, shipmentId)
-                .query("INSERT INTO notifications (target_role, title, message, type, related_id) VALUES (@role, @title, @msg, @type, @relId)");
+                .input('role', sql.NVarChar, encrypt('Warehouse'))
+                .input('title', sql.NVarChar, encrypt('Yêu cầu duyệt vận đơn mới'))
+                .input('msg', sql.NVarChar, encrypt(`Vận đơn ${trackingNumber} vừa được tạo bởi ${req.user.username}. Vui lòng xem xét và phê duyệt.`))
+                .input('type', sql.NVarChar, encrypt('shipment_approval'))
+                .input('relId', sql.NVarChar, encrypt(shipmentId.toString()))
+                .input('isRead', sql.NVarChar, encrypt('0'))
+                .input('createdAt', sql.NVarChar, encrypt(new Date().toISOString()))
+                .query("INSERT INTO notifications (notification_id, target_role, title, message, type, related_id, is_read, created_at) VALUES (NEWID(), @role, @title, @msg, @type, @relId, @isRead, @createdAt)");
         } catch (notifErr) { console.error('Notification error:', notifErr.message); }
 
         res.status(201).json({ message: 'Shipment created successfully', shipmentId });
@@ -2961,12 +2994,14 @@ app.put('/api/shipments/:id/status', authenticateToken, authorizeRole(['Admin', 
                 let trackNum = ship.tracking_number;
                 try { trackNum = decrypt(ship.tracking_number) || trackNum; } catch (e) { }
                 await pool.request()
-                    .input('userId', sql.UniqueIdentifier, ship.created_by)
-                    .input('title', sql.NVarChar, `Vận đơn ${status}`)
-                    .input('msg', sql.NVarChar, `Vận đơn ${trackNum} đã được cập nhật trạng thái: ${status}`)
-                    .input('type', sql.NVarChar, 'status_update')
-                    .input('relId', sql.NVarChar, req.params.id)
-                    .query("INSERT INTO notifications (user_id, title, message, type, related_id) VALUES (@userId, @title, @msg, @type, @relId)");
+                    .input('userId', sql.NVarChar, encrypt(ship.created_by.toString()))
+                    .input('title', sql.NVarChar, encrypt(`Vận đơn ${status}`))
+                    .input('msg', sql.NVarChar, encrypt(`Vận đơn ${trackNum} đã được cập nhật trạng thái: ${status}`))
+                    .input('type', sql.NVarChar, encrypt('status_update'))
+                    .input('relId', sql.NVarChar, encrypt(req.params.id.toString()))
+                    .input('isRead', sql.NVarChar, encrypt('0'))
+                    .input('createdAt', sql.NVarChar, encrypt(new Date().toISOString()))
+                    .query("INSERT INTO notifications (notification_id, user_id, title, message, type, related_id, is_read, created_at) VALUES (NEWID(), @userId, @title, @msg, @type, @relId, @isRead, @createdAt)");
             }
         } catch (notifErr) { console.error('Notification error:', notifErr.message); }
 
@@ -3010,12 +3045,14 @@ app.put('/api/shipments/:id/approve', authenticateToken, authorizeRole(['Admin',
                 : `Vận đơn ${trackNum} đã bị ${req.user.username} từ chối. Lý do: ${reason || 'Không có'}`;
             try {
                 await pool.request()
-                    .input('userId', sql.UniqueIdentifier, createdBy)
-                    .input('title', sql.NVarChar, notifTitle)
-                    .input('msg', sql.NVarChar, notifMsg)
-                    .input('type', sql.NVarChar, action === 'approve' ? 'approved' : 'rejected')
-                    .input('relId', sql.NVarChar, req.params.id)
-                    .query("INSERT INTO notifications (user_id, title, message, type, related_id) VALUES (@userId, @title, @msg, @type, @relId)");
+                    .input('userId', sql.NVarChar, encrypt(createdBy.toString()))
+                    .input('title', sql.NVarChar, encrypt(notifTitle))
+                    .input('msg', sql.NVarChar, encrypt(notifMsg))
+                    .input('type', sql.NVarChar, encrypt(action === 'approve' ? 'approved' : 'rejected'))
+                    .input('relId', sql.NVarChar, encrypt(req.params.id.toString()))
+                    .input('isRead', sql.NVarChar, encrypt('0'))
+                    .input('createdAt', sql.NVarChar, encrypt(new Date().toISOString()))
+                    .query("INSERT INTO notifications (notification_id, user_id, title, message, type, related_id, is_read, created_at) VALUES (NEWID(), @userId, @title, @msg, @type, @relId, @isRead, @createdAt)");
             } catch (notifErr) { console.error('Notification error:', notifErr.message); }
         }
 
@@ -3054,12 +3091,14 @@ app.put('/api/shipments/:id/export', authenticateToken, authorizeRole(['Admin', 
         if (createdBy) {
             try {
                 await pool.request()
-                    .input('userId', sql.UniqueIdentifier, createdBy)
-                    .input('title', sql.NVarChar, 'Hàng đã xuất kho 🚛')
-                    .input('msg', sql.NVarChar, `Vận đơn ${trackNum} đã được xuất kho và đang vận chuyển.`)
-                    .input('type', sql.NVarChar, 'exported')
-                    .input('relId', sql.NVarChar, req.params.id)
-                    .query("INSERT INTO notifications (user_id, title, message, type, related_id) VALUES (@userId, @title, @msg, @type, @relId)");
+                    .input('userId', sql.NVarChar, encrypt(createdBy.toString()))
+                    .input('title', sql.NVarChar, encrypt('Hàng đã xuất kho 🚛'))
+                    .input('msg', sql.NVarChar, encrypt(`Vận đơn ${trackNum} đã được xuất kho và đang vận chuyển.`))
+                    .input('type', sql.NVarChar, encrypt('exported'))
+                    .input('relId', sql.NVarChar, encrypt(req.params.id.toString()))
+                    .input('isRead', sql.NVarChar, encrypt('0'))
+                    .input('createdAt', sql.NVarChar, encrypt(new Date().toISOString()))
+                    .query("INSERT INTO notifications (notification_id, user_id, title, message, type, related_id, is_read, created_at) VALUES (NEWID(), @userId, @title, @msg, @type, @relId, @isRead, @createdAt)");
             } catch (notifErr) { console.error('Notification error:', notifErr.message); }
         }
 
@@ -3281,17 +3320,37 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
     try {
         const pool = await connectDB();
         const userRole = req.user.role;
-        const userId = req.user.id;
+        const userId = req.user.id.toLowerCase(); // Ensure UUIDs are lower case for JS comparison
 
-        // Get notifications for this user (by user_id) or by role (target_role)
-        const result = await pool.request()
-            .input('userId', sql.UniqueIdentifier, userId)
-            .input('role', sql.NVarChar, userRole)
-            .query(`SELECT * FROM notifications 
-                    WHERE user_id = @userId OR target_role = @role 
-                    ORDER BY created_at DESC`);
+        // Pull ALL notifications
+        const result = await pool.request().query('SELECT * FROM notifications');
+        
+        let userNotifs = [];
+        
+        // Decrypt and filter in JS
+        for (let n of result.recordset) {
+            const decRole = safeDecrypt(n.target_role);
+            const decUserId = safeDecrypt(n.user_id);
+            
+            if (decRole === userRole || (decUserId && decUserId.toLowerCase() === userId)) {
+                userNotifs.push({
+                    notification_id: n.notification_id,
+                    target_role: decRole,
+                    user_id: decUserId,
+                    type: safeDecrypt(n.type),
+                    title: safeDecrypt(n.title),
+                    message: safeDecrypt(n.message),
+                    related_id: n.related_id ? safeDecrypt(n.related_id) : null,
+                    is_read: safeDecrypt(n.is_read) === '1' || safeDecrypt(n.is_read) === 'true',
+                    created_at: safeDecrypt(n.created_at) // Keep as ISO string
+                });
+            }
+        }
+        
+        // Manual Sort DESC
+        userNotifs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-        res.json(result.recordset);
+        res.json(userNotifs);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -3299,8 +3358,9 @@ app.put('/api/notifications/:id/read', authenticateToken, async (req, res) => {
     try {
         const pool = await connectDB();
         await pool.request()
+            .input('nIsRead', sql.NVarChar, encrypt('1'))
             .input('id', sql.UniqueIdentifier, req.params.id)
-            .query("UPDATE notifications SET is_read = 1 WHERE notification_id = @id");
+            .query("UPDATE notifications SET is_read = @nIsRead WHERE notification_id = @id");
         res.json({ message: 'Marked as read' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -3308,10 +3368,26 @@ app.put('/api/notifications/:id/read', authenticateToken, async (req, res) => {
 app.put('/api/notifications/read-all', authenticateToken, async (req, res) => {
     try {
         const pool = await connectDB();
-        await pool.request()
-            .input('userId', sql.UniqueIdentifier, req.user.id)
-            .input('role', sql.NVarChar, req.user.role)
-            .query("UPDATE notifications SET is_read = 1 WHERE user_id = @userId OR target_role = @role");
+        const userRole = req.user.role;
+        const userId = req.user.id.toLowerCase();
+        
+        const result = await pool.request().query("SELECT notification_id, target_role, user_id FROM notifications");
+        
+        const idsToUpdate = [];
+        for (let n of result.recordset) {
+            const decRole = safeDecrypt(n.target_role);
+            const decUserId = safeDecrypt(n.user_id);
+            if (decRole === userRole || (decUserId && decUserId.toLowerCase() === userId)) {
+                idsToUpdate.push(`'${n.notification_id}'`);
+            }
+        }
+        
+        if (idsToUpdate.length > 0) {
+            await pool.request()
+                .input('nIsRead', sql.NVarChar, encrypt('1'))
+                .query(`UPDATE notifications SET is_read = @nIsRead WHERE notification_id IN (${idsToUpdate.join(',')})`);
+        }
+
         res.json({ message: 'All marked as read' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
