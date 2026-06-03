@@ -3906,12 +3906,15 @@ app.listen(PORT, () => console.log(`HTTP Server running on port ${PORT}`));
 // Cấu hình HTTPS Server hỗ trợ TLS Session Resumption để tái sử dụng xác thực,
 // giảm thiểu overhead trong quá trình bắt tay (TLS Handshake)
 try {
-    const https = require('https');
-    const selfsigned = require('selfsigned');
+    if (process.env.RENDER || process.env.NODE_ENV === 'production') {
+        console.log("[SECURITY] Bỏ qua chạy local HTTPS server trên Render (Render đã tự động hỗ trợ HTTPS mượt mà).");
+    } else {
+        const https = require('https');
+        const selfsigned = require('selfsigned');
 
-    // Tự sinh chứng chỉ SSL Local
-    const attrs = [{ name: 'commonName', value: 'localhost' }];
-    const pems = selfsigned.generate(attrs, { days: 365, keySize: 2048 });
+        // Tự sinh chứng chỉ SSL Local
+        const attrs = [{ name: 'commonName', value: 'localhost' }];
+        const pems = selfsigned.generate(attrs, { days: 365, keySize: 2048 });
 
     // Đọc TLS_TICKET_KEY từ biến môi trường (Hex string dài 96 ký tự tương đương 48 bytes)
     // Nếu không có, khởi tạo ngẫu nhiên (chỉ dùng cho Dev, sẽ bị reset khi restart server)
@@ -3982,6 +3985,7 @@ try {
     httpsServer.listen(HTTPS_PORT, () => {
         console.log(`[SECURITY] HTTPS Server Cấu hình TLS Session Resumption đang chạy tại port ${HTTPS_PORT}`);
     });
+    }
 } catch (error) {
     console.log("Không thể giả lập HTTPS Server (Thiếu 'selfsigned'). Chạy: npm install selfsigned");
 }
