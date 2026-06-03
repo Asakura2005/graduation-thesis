@@ -3900,92 +3900,17 @@ app.get('/api/ai/all-users', authenticateToken, authorizeRole(['Admin']), async 
 
 // --- SERVER ---
 const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => console.log(`HTTP Server running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`HTTP Server running on port ${PORT}`));
 
-// --- TLS SESSION RESUMPTION IMPLEMENTATION ---
-// Cấu hình HTTPS Server hỗ trợ TLS Session Resumption để tái sử dụng xác thực,
-// giảm thiểu overhead trong quá trình bắt tay (TLS Handshake)
-try {
-    if (process.env.RENDER || process.env.NODE_ENV === 'production') {
-        console.log("[SECURITY] Bỏ qua chạy local HTTPS server trên Render (Render đã tự động hỗ trợ HTTPS mượt mà).");
-    } else {
-        const https = require('https');
-        const selfsigned = require('selfsigned');
+// Health check endpoint (for Railway / Render deployment)
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
-        // Tự sinh chứng chỉ SSL Local
-        const attrs = [{ name: 'commonName', value: 'localhost' }];
-        const pems = selfsigned.generate(attrs, { days: 365, keySize: 2048 });
+// Catch-all: serve React frontend for any non-API route (SPA support)
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'client', 'dist', 'index.html'));
+});
 
-    // Đọc TLS_TICKET_KEY từ biến môi trường (Hex string dài 96 ký tự tương đương 48 bytes)
-    // Nếu không có, khởi tạo ngẫu nhiên (chỉ dùng cho Dev, sẽ bị reset khi restart server)
-    let ticketKey;
-    if (process.env.TLS_TICKET_KEY && process.env.TLS_TICKET_KEY.length === 96) {
-        ticketKey = Buffer.from(process.env.TLS_TICKET_KEY, 'hex');
-    } else {
-        ticketKey = crypto.randomBytes(48);
-        console.warn("[SECURITY WARN] TLS_TICKET_KEY chưa được cấu hình trong .env. Key sử dụng một lần sẽ bị mất khi khởi động lại server!");
-    }
-
-    // Cấu hình HTTPS & bật cơ chế lưu trữ phiên kết nối bảo mật TLS
-    const httpsOptions = {
-        key: pems.private,
-        cert: pems.cert,
-        // Khởi tạo chìa khóa lưu ticket TLS để cho phép resuming (TLS 1.2 / TLS 1.3)
-        ticketKeys: ticketKey,
-    };
-
-    const httpsServer = https.createServer(httpsOptions, app);
-
-    // --- CẢI TIẾN: Sử dụng Map với TTL (Time-To-Live) để tránh Memory Leak ---
-    const tlsSessionStore = new Map();
-    const SESSION_TIMEOUT = 10 * 60 * 1000; // Phiên hết hạn sau 10 phút không hoạt động
-
-    // Dọn dẹp session cũ mỗi 1 phút
-    setInterval(() => {
-        const now = Date.now();
-        for (const [id, session] of tlsSessionStore.entries()) {
-            if (now - session.timestamp > SESSION_TIMEOUT) {
-                tlsSessionStore.delete(id);
-            }
-        }
-    }, 60 * 1000).unref(); // unref() để interval không ngăn Node.js thoát
-
-    // Lắng nghe sự kiện bắt tay lần đầu (Tạo mới)
-    httpsServer.on('newSession', (id, data, cb) => {
-        console.log(`[TLS Resumption] Lưu phiên kết nối bảo mật mới - Session ID: ${id.toString('hex').substring(0, 10)}... (Giúp giảm handshake lần sau)`);
-        tlsSessionStore.set(id.toString('hex'), { data, timestamp: Date.now() });
-        cb();
-    });
-
-    // Lắng nghe sự kiện tái sử dụng session (Resume)
-    httpsServer.on('resumeSession', (id, cb) => {
-        const sessionIdHex = id.toString('hex');
-        const session = tlsSessionStore.get(sessionIdHex);
-
-        if (session) {
-            console.log(`[TLS Resumption] Đang phục hồi phiên bảo mật - Session ID: ${sessionIdHex.substring(0, 10)}... -> Bỏ qua Full Handshake!`);
-            session.timestamp = Date.now(); // Làm mới thời gian truy cập
-            cb(null, session.data);
-        } else {
-            cb(null, null); // Không tìm thấy session hợp lệ, yêu cầu Full Handshake
-        }
-    });
-
-    // Health check endpoint (for Railway / Render deployment)
-    app.get('/api/health', (req, res) => {
-        res.json({ status: 'ok', timestamp: new Date().toISOString() });
-    });
-
-    // Catch-all: serve React frontend for any non-API route (SPA support)
-    app.get('*', (req, res) => {
-        res.sendFile(path.join(__dirname, '..', 'client', 'dist', 'index.html'));
-    });
-
-    const HTTPS_PORT = parseInt(PORT) + 1; // 5002
-    httpsServer.listen(HTTPS_PORT, () => {
-        console.log(`[SECURITY] HTTPS Server Cấu hình TLS Session Resumption đang chạy tại port ${HTTPS_PORT}`);
-    });
-    }
-} catch (error) {
-    console.log("Không thể giả lập HTTPS Server (Thiếu 'selfsigned'). Chạy: npm install selfsigned");
-}
+// Disable local HTTPS for Render completely
+console.log('[SECURITY] Local HTTPS disabled for Render to prevent startup hanging');
