@@ -1416,13 +1416,13 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
                     );
                     const changePasswordUrl = `${frontendUrl}/security/change-password?token=${changePwToken}`;
 
-                    await emailService.sendDeviceAlertEmail(userEmail, decoded.username, {
+                    emailService.sendDeviceAlertEmail(userEmail, decoded.username, {
                         ip: clientIP,
                         browser: devInfo.browser,
                         os: devInfo.os,
                         location: addResult.location,
                         time: new Date().toLocaleString(emailLang === 'en' ? 'en-US' : 'vi-VN')
-                    }, revokeUrl, changePasswordUrl, emailLang);
+                    }, revokeUrl, changePasswordUrl, emailLang).catch(e => console.error("[Device Alert Async Error]", e.message));
                 }
             } catch (emailErr) { console.error('[Device Alert Email] Error:', emailErr.message); }
         }
